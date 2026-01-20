@@ -1,6 +1,5 @@
 # Build artifacts
 target/
-Cargo.lock
 
 # IDE
 .vscode/
@@ -24,3 +23,11 @@ coverage/
 # Temp directories
 *.tmp
 temp/
+
+# Nix/direnv
+.direnv/
+result
+result-*
+
+# Engram
+.engram/

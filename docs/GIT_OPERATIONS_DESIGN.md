@@ -466,25 +466,62 @@ pub enum GitError {
 
 ## Pricing Tiers Architecture (Commercial Feature)
 
-### Tier Definition
+### Predefined Tiers
+
+| Feature | Free | Pro | Enterprise |
+|---------|------|-----|------------|
+| Max Repos | 5 | 50 | Unlimited |
+| Max Repo Size | 5MB | 1GB | Unlimited |
+| Max Branches | 10 | 100 | Unlimited |
+| Rate Limit | 60/min | 300/min | Unlimited |
+| Retention Policies | No | Yes | Yes |
+| Compliance Routing | No | Yes | Yes |
+| Custom Branding | No | No | Yes |
+| SLA | None | Best Effort | 99.99% |
+
+### Tier Implementation
 
 ```rust
-pub struct PricingTier {
-    pub name: String,
-    pub max_repos: i32,
-    pub max_repo_size_mb: i64,
-    pub max_branches: i32,
-    pub rate_limit_rpm: i32,
-    pub retention_enabled: bool,
-    pub compliance_enabled: bool,
-    pub custom_branding: bool,
-    pub sla_level: Option<SLALevel>,
-}
+pub fn pricing_tiers() -> HashMap<String, PricingTier> {
+    let mut tiers = HashMap::new();
 
-pub enum PricingTierType {
-    Free,
-    Pro,
-    Enterprise,
+    tiers.insert("free".to_string(), PricingTier {
+        name: "free".to_string(),
+        max_repos: 5,
+        max_repo_size_mb: 5,
+        max_branches: 10,
+        max_tags: 0,
+        rate_limit_rpm: 60,
+        retention_enabled: false,
+        compliance_enabled: false,
+        custom_features: vec![],
+    });
+
+    tiers.insert("pro".to_string(), PricingTier {
+        name: "pro".to_string(),
+        max_repos: 50,
+        max_repo_size_mb: 1000,
+        max_branches: 100,
+        max_tags: 0,
+        rate_limit_rpm: 300,
+        retention_enabled: true,
+        compliance_enabled: true,
+        custom_features: vec!["webhooks".to_string()],
+    });
+
+    tiers.insert("enterprise".to_string(), PricingTier {
+        name: "enterprise".to_string(),
+        max_repos: -1, // Unlimited
+        max_repo_size_mb: -1,
+        max_branches: 0, // Unlimited
+        max_tags: 0,
+        rate_limit_rpm: 0, // Unlimited
+        retention_enabled: true,
+        compliance_enabled: true,
+        custom_features: vec!["webhooks".to_string(), "sla".to_string(), "audit".to_string()],
+    });
+
+    tiers
 }
 ```
 

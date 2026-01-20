@@ -1,6 +1,8 @@
-pub mod ssh;
-pub mod protocol;
+pub mod compliance;
 pub mod error;
+pub mod protocol;
+pub mod ssh;
+pub mod storage;
 
 use crate::storage::StorageBackend;
 use std::sync::Arc;

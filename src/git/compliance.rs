@@ -139,6 +139,7 @@ impl Default for ComplianceStorageConfig {
                 region: "us-east-1".to_string(),
                 compliance: vec![],
                 encryption: "AES256".to_string(),
+                kms_key_id: None,
                 replication: None,
                 retention: None,
             }],
@@ -157,7 +158,7 @@ pub enum ComplianceError {
     #[error("Bucket configuration error: {0}")]
     ConfigError(String),
     #[error("Storage error: {0}")]
-    StorageError(#[from] crate::storage::error::StorageError),
+    StorageError(#[from] crate::storage::StorageError),
 }
 
 pub type ComplianceResult<T> = std::result::Result<T, ComplianceError>;
@@ -349,6 +350,7 @@ pub fn create_public_bucket_config(region: &str, name: &str) -> S3BucketConfig {
         region: region.to_string(),
         compliance: vec![ComplianceTag::Public],
         encryption: "AES256".to_string(),
+        kms_key_id: None,
         replication: Some(ReplicationConfig {
             enabled: true,
             target_region: "us-west-2".to_string(),

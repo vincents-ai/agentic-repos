@@ -59,7 +59,7 @@ pub struct BranchNamingRule {
 }
 
 /// Branch validation result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchValidationResult {
     pub is_valid: bool,
     pub branch_name: String,
@@ -142,12 +142,12 @@ impl BranchLimitService {
                 }
 
                 // Check naming regex
-                if let Some(ref regex) = rule.naming_regex {
-                    if let Some(re) = regex::Regex::new(regex) {
+                if let Some(ref regex_str) = rule.naming_regex {
+                    if let Ok(re) = regex::Regex::new(regex_str) {
                         if !re.is_match(branch_name) {
                             result.add_error(&format!(
                                 "Branch name does not match required pattern: {}",
-                                regex
+                                regex_str
                             ));
                         }
                     }

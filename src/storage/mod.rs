@@ -1,6 +1,39 @@
 use async_trait::async_trait;
-use std::path::Path;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageConfig {
+    #[serde(rename = "type")]
+    pub backend_type: String,
+    pub local: Option<LocalConfig>,
+    pub s3: Option<S3Config>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalConfig {
+    pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct S3Config {
+    pub bucket: String,
+    pub region: Option<String>,
+    pub endpoint: Option<String>,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            backend_type: "local".to_string(),
+            local: Some(LocalConfig {
+                path: PathBuf::from("./data"),
+            }),
+            s3: None,
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum StorageError {

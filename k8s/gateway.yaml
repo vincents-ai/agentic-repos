@@ -1,0 +1,105 @@
+# Gateway API Configuration for oGit
+# Uses Envoy Gateway as the GatewayClass controller
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy-gateway
+  labels:
+    app.kubernetes.io/name: ogit
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ogit
+  namespace: ogit
+  labels:
+    app.kubernetes.io/name: ogit
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: envoy-gateway
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: ogit
+    - name: mcp
+      port: 3000
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: ogit
+
+---
+# HTTP Route for Git operations
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ogit-http
+  namespace: ogit
+  labels:
+    app.kubernetes.io/name: ogit
+spec:
+  parentRefs:
+    - name: ogit
+      sectionName: http
+  hostnames:
+    - "git.example.com"
+  rules:
+    - matches:
+        - path:
+            value: /
+      backendRefs:
+        - name: ogit
+          port: 80
+
+---
+# TCP Route for MCP/WebSocket
+apiVersion: gateway.networking.k8s.io/v1
+kind: TCPRoute
+metadata:
+  name: ogit-mcp
+  namespace: ogit
+  labels:
+    app.kubernetes.io/name: ogit
+spec:
+  parentRefs:
+    - name: ogit
+      sectionName: mcp
+  hostnames:
+    - "mcp.example.com"
+  rules:
+    - backendRefs:
+        - name: ogit
+          port: 3000
+
+---
+# TLS Certificate (managed by cert-manager)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ogit-tls
+  namespace: ogit
+  labels:
+    app.kubernetes.io/name: ogit
+spec:
+  secretName: ogit-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - git.example.com
+    - mcp.example.com

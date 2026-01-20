@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ogit
+  namespace: ogit
+  labels:
+    app.kubernetes.io/name: ogit
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ogit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ogit
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: ogit
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      
+      containers:
+        - name: ogit
+          image: ogit:latest
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: mcp
+              containerPort: 3000
+              protocol: TCP
+          
+          envFrom:
+            - configMapRef:
+                name: ogit-config
+            - secretRef:
+                name: ogit-secrets
+          
+          env:
+            - name: RUST_LOG
+              value: "info"
+          
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          
+          volumeMounts:
+            - name: data
+              mountPath: /data/ogit
+            - name: cache
+              mountPath: /var/lib/seaweedfs/cache
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ogit

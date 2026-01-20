@@ -1,0 +1,12 @@
+# Staging/Production Overlay - SeaweedFS + S3
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ogit-config-seaweedfs
+  namespace: ogit
+data:
+  OGIT_STORAGE__S3__SEAWEEDFS_CACHE: "true"
+  OGIT_STORAGE__S3__SEAWEEDFS_CACHE_DIR: "/seaweedfs/cache"
+  OGIT_STORAGE__S3__SEAWEEDFS_CACHE_SIZE: "50G"
+  OGIT_LOGGER__LEVEL: "info"
+  OGIT_LOGGER__FORMAT: "json"

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -17,7 +18,7 @@ pub struct RateLimitConfig {
     pub global_limits: GlobalRateLimits,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlobalRateLimits {
     pub max_requests_per_second: u32,
     pub max_connections_per_ip: u32,
@@ -71,7 +72,7 @@ impl Default for RateLimitConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RateLimitTier {
     pub requests_per_minute: u32,
     pub requests_per_hour: u32,
@@ -172,7 +173,7 @@ pub enum RateLimitError {
 pub type RateLimitResult<T> = std::result::Result<T, RateLimitError>;
 
 /// Token bucket rate limiter
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TokenBucket {
     tokens: f64,
     max_tokens: f64,
@@ -431,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_check() {
-        let config = RateLimitConfig {
+        let mut config = RateLimitConfig {
             enabled: true,
             tiers: HashMap::new(),
             ..Default::default()

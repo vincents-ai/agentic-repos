@@ -1,0 +1,26 @@
+# Build artifacts
+target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.pem
+
+# Testing
+coverage/
+*.profraw
+
+# Temp directories
+*.tmp
+temp/

@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Config {
+pub struct AppConfig {
     pub server: ServerConfig,
-    pub storage: crate::storage::StorageConfig,
-    pub git: crate::git::GitConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -13,12 +11,16 @@ pub struct ServerConfig {
     pub port: u16,
 }
 
-impl Default for Config {
+impl AppConfig {
+    pub fn from_env() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self::default())
+    }
+}
+
+impl Default for AppConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
-            storage: crate::storage::StorageConfig::default(),
-            git: crate::git::GitConfig::default(),
         }
     }
 }
@@ -31,3 +33,6 @@ impl Default for ServerConfig {
         }
     }
 }
+
+// Keep Config as an alias for backward compatibility
+pub type Config = AppConfig;

@@ -1,4 +1,4 @@
-//! oGit - Multi-tenant Git server with MCP integration
+//! repos-mcp - Multi-tenant Git server with SSH protocol support
 
 pub mod config;
 pub mod error;

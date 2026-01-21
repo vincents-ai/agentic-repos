@@ -1,5 +1,5 @@
 use crate::git::error::{GitError, Result};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, error};
 
 pub struct GitProtocolHandler;

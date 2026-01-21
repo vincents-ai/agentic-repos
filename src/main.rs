@@ -1,10 +1,10 @@
-use ogit::{config::AppConfig, server::run_server};
+use repos_mcp::{config::AppConfig, server::run_server};
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    let config = AppConfig::from_env().expect("Failed to load configuration");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let config = AppConfig::from_env()?;
 
-    run_server(config)
-        .await
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    run_server(config).await?;
+
+    Ok(())
 }

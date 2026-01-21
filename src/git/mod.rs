@@ -4,7 +4,7 @@ pub mod error;
 pub mod protocol;
 pub mod rate_limit;
 pub mod retention;
-pub mod ssh;
+pub mod ssh; // Re-enabled SSH module
 pub mod storage;
 
 use crate::storage::StorageBackend;
@@ -15,7 +15,7 @@ pub struct GitService {
     config: GitConfig,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GitConfig {
     pub ssh_port: u16,
     pub host_key_path: std::path::PathBuf,

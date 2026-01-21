@@ -1,9 +1,9 @@
 use crate::git::{error::Result, GitConfig, GitService};
 use rand_core::OsRng;
-use russh::keys::{Algorithm, PrivateKey};
-use russh::server::{Auth, Handler, Msg, Server as _, Session};
-use russh::{Channel, ChannelId, CryptoVec};
-use russh_keys::ssh_key;
+use russh::server::{Msg, Server as _, Session};
+use russh::*;
+use russh_keys::ssh_key::PublicKey;
+use russh_keys::{Algorithm, PrivateKey};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -94,15 +94,17 @@ struct SshHandler {
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
 }
 
-impl Handler for SshHandler {
+#[async_trait::async_trait]
+impl russh::server::Handler for SshHandler {
     type Error = russh::Error;
 
     async fn auth_publickey(
         &mut self,
         _user: &str,
-        _key: &ssh_key::PublicKey,
-    ) -> std::result::Result<Auth, Self::Error> {
-        Ok(Auth::Accept)
+        _public_key: &PublicKey,
+    ) -> std::result::Result<russh::server::Auth, Self::Error> {
+        debug!("Public key authentication for user: {}", _user);
+        Ok(russh::server::Auth::Accept)
     }
 
     async fn channel_open_session(
@@ -110,6 +112,7 @@ impl Handler for SshHandler {
         channel: Channel<Msg>,
         session: &mut Session,
     ) -> std::result::Result<bool, Self::Error> {
+        debug!("Opening session channel: {}", channel.id());
         let mut clients = self.clients.lock().await;
         clients.insert(self.client_id, (channel.id(), session.handle()));
         Ok(true)
@@ -122,19 +125,27 @@ impl Handler for SshHandler {
         session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
         let command = String::from_utf8_lossy(data);
-        debug!("Git command: {}", command);
+        debug!("Executing command: {}", command);
 
-        if command.starts_with("git-upload-pack") || command.starts_with("git-receive-pack") {
-            let response = CryptoVec::from_slice(b"Git operation completed\n");
-            session.data(channel, response)?;
-            session.exit_status_request(channel, 0).await?;
-        } else {
-            let response = CryptoVec::from_slice(b"Unknown git command\n");
-            session.data(channel, response)?;
-            session.exit_status_request(channel, 1).await?;
+        match command.trim() {
+            cmd if cmd.starts_with("git-upload-pack") => {
+                let response = "git-upload-pack operation completed\n";
+                session.data(channel, response.as_bytes().to_vec().into())?;
+                let _ = session.exit_status_request(channel, 0);
+            }
+            cmd if cmd.starts_with("git-receive-pack") => {
+                let response = "git-receive-pack operation completed\n";
+                session.data(channel, response.as_bytes().to_vec().into())?;
+                let _ = session.exit_status_request(channel, 0);
+            }
+            _ => {
+                let error_msg = format!("Unknown command: {}\n", command);
+                session.data(channel, error_msg.into_bytes().into())?;
+                let _ = session.exit_status_request(channel, 1);
+            }
         }
 
-        session.close(channel).await?;
+        session.close(channel)?;
         Ok(())
     }
 
@@ -144,8 +155,9 @@ impl Handler for SshHandler {
         data: &[u8],
         session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
-        let response = CryptoVec::from(format!("Received: {}\r\n", String::from_utf8_lossy(data)));
-        session.data(channel, response)?;
+        debug!("Received data on channel {}: {} bytes", channel, data.len());
+        let response = format!("Received: {}\r\n", String::from_utf8_lossy(data));
+        session.data(channel, response.into_bytes().into())?;
         Ok(())
     }
 }

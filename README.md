@@ -90,6 +90,82 @@ Contact shift@someone.section.me for commercial licensing and enterprise support
 
 - **Logging**: Structured logging with tracing
 
+- **Git LFS (Large File Storage)**: Built-in support for large files
+  - Git LFS Batch API (upload/download)
+  - JWT-based authentication for HTTP transfers
+  - Multi-tenant object storage with path sharding
+  - SHA256 content verification
+  - Configurable object size limits
+
+## Git LFS Support
+
+repos-mcp includes full Git LFS support for managing large files efficiently.
+
+### Features
+
+- **Batch API**: RFC-compliant Git LFS Batch API implementation
+- **Multi-Tenant**: Complete isolation between tenants and repositories  
+- **Authentication**: JWT tokens generated via SSH for secure HTTP transfers
+- **Storage**: Flexible storage with local filesystem (S3 support planned)
+- **Verification**: Automatic SHA256 integrity checking on uploads
+
+### Quick Setup
+
+1. **Enable LFS in configuration** (`config.yaml`):
+
+```yaml
+features:
+  git_lfs: true
+
+lfs:
+  enabled: true
+  jwt_secret: "your-strong-secret-here"  # Generate with: openssl rand -base64 32
+  base_url: "http://localhost:8090"
+  max_object_size: 5368709120  # 5 GB
+  token_expiration_secs: 3600
+```
+
+2. **Initialize Git LFS in your repository**:
+
+```bash
+git lfs install
+git lfs track "*.psd"
+git lfs track "*.mp4"
+git add .gitattributes
+```
+
+3. **Use as normal**:
+
+```bash
+# Add large files
+git add large-file.psd
+git commit -m "Add design file"
+git push origin main
+```
+
+### Testing LFS HTTP API
+
+```bash
+# Test batch endpoint
+curl -X POST http://localhost:8090/lfs/tenant/repo/info/lfs/objects/batch \
+  -H "Content-Type: application/vnd.git-lfs+json" \
+  -d '{
+    "operation": "upload",
+    "objects": [{"oid": "abc123...", "size": 1024}]
+  }'
+
+# Upload object
+echo "test data" > /tmp/test.bin
+OID=$(sha256sum /tmp/test.bin | awk '{print $1}')
+curl -X PUT "http://localhost:8090/lfs/tenant/repo/lfs/objects/$OID" \
+  --data-binary @/tmp/test.bin
+```
+
+### Documentation
+
+- [LFS Configuration Reference](docs/LFS_CONFIGURATION.md) - Complete configuration guide
+- [Git LFS Specification](https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md) - Official API spec
+
 ## Quick Start
 
 ### Configuration

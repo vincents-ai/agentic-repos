@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="repositories-page">
+    <div class="page-header">
+        <h1>All Repositories</h1>
+        <p>Manage and browse all your Git repositories</p>
+    </div>
+
+    {% if repositories %}
+    <div class="repository-grid">
+        {% for repo in repositories %}
+        <div class="repository-card">
+            <div class="repo-header">
+                <h3><a href="/ui/repository/{{ repo.owner }}/{{ repo.name }}">{{ repo.owner }}/{{ repo.name }}</a></h3>
+                {% if repo.is_private %}
+                <span class="private-badge">Private</span>
+                {% else %}
+                <span class="public-badge">Public</span>
+                {% endif %}
+            </div>
+            
+            <div class="repo-description">
+                <p>{{ repo.description | default(value="No description provided") }}</p>
+            </div>
+            
+            <div class="repo-stats">
+                <div class="stat-item">
+                    <span class="stat-label">Default Branch:</span>
+                    <span class="stat-value">{{ repo.default_branch }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Size:</span>
+                    <span class="stat-value">{{ repo.size }} bytes</span>
+                </div>
+            </div>
+            
+            <div class="repo-meta">
+                <span class="repo-created">Created: {{ repo.created_at }}</span>
+                <span class="repo-updated">Updated: {{ repo.updated_at }}</span>
+            </div>
+            
+            <div class="repo-actions">
+                <div class="clone-urls">
+                    <div class="clone-group">
+                        <label>SSH:</label>
+                        <code class="clone-url">{{ repo.clone_url_ssh }}</code>
+                    </div>
+                    {% if repo.clone_url_http %}
+                    <div class="clone-group">
+                        <label>HTTP:</label>
+                        <code class="clone-url">{{ repo.clone_url_http }}</code>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <h2>No repositories found</h2>
+        <p>No repositories have been created yet.</p>
+        <p>Use the API to create your first repository:</p>
+        <pre><code>curl -X POST http://localhost:8090/api/v1/repositories \
+  -H "Content-Type: application/json" \
+  -d '{"owner": "username", "name": "my-repo", "description": "My first repository"}'</code></pre>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

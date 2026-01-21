@@ -1,12 +1,12 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: ogit
-  namespace: ogit
+  name: repos-mcp
+  namespace: repos-mcp
   labels:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: ogit
+      app.kubernetes.io/name: repos-mcp

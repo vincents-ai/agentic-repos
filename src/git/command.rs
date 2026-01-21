@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +41,12 @@ impl CommandValidator {
         debug!("Validating command: {}", trimmed);
 
         if trimmed.is_empty() {
+            return Err(CommandValidationError::InvalidFormat);
+        }
+
+        // Prevent DoS attacks with extremely large commands
+        if trimmed.len() > 4096 {
+            warn!("Command too long: {} characters", trimmed.len());
             return Err(CommandValidationError::InvalidFormat);
         }
 

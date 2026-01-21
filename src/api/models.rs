@@ -1,0 +1,106 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Repository {
+    pub name: String,
+    pub owner: String,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub size: u64,
+    pub clone_url_ssh: String,
+    pub clone_url_http: Option<String>,
+    pub default_branch: String,
+    pub is_private: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateRepositoryRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub is_private: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateRepositoryRequest {
+    pub description: Option<String>,
+    pub is_private: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepositoryList {
+    pub repositories: Vec<Repository>,
+    pub total: usize,
+    pub page: usize,
+    pub per_page: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub username: String,
+    pub email: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub repository_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateUserRequest {
+    pub username: String,
+    pub email: String,
+    pub ssh_public_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateUserRequest {
+    pub email: Option<String>,
+    pub ssh_public_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Branch {
+    pub name: String,
+    pub commit_sha: String,
+    pub commit_message: String,
+    pub author: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchList {
+    pub branches: Vec<Branch>,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiError {
+    pub error: String,
+    pub message: String,
+    pub code: u16,
+}
+
+impl ApiError {
+    pub fn new(error: &str, message: &str, code: u16) -> Self {
+        Self {
+            error: error.to_string(),
+            message: message.to_string(),
+            code,
+        }
+    }
+
+    pub fn bad_request(message: &str) -> Self {
+        Self::new("bad_request", message, 400)
+    }
+
+    pub fn not_found(message: &str) -> Self {
+        Self::new("not_found", message, 404)
+    }
+
+    pub fn conflict(message: &str) -> Self {
+        Self::new("conflict", message, 409)
+    }
+
+    pub fn internal_error(message: &str) -> Self {
+        Self::new("internal_server_error", message, 500)
+    }
+}

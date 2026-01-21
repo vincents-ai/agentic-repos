@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  repos-mcp:
+    image: repos-mcp:latest
+    container_name: repos-mcp
+    restart: unless-stopped
+    ports:
+      - "2222:2222"
+      - "8090:8090"
+    volumes:
+      - ./data:/app/data
+      - ./config/config.yaml:/app/config/config.yaml:ro
+      - ./ssh_keys:/app/.ssh
+    environment:
+      - RUST_LOG=info
+    user: "1000:1000"
+
+volumes:
+  repos_data:
+    driver: local

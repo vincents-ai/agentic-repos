@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use thiserror::Error;
-use tracing::{debug, info, warn};
 
 /// Retention policy rules for repository cleanup
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,7 +243,7 @@ impl RetentionService {
                     }
                 }
             }
-            RetentionConfig::MinVersions { count, .. } => {
+            RetentionConfig::MinVersions { count: _, .. } => {
                 // This would require context of all versions - simplified here
                 RetentionDecision {
                     ref_name: ref_meta.name.clone(),

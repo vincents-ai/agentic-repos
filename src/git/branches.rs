@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 /// Branch limit configuration for repositories
 #[derive(Debug, Clone, Serialize, Deserialize)]

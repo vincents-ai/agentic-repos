@@ -1,168 +1,164 @@
-# Makefile for Git Server S3
+# Makefile for repos-mcp (Rust Git Server)
 
-.PHONY: help test test-unit test-integration test-coverage build run clean lint fmt vet deps
+.PHONY: help test test-unit test-security test-coverage build run clean lint fmt check deps dev nix-build nix-test setup
 
 # Variables
-BINARY_NAME=git-server-s3
-BUILD_DIR=tmp
-CONFIG_FILE=config.yaml
+BINARY_NAME=repos-mcp
+BUILD_DIR=target
+CONFIG_FILE=config-example.yaml
 
 # Help
 help: ## Display this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # Install dependencies
-deps: ## Install dependencies
-	go mod download
-	go mod tidy
+deps: ## Install Rust dependencies
+	cargo fetch
+
+# Setup configuration files
+setup: ## Set up configuration files for first time use
+	@if [ ! -f config.yaml ]; then \
+		echo "📝 Creating config.yaml from example..."; \
+		cp config-example.yaml config.yaml; \
+		echo "✅ Created config.yaml - please review and modify as needed"; \
+	else \
+		echo "⚠️  config.yaml already exists, skipping"; \
+	fi
+	@if [ ! -f authorized_keys ]; then \
+		echo "📝 Creating authorized_keys from example..."; \
+		cp authorized_keys.example authorized_keys; \
+		echo "✅ Created authorized_keys - please add your SSH public keys"; \
+	else \
+		echo "⚠️  authorized_keys already exists, skipping"; \
+	fi
+	@mkdir -p repositories
+	@echo "✅ Created repositories directory"
+	@echo ""
+	@echo "🚀 Setup complete! Next steps:"
+	@echo "   1. Edit config.yaml to configure your server settings"
+	@echo "   2. Add SSH public keys to authorized_keys file"
+	@echo "   3. Run 'make run' to start the server"
 
 # Unit tests
-test-unit: ## Run unit tests
-	go test -v -race -timeout 30s ./pkg/... ./internal/...
+test-unit: ## Run unit tests only (exclude security tests)
+	cargo test --lib -- --skip security_tests
 
-# Tests with coverage
-test-coverage: ## Run tests with coverage
-	go test -v -race -coverprofile=coverage.out -covermode=atomic ./pkg/... ./internal/...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
-
-# Integration tests (requires S3_TEST_*)
-test-integration: ## Run integration tests (requires S3_TEST_* variables)
-	@if [ -z "$(S3_TEST_BUCKET)" ]; then \
-		echo "❌ S3_TEST_* variables not defined. Example:"; \
-		echo "export S3_TEST_BUCKET=your-test-bucket"; \
-		echo "export S3_TEST_REGION=us-east-1"; \
-		echo "export S3_TEST_ENDPOINT=https://s3.us-east-1.amazonaws.com"; \
-		echo "make test-integration"; \
-		exit 1; \
-	fi
-	go test -v -tags=integration -timeout 5m ./...
+# Security tests  
+test-security: ## Run security test suite
+	cargo test security_tests
 
 # All tests
-test: test-unit ## Run all tests (unit tests only by default)
+test: ## Run all tests
+	cargo test
 
-# Tests with more verbosity
-test-verbose: ## Run tests with more details
-	go test -v -race -coverprofile=coverage.out ./pkg/... ./internal/... -args -test.v
+# Tests with coverage (requires cargo-tarpaulin)
+test-coverage: ## Run tests with coverage
+	@if command -v cargo-tarpaulin >/dev/null 2>&1; then \
+		cargo tarpaulin --out Html --output-dir coverage; \
+		echo "Coverage report generated: coverage/tarpaulin-report.html"; \
+	else \
+		echo "⚠️  cargo-tarpaulin not installed. Installation:"; \
+		echo "cargo install cargo-tarpaulin"; \
+	fi
 
 # Code formatting
 fmt: ## Format code
-	go fmt ./...
+	cargo fmt
 
-# Static checks
-vet: ## Check code with go vet
-	go vet ./...
+# Clippy linting
+lint: ## Lint code with clippy
+	cargo clippy -- -D warnings
 
-# Linting (requires golangci-lint)
-lint: ## Lint code (requires golangci-lint)
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "⚠️  golangci-lint not installed. Installation:"; \
-		echo "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
-	fi
+# Check code (fmt + clippy + test)
+check: fmt lint test ## Check code formatting, linting, and run tests
 
-# Build
-build: ## Build the server
-	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/main.go
+# Build debug version
+build: ## Build the server (debug mode)
+	cargo build
 
-# Build with version information
+# Build release version
 build-release: ## Build for release
-	@mkdir -p $(BUILD_DIR)
-	go build -ldflags "-X main.version=$(shell git describe --tags --always --dirty)" \
-		-o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/main.go
+	cargo build --release
 
-# Run the server
+# Run the server (debug mode)
 run: build ## Build and run the server
-	./$(BUILD_DIR)/$(BINARY_NAME) server --config $(CONFIG_FILE)
+	cargo run -- --config $(CONFIG_FILE)
 
-# Run in development mode with auto-reload (requires air)
-dev: ## Run in development mode (requires air)
-	@if command -v air >/dev/null 2>&1; then \
-		air; \
+# Run in release mode
+run-release: build-release ## Build and run the server (release mode)
+	./target/release/$(BINARY_NAME) --config $(CONFIG_FILE)
+
+# Development mode with cargo-watch (auto-reload on file changes)
+dev: ## Run in development mode with auto-reload (requires cargo-watch)
+	@if command -v cargo-watch >/dev/null 2>&1; then \
+		cargo watch -x 'run -- --config $(CONFIG_FILE)'; \
 	else \
-		echo "⚠️  air not installed. Installation:"; \
-		echo "go install github.com/cosmtrek/air@latest"; \
+		echo "⚠️  cargo-watch not installed. Installation:"; \
+		echo "cargo install cargo-watch"; \
 		echo "Or use: make run"; \
 	fi
 
+# Nix build (using flake.nix)
+nix-build: ## Build using Nix
+	nix build
+
+# Nix test
+nix-test: ## Test using Nix
+	nix develop -c -- cargo test
+
+# Nix shell
+nix-shell: ## Enter Nix development shell
+	nix develop
+
 # Cleanup
 clean: ## Clean generated files
-	rm -rf $(BUILD_DIR)
-	rm -f coverage.out coverage.html
-	go clean -cache -testcache
+	cargo clean
+	rm -rf coverage/
 
-# Performance tests
-bench: ## Run benchmarks
-	go test -bench=. -benchmem -run=^$$ ./pkg/... ./internal/...
-
-# Race condition tests
-race: ## Run tests with race condition detection
-	go test -race ./pkg/... ./internal/...
-
-# Security check (requires gosec)
-security: ## Check code security (requires gosec)
-	@if command -v gosec >/dev/null 2>&1; then \
-		gosec ./...; \
+# Check for security advisories
+audit: ## Check for security vulnerabilities in dependencies
+	@if command -v cargo-audit >/dev/null 2>&1; then \
+		cargo audit; \
 	else \
-		echo "⚠️  gosec not installed. Installation:"; \
-		echo "go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest"; \
+		echo "⚠️  cargo-audit not installed. Installation:"; \
+		echo "cargo install cargo-audit"; \
 	fi
+
+# Performance benchmarks (if any exist)
+bench: ## Run benchmarks
+	cargo bench
+
+# Generate documentation
+docs: ## Generate documentation
+	cargo doc --open
+
+# Install binary locally
+install: ## Install binary to cargo's bin directory
+	cargo install --path .
 
 # Update dependencies
-update-deps: ## Update dependencies
-	go get -u ./...
-	go mod tidy
+update: ## Update dependencies
+	cargo update
 
-# Complete check (CI)
-ci: fmt vet test-unit ## CI/CD checks
+# Check that everything is ready for commit
+pre-commit: check audit ## Run all checks before committing
 
-# Memory tests with Valgrind (Linux only)
-memcheck: ## Memory tests (Linux only)
-	@if command -v valgrind >/dev/null 2>&1; then \
-		go test -c ./pkg/storage/s3/ && valgrind --leak-check=full ./s3.test; \
+# Show project status
+status: ## Show project status
+	@echo "=== Project Status ==="
+	@echo "Build status:"
+	@cargo build --quiet && echo "✅ Debug build: OK" || echo "❌ Debug build: FAILED"
+	@cargo build --release --quiet && echo "✅ Release build: OK" || echo "❌ Release build: FAILED"
+	@echo ""
+	@echo "Test status:"
+	@cargo test --quiet && echo "✅ Tests: PASSING" || echo "❌ Tests: FAILING"
+	@echo ""
+	@echo "Security status:"
+	@cargo test security_tests --quiet && echo "✅ Security tests: PASSING" || echo "❌ Security tests: FAILING"
+	@echo ""
+	@echo "Dependencies:"
+	@if command -v cargo-audit >/dev/null 2>&1; then \
+		cargo audit --quiet && echo "✅ Security audit: CLEAN" || echo "⚠️  Security audit: ISSUES FOUND"; \
 	else \
-		echo "⚠️  valgrind not available (Linux only)"; \
+		echo "⚠️  Security audit: cargo-audit not installed"; \
 	fi
-
-# Install development tools
-install-tools: ## Install development tools
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install github.com/cosmtrek/air@latest
-	go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
-
-# Test configuration example
-setup-test-env: ## Display test configuration example
-	@echo "Configuration for integration tests:"
-	@echo ""
-	@echo "# Local MinIO (for testing)"
-	@echo "export S3_TEST_BUCKET=git-server-test"
-	@echo "export S3_TEST_REGION=us-east-1"
-	@echo "export S3_TEST_ENDPOINT=http://localhost:9000"
-	@echo "export AWS_ACCESS_KEY_ID=minio"
-	@echo "export AWS_SECRET_ACCESS_KEY=minio123"
-	@echo ""
-	@echo "# Real AWS S3 (for cloud testing)"
-	@echo "export S3_TEST_BUCKET=your-test-bucket"
-	@echo "export S3_TEST_REGION=us-east-1"
-	@echo "export S3_TEST_ENDPOINT=https://s3.us-east-1.amazonaws.com"
-	@echo "# + your AWS credentials via AWS CLI or environment variables"
-
-# Tests with different log levels
-test-debug: ## Run tests with debug logs
-	ZEROLOG_LEVEL=debug go test -v ./pkg/... ./internal/...
-
-# Tests on specific files
-test-s3: ## Test only the S3 package
-	go test -v ./pkg/storage/s3/...
-
-test-api: ## Test only the API
-	go test -v ./internal/api/...
-
-# Test statistics
-test-stats: ## Test statistics
-	@echo "📊 Test statistics:"
-	@find . -name "*_test.go" -not -path "./vendor/*" | wc -l | xargs echo "Test files:"
-	@grep -r "func Test" --include="*_test.go" . | wc -l | xargs echo "Test functions:"
-	@grep -r "func Benchmark" --include="*_test.go" . | wc -l | xargs echo "Benchmarks:"

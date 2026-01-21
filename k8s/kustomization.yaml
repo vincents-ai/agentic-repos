@@ -2,11 +2,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ogit-config-seaweedfs
-  namespace: ogit
+  name: repos-mcp-config-seaweedfs
+  namespace: repos-mcp
 data:
-  OGIT_STORAGE__S3__SEAWEEDFS_CACHE: "true"
-  OGIT_STORAGE__S3__SEAWEEDFS_CACHE_DIR: "/seaweedfs/cache"
-  OGIT_STORAGE__S3__SEAWEEDFS_CACHE_SIZE: "50G"
-  OGIT_LOGGER__LEVEL: "info"
-  OGIT_LOGGER__FORMAT: "json"
+  REPOS_MCP_STORAGE__S3__SEAWEEDFS_CACHE: "true"
+  REPOS_MCP_STORAGE__S3__SEAWEEDFS_CACHE_DIR: "/seaweedfs/cache"
+  REPOS_MCP_STORAGE__S3__SEAWEEDFS_CACHE_SIZE: "50G"
+  REPOS_MCP_LOGGER__LEVEL: "info"
+  REPOS_MCP_LOGGER__FORMAT: "json"

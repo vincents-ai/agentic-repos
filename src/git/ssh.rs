@@ -2,7 +2,7 @@ use crate::git::{
     auth::AuthorizedKeysManager,
     command::CommandValidator,
     error::Result,
-    rate_limit::{RateLimitContext, RateLimitError, RateLimitScope, RateLimiter},
+    rate_limit::{RateLimitContext, RateLimitError, RateLimiter},
     GitConfig, GitService,
 };
 use rand_core::OsRng;
@@ -184,6 +184,34 @@ impl SshServer {
     }
 }
 
+#[cfg(test)]
+impl SshServer {
+    /// Get current connection count for testing
+    pub fn get_connection_count(&self) -> usize {
+        self.connection_count.load(Ordering::SeqCst)
+    }
+
+    /// Get the configuration for testing
+    pub fn get_config(&self) -> &GitConfig {
+        &self.config
+    }
+
+    /// Load host key for testing (public version of the private method)
+    pub async fn test_load_or_generate_host_key(&self) -> Result<PrivateKey> {
+        self.load_or_generate_host_key().await
+    }
+
+    /// Increment connection count for testing
+    pub fn test_increment_connection_count(&self) -> usize {
+        self.connection_count.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Decrement connection count for testing  
+    pub fn test_decrement_connection_count(&self) -> usize {
+        self.connection_count.fetch_sub(1, Ordering::SeqCst)
+    }
+}
+
 #[derive(Clone)]
 struct SshServerImpl {
     git_service: Arc<GitService>,
@@ -256,6 +284,7 @@ impl russh::server::Server for SshServerImpl {
 
 #[derive(Clone)]
 struct SshHandler {
+    #[allow(dead_code)]
     git_service: Arc<GitService>,
     auth_manager: Arc<Mutex<AuthorizedKeysManager>>,
     rate_limiter: RateLimiter,
@@ -263,6 +292,7 @@ struct SshHandler {
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
     peer_ip: String,
     connection_count: Arc<AtomicUsize>,
+    #[allow(dead_code)]
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
     rejected: bool,
 }
@@ -408,7 +438,8 @@ impl russh::server::Handler for SshHandler {
                             repository
                         );
                         session.data(channel, response.as_bytes().to_vec().into())?;
-                        let _ = session.exit_status_request(channel, 0);
+                        session.exit_status_request(channel, 0)?;
+                        session.eof(channel)?;
                     }
                     crate::git::command::GitCommand::ReceivePack { repository } => {
                         let response = format!(
@@ -416,7 +447,8 @@ impl russh::server::Handler for SshHandler {
                             repository
                         );
                         session.data(channel, response.as_bytes().to_vec().into())?;
-                        let _ = session.exit_status_request(channel, 0);
+                        session.exit_status_request(channel, 0)?;
+                        session.eof(channel)?;
                     }
                 }
             }
@@ -428,7 +460,8 @@ impl russh::server::Handler for SshHandler {
 
                 let error_msg = format!("ERROR: {}\n", validation_error);
                 session.data(channel, error_msg.into_bytes().into())?;
-                let _ = session.exit_status_request(channel, 1);
+                session.exit_status_request(channel, 1)?;
+                session.eof(channel)?;
             }
         }
 
@@ -456,7 +489,7 @@ impl russh::server::Handler for SshHandler {
     async fn channel_close(
         &mut self,
         channel: ChannelId,
-        session: &mut Session,
+        _session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
         debug!(
             "Channel {} closed for client from {}",
@@ -484,7 +517,6 @@ impl Drop for SshHandler {
 mod tests {
     use super::*;
     use crate::storage::local::LocalStorage;
-    use std::path::PathBuf;
     use tempfile::TempDir;
     use tokio::fs;
 
@@ -561,7 +593,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_host_key_directory_creation() {
-        let (server, temp_dir) = create_test_ssh_server().await;
+        let (_server, temp_dir) = create_test_ssh_server().await;
 
         // Create a config with a nested directory path
         let nested_path = temp_dir.path().join("nested").join("dirs").join("host_key");

@@ -173,7 +173,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_authorized_keys() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         let content = "# Test authorized keys file
 git:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbZ... git@server.com
 user1:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGq... user1@client.com
@@ -217,7 +217,7 @@ user2:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD8... user2@client.com";
 
     #[tokio::test]
     async fn test_invalid_key_format() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         let content = "# Test file with invalid formats
 user1:invalid-key-format
 user2:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... valid@key.com

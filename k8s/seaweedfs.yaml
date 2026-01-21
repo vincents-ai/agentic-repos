@@ -5,14 +5,14 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: seaweedfs-s3-config
-  namespace: ogit
+  namespace: repos-mcp
 data:
   s3.yaml: |
-    ident:
+    id:
       accessKey: "weedfs_access"
       secretKey: "weedfs_secret"
     buckets:
-      - name: "ogit-repos"
+      - name: "repos-mcp-repos"
         policy: "public_read"
 
 ---
@@ -20,7 +20,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: seaweedfs-s3
-  namespace: ogit
+  namespace: repos-mcp
   labels:
     app.kubernetes.io/name: seaweedfs-s3
 spec:
@@ -36,110 +36,31 @@ spec:
       containers:
         - name: seaweedfs
           image: chrislusf/seaweedfs:latest
-          command:
-            - /usr/bin/weed
-            - s3
-            - -port=8333
-            - -master=seaweedfs-master:9333
-            - -config=/etc/seaweedfs/s3.yaml
           ports:
             - containerPort: 8333
               name: s3
-          volumeMounts:
-            - name: config
-              mountPath: /etc/seaweedfs/s3.yaml
-              subPath: s3.yaml
-            - name: cache
-              mountPath: /seaweedfs/cache
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
-      volumes:
-        - name: config
-          configMap:
-            name: seaweedfs-s3-config
-        - name: cache
-          emptyDir: {}
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: seaweedfs-master
-  namespace: ogit
-  labels:
-    app.kubernetes.io/name: seaweedfs-master
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: seaweedfs-master
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: seaweedfs-master
-    spec:
-      containers:
-        - name: seaweedfs
-          image: chrislusf/seaweedfs:latest
+            - containerPort: 8334
+              name: s3-api
+            - containerPort: 8336
+              name: s3-data
+            - containerPort: 8337
+              name: s3-volume
+            - containerPort: 8338
+              name: s3-index
           command:
-            - /usr/bin/weed
-            - master
-            - -mdir=/seaweedfs/master
-            - -port=9333
-          ports:
-            - containerPort: 9333
-              name: master
-          resources:
-            requests:
-              memory: "128Mi"
-              cpu: "100m"
-            limits:
-              memory: "256Mi"
-              cpu: "200m"
-          volumeMounts:
-            - name: data
-              mountPath: /seaweedfs/master
-      volumes:
-        - name: data
-          emptyDir: {}
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: seaweedfs-volume
-  namespace: ogit
-  labels:
-    app.kubernetes.io/name: seaweedfs-volume
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: seaweedfs-volume
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: seaweedfs-volume
-    spec:
-      containers:
-        - name: seaweedfs
-          image: chrislusf/seaweedfs:latest
-          command:
-            - /usr/bin/weed
-            - volume
-            - -dir=/seaweedfs/volumes
-            - -port=8081
-            - -mserver=seaweedfs-master:9333
-            - -rack=rack1
-            - -dc=dc1
-          ports:
-            - containerPort: 8081
-              name: volume
+            - /usr/local/bin/seaweedfs
+            - server
+            - --s3
+            - --dir
+            - /var/lib/seaweedfs
+            - --s3.port
+            - "8333"
+            - --s3.domain
+            - "s3.seaweedfs.local"
+            - --master.port
+            - "9333"
+            - "master.http.port"
+            - "9334"
           resources:
             requests:
               memory: "256Mi"
@@ -149,7 +70,7 @@ spec:
               cpu: "500m"
           volumeMounts:
             - name: data
-              mountPath: /seaweedfs/volumes
+              mountPath: /var/lib/seaweedfs
       volumes:
         - name: data
           emptyDir: {}
@@ -159,7 +80,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: seaweedfs-s3
-  namespace: ogit
+  namespace: repos-mcp
 spec:
   selector:
     app.kubernetes.io/name: seaweedfs-s3
@@ -167,17 +88,6 @@ spec:
     - port: 8333
       targetPort: s3
       name: s3
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: seaweedfs-master
-  namespace: ogit
-spec:
-  selector:
-    app.kubernetes.io/name: seaweedfs-master
-  ports:
-    - port: 9333
-      targetPort: master
-      name: master
+    - port: 8334
+      targetPort: s3-api
+      name: s3-api

@@ -1,0 +1,140 @@
+# Example configuration for repos-mcp Git Server
+# Copy this file to config.yaml and modify as needed
+
+# HTTP Server configuration
+server:
+  host: "127.0.0.1"
+  port: 8090
+
+# SSH Server configuration
+ssh:
+  # SSH server port (default: 2222)
+  port: 2222
+  # Path to SSH host key file (will be generated if doesn't exist)
+  host_key_path: "./ssh_host_key"
+  # Maximum concurrent SSH connections
+  max_connections: 100
+  # Connection timeout in seconds
+  connection_timeout_secs: 30
+
+# Authentication configuration
+auth:
+  # Path to authorized_keys file (format: username:ssh-key-type key comment)
+  authorized_keys_path: "./authorized_keys"
+
+# Storage backend configuration
+storage:
+  # Storage backend type: "local" or "s3"
+  type: "local"
+  
+  # Local filesystem storage
+  local:
+    # Base path for repository storage
+    path: "./repositories"
+  
+  # S3-compatible storage (uncomment to use)
+  # s3:
+  #   bucket: "my-git-repositories"
+  #   region: "us-east-1"
+  #   # Optional: Custom S3-compatible endpoint
+  #   endpoint: "https://s3.amazonaws.com"
+
+# Rate limiting configuration
+rate_limit:
+  # Enable rate limiting (true/false)
+  enabled: true
+  
+  # Headers to check for proxy IP information (for rate limiting behind proxies)
+  proxy_headers:
+    - "X-Forwarded-For"
+    - "X-Real-IP"
+    - "CF-Connecting-IP"
+  
+  # Global rate limits (applied to all users)
+  global_limits:
+    # Maximum requests per second globally
+    max_requests_per_second: 100
+    # Maximum connections per IP address
+    max_connections_per_ip: 10
+    # Burst size for rate limiting
+    burst_size: 20
+  
+  # Tier-based rate limiting
+  tiers:
+    # Free tier (default for all users)
+    free:
+      requests_per_minute: 60
+      requests_per_hour: 1000
+      burst_size: 10
+      concurrent_connections: 5
+    
+    # Pro tier (for paid users - configure user mapping separately)
+    pro:
+      requests_per_minute: 300
+      requests_per_hour: 10000
+      burst_size: 50
+      concurrent_connections: 20
+    
+    # Enterprise tier (for enterprise customers)
+    enterprise:
+      requests_per_minute: 1000
+      requests_per_hour: 100000
+      burst_size: 200
+      concurrent_connections: 100
+
+# Logging configuration
+logging:
+  # Log level: trace, debug, info, warn, error
+  level: "info"
+  # Enable structured JSON logging
+  json: false
+  # Enable timestamps in logs
+  timestamp: true
+  # Enable ANSI colors in terminal output
+  ansi: true
+
+# Commercial features (require separate licensing)
+# Uncomment and configure if you have a commercial license
+
+# compliance:
+#   # Data classification and compliance tags
+#   enabled: false
+#   storage_tiers:
+#     hot:
+#       description: "Frequently accessed repositories"
+#       retention_days: 365
+#     warm:
+#       description: "Occasionally accessed repositories" 
+#       retention_days: 1825  # 5 years
+#     cold:
+#       description: "Archive repositories"
+#       retention_days: 3650  # 10 years
+
+# retention:
+#   # Automatic repository cleanup policies
+#   enabled: false
+#   policies:
+#     - name: "old_branches"
+#       description: "Delete branches older than 90 days"
+#       rules:
+#         - type: "age"
+#           max_age_days: 90
+#           exclude_patterns: ["main", "master", "develop"]
+#     - name: "large_repos"
+#       description: "Archive repositories larger than 1GB"
+#       rules:
+#         - type: "size"
+#           max_size_mb: 1024
+#           action: "archive"
+
+# branch_limits:
+#   # Repository branch and tag limits
+#   enabled: false
+#   default_limits:
+#     max_branches: 100
+#     max_tags: 50
+#   # Per-repository overrides
+#   repository_limits:
+#     "important-org/critical-repo":
+#       max_branches: 500
+#       max_tags: 200

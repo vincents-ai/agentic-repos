@@ -1,10 +1,9 @@
 use crate::storage::StorageBackend;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 /// Compliance tag types for data classification
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -164,6 +163,7 @@ pub enum ComplianceError {
 pub type ComplianceResult<T> = std::result::Result<T, ComplianceError>;
 
 /// Service for routing repositories to compliance-aware S3 buckets
+#[allow(dead_code)]
 pub struct ComplianceAwareStorage<S: StorageBackend> {
     config: ComplianceStorageConfig,
     storage: Arc<S>,

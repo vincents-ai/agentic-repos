@@ -1,5 +1,5 @@
-# Gateway API Configuration for oGit
-# Uses Envoy Gateway as the GatewayClass controller
+# Gateway API Configuration for repos-mcp
+# Uses Envoy Gateway as GatewayClass controller
 
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -7,7 +7,7 @@ kind: GatewayClass
 metadata:
   name: envoy-gateway
   labels:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp
 spec:
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
 
@@ -15,10 +15,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: ogit
-  namespace: ogit
+  name: repos-mcp
+  namespace: repos-mcp
   labels:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
@@ -29,77 +29,83 @@ spec:
       protocol: HTTP
       allowedRoutes:
         namespaces:
-          from: Selector
-          selector:
-            matchLabels:
-              app.kubernetes.io/name: ogit
-    - name: mcp
-      port: 3000
-      protocol: TCP
-      allowedRoutes:
-        namespaces:
-          from: Selector
-          selector:
-            matchLabels:
-              app.kubernetes.io/name: ogit
+          from: Same
 
 ---
-# HTTP Route for Git operations
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: ogit-http
-  namespace: ogit
+  name: repos-mcp-http
+  namespace: repos-mcp
   labels:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp
 spec:
   parentRefs:
-    - name: ogit
+    - name: repos-mcp
+      namespace: repos-mcp
       sectionName: http
-  hostnames:
-    - "git.example.com"
+  hostnames: ["repos-mcp.example.com"]
   rules:
     - matches:
         - path:
+            type: PathPrefix
             value: /
       backendRefs:
-        - name: ogit
+        - name: repos-mcp
           port: 80
 
 ---
-# TCP Route for MCP/WebSocket
 apiVersion: gateway.networking.k8s.io/v1
-kind: TCPRoute
+kind: HTTPRoute
 metadata:
-  name: ogit-mcp
-  namespace: ogit
+  name: repos-mcp-mcp
+  namespace: repos-mcp
   labels:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp
 spec:
   parentRefs:
-    - name: ogit
-      sectionName: mcp
-  hostnames:
-    - "mcp.example.com"
+    - name: repos-mcp
+      namespace: repos-mcp
+      sectionName: http
+  hostnames: ["mcp.repos-mcp.example.com"]
   rules:
-    - backendRefs:
-        - name: ogit
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: repos-mcp
           port: 3000
 
 ---
-# TLS Certificate (managed by cert-manager)
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: repos-mcp-tls
+  namespace: repos-mcp
+  labels:
+    app.kubernetes.io/name: repos-mcp
+spec:
+  parentRefs:
+    - name: repos-mcp
+      namespace: repos-mcp
+  hostnames: ["repos-mcp.example.com"]
+  rules:
+    - backendRefs:
+        - name: repos-mcp
+          port: 80
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: ogit-tls
-  namespace: ogit
+  name: repos-mcp-tls
+  namespace: repos-mcp
   labels:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp
 spec:
-  secretName: ogit-tls
+  secretName: repos-mcp-tls
   issuerRef:
     name: letsencrypt-prod
     kind: ClusterIssuer
   dnsNames:
-    - git.example.com
-    - mcp.example.com
+    - repos-mcp.example.com

@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: ogit
-  namespace: ogit
+  name: repos-mcp
+  namespace: repos-mcp
   labels:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp
 spec:
   type: ClusterIP
   ports:
@@ -17,4 +17,4 @@ spec:
       targetPort: mcp
       protocol: TCP
   selector:
-    app.kubernetes.io/name: ogit
+    app.kubernetes.io/name: repos-mcp

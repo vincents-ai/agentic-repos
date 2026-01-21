@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
 
 /// Rate limiting configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,13 +173,15 @@ pub type RateLimitResult<T> = std::result::Result<T, RateLimitError>;
 
 /// Token bucket rate limiter
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct TokenBucket {
     tokens: f64,
     max_tokens: f64,
-    refill_rate: f64, // tokens per second
+    refill_rate: f64,
     last_refill: Instant,
 }
 
+#[allow(dead_code)]
 impl TokenBucket {
     fn new(max_tokens: u32, refill_rate: f64) -> Self {
         Self {
@@ -220,11 +221,13 @@ impl TokenBucket {
 
 /// In-memory rate limiter store
 #[derive(Debug)]
+#[allow(dead_code)]
 struct RateLimitStore {
     buckets: RwLock<HashMap<String, TokenBucket>>,
     request_counts: RwLock<HashMap<String, Vec<Instant>>>,
 }
 
+#[allow(dead_code)]
 impl RateLimitStore {
     fn new() -> Self {
         Self {

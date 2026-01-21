@@ -14,13 +14,19 @@ use std::sync::Arc;
 pub struct ApiServer {
     git_service: Arc<GitService>,
     feature_flags: FeatureFlags,
+    lfs_config: crate::config::LfsConfig,
 }
 
 impl ApiServer {
-    pub fn new(git_service: Arc<GitService>, feature_flags: FeatureFlags) -> Self {
+    pub fn new(
+        git_service: Arc<GitService>,
+        feature_flags: FeatureFlags,
+        lfs_config: crate::config::LfsConfig,
+    ) -> Self {
         Self {
             git_service,
             feature_flags,
+            lfs_config,
         }
     }
 
@@ -35,6 +41,7 @@ impl ApiServer {
 
         let git_service = Arc::clone(&self.git_service);
         let feature_flags = self.feature_flags.clone();
+        let lfs_config = self.lfs_config.clone();
         let _enable_web_ui = feature_flags.web_ui;
 
         let _rbac_service = if feature_flags.rbac {
@@ -54,10 +61,19 @@ impl ApiServer {
         };
 
         HttpServer::new(move || {
-            let app = App::new()
+            let mut app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
+                .app_data(web::Data::new(lfs_config.clone()))
                 .wrap(Logger::default())
                 .service(web::scope("/api/v1").configure(routes::configure_routes));
+
+            if feature_flags.git_lfs && lfs_config.enabled {
+                app = app.service(web::scope("/lfs").configure(
+                    lfs::configure_lfs_routes::<
+                        crate::lfs::storage::LfsStorageAdapter<crate::storage::local::LocalStorage>,
+                    >,
+                ));
+            }
 
             app
         })

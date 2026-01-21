@@ -39,7 +39,8 @@ impl Server {
         let feature_flags = self.feature_flags.clone();
 
         println!("Starting API server on port {}...", config.server.port);
-        let api_server = ApiServer::new(git_service.clone(), feature_flags);
+        let lfs_config = config.lfs.clone();
+        let api_server = ApiServer::new(git_service.clone(), feature_flags, lfs_config);
 
         api_server.run(config).await
     }

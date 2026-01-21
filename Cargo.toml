@@ -47,6 +47,7 @@ tracing-subscriber = "0.3"
 # Authentication
 jsonwebtoken = "9.2"
 bcrypt = "0.15"
+sha2 = "0.10"
 
 # MCP Protocol
 bytes = "1.5"

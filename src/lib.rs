@@ -5,6 +5,7 @@ pub mod config;
 pub mod error;
 pub mod features;
 pub mod git;
+pub mod lfs;
 pub mod mcp;
 pub mod models;
 pub mod rbac;

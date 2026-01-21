@@ -28,6 +28,8 @@ pub struct FeatureFlags {
     pub graphql_api: bool,
     pub advanced_webhooks: bool,
     pub analytics: bool,
+    pub git_lfs: bool,
+    pub lfs_locks: bool,
 }
 
 impl Default for FeatureFlags {
@@ -58,6 +60,8 @@ impl Default for FeatureFlags {
             graphql_api: false,
             advanced_webhooks: false,
             analytics: false,
+            git_lfs: false,
+            lfs_locks: false,
         }
     }
 }
@@ -94,6 +98,8 @@ impl FeatureFlags {
             advanced_webhooks: std::env::var("FEATURE_ADVANCED_WEBHOOKS").unwrap_or_default()
                 == "true",
             analytics: std::env::var("FEATURE_ANALYTICS").unwrap_or_default() == "true",
+            git_lfs: std::env::var("FEATURE_GIT_LFS").unwrap_or_default() == "true",
+            lfs_locks: std::env::var("FEATURE_LFS_LOCKS").unwrap_or_default() == "true",
         }
     }
 
@@ -124,6 +130,8 @@ impl FeatureFlags {
             graphql_api: *config.get("graphql_api").unwrap_or(&false),
             advanced_webhooks: *config.get("advanced_webhooks").unwrap_or(&false),
             analytics: *config.get("analytics").unwrap_or(&false),
+            git_lfs: *config.get("git_lfs").unwrap_or(&false),
+            lfs_locks: *config.get("lfs_locks").unwrap_or(&false),
         }
     }
 
@@ -153,5 +161,7 @@ impl FeatureFlags {
             || self.graphql_api
             || self.advanced_webhooks
             || self.analytics
+            || self.git_lfs
+            || self.lfs_locks
     }
 }

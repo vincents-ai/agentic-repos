@@ -1,4 +1,5 @@
 pub mod handlers;
+pub mod lfs;
 pub mod models;
 pub mod routes;
 

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -59,6 +60,79 @@ pub trait LfsStorage: Send + Sync {
     ) -> Result<String, Self::Error>;
 
     async fn get_download_url(&self, key: &StorageKey) -> Result<String, Self::Error>;
+}
+
+pub struct LfsStorageAdapter<B> {
+    backend: B,
+    path_pattern: String,
+    base_url: String,
+}
+
+impl<B> LfsStorageAdapter<B> {
+    pub fn new(backend: B, path_pattern: String, base_url: String) -> Self {
+        Self {
+            backend,
+            path_pattern,
+            base_url,
+        }
+    }
+}
+
+#[async_trait]
+impl<B> LfsStorage for LfsStorageAdapter<B>
+where
+    B: crate::storage::StorageBackend + Send + Sync,
+{
+    type Error = crate::storage::StorageError;
+
+    async fn get_object(&self, key: &StorageKey) -> Result<Option<Vec<u8>>, Self::Error> {
+        let path = PathBuf::from(key.to_path(&self.path_pattern));
+
+        if !self.backend.exists(&path).await? {
+            return Ok(None);
+        }
+
+        let data = self.backend.read(&path).await?;
+        Ok(Some(data))
+    }
+
+    async fn put_object(&self, key: &StorageKey, data: Vec<u8>) -> Result<(), Self::Error> {
+        let path = PathBuf::from(key.to_path(&self.path_pattern));
+        self.backend.write(&path, &data).await
+    }
+
+    async fn object_exists(&self, key: &StorageKey) -> Result<bool, Self::Error> {
+        let path = PathBuf::from(key.to_path(&self.path_pattern));
+        self.backend.exists(&path).await
+    }
+
+    async fn object_size(&self, key: &StorageKey) -> Result<Option<u64>, Self::Error> {
+        let path = PathBuf::from(key.to_path(&self.path_pattern));
+
+        if !self.backend.exists(&path).await? {
+            return Ok(None);
+        }
+
+        let data = self.backend.read(&path).await?;
+        Ok(Some(data.len() as u64))
+    }
+
+    async fn delete_object(&self, key: &StorageKey) -> Result<(), Self::Error> {
+        let path = PathBuf::from(key.to_path(&self.path_pattern));
+        self.backend.delete(&path).await
+    }
+
+    async fn get_upload_url(
+        &self,
+        key: &StorageKey,
+        _expires_in: Duration,
+    ) -> Result<String, Self::Error> {
+        Ok(format!("{}/lfs/objects/{}", self.base_url, key.oid))
+    }
+
+    async fn get_download_url(&self, key: &StorageKey) -> Result<String, Self::Error> {
+        Ok(format!("{}/lfs/objects/{}", self.base_url, key.oid))
+    }
 }
 
 #[cfg(test)]

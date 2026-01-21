@@ -283,17 +283,20 @@ pub async fn grant_repository_permission(
     req: web::Json<GrantRepositoryPermissionRequest>,
     http_req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let authenticated_user = http_req
-        .extensions()
-        .get::<AuthenticatedUser>()
-        .expect("User should be authenticated");
+    let authenticated_username = {
+        let extensions = http_req.extensions();
+        let authenticated_user = extensions
+            .get::<AuthenticatedUser>()
+            .expect("User should be authenticated");
+        authenticated_user.user.username.clone()
+    };
 
     match rbac_service
         .grant_repository_permission(
             &req.username,
             &req.repository_id,
             req.permission.clone(),
-            &authenticated_user.user.username,
+            &authenticated_username,
             req.expires_at,
         )
         .await

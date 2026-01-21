@@ -1,11 +1,11 @@
 use crate::rbac::models::{Permission, User};
 use crate::rbac::service::RbacService;
 use actix_web::{
-    body::EitherBody,
+    body::{BoxBody, EitherBody},
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     web, Error, HttpMessage, HttpResponse,
 };
-use futures_util::future::{ready, Ready};
+use futures_util::future::{ready, FutureExt, LocalBoxFuture, Ready};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -130,7 +130,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type InitError = ();
     type Transform = RequirePermissionService<S>;
@@ -155,9 +155,9 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     forward_ready!(service);
 
@@ -165,14 +165,21 @@ where
         let service = self.service.clone();
         let permission = self.permission.clone();
 
-        Box::pin(async move {
-            if let Some(auth_user) = req.extensions().get::<AuthenticatedUser>() {
+        async move {
+            let username = {
+                let extensions = req.extensions();
+                extensions
+                    .get::<AuthenticatedUser>()
+                    .map(|auth_user| auth_user.user.username.clone())
+            };
+
+            if let Some(username) = username {
                 let rbac_service = req
                     .app_data::<web::Data<Arc<RbacService>>>()
                     .expect("RbacService not found in app data");
 
                 let has_permission = rbac_service
-                    .user_has_permission(&auth_user.user.username, &permission)
+                    .user_has_permission(&username, &permission)
                     .await
                     .unwrap_or(false);
 
@@ -188,7 +195,8 @@ where
                     "message": format!("Required permission: {:?}", permission)
                 })))
                 .map_into_right_body())
-        })
+        }
+        .boxed_local()
     }
 }
 
@@ -214,7 +222,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<BoxBody, B>>;
     type Error = Error;
     type InitError = ();
     type Transform = RequireRepositoryPermissionService<S>;
@@ -241,7 +249,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<BoxBody, B>>;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -253,19 +261,26 @@ where
         let repository_param = self.repository_param;
 
         Box::pin(async move {
-            if let Some(auth_user) = req.extensions().get::<AuthenticatedUser>() {
+            let repository_id = req
+                .match_info()
+                .get(repository_param)
+                .unwrap_or("unknown")
+                .to_string();
+
+            let username = {
+                let extensions = req.extensions();
+                extensions
+                    .get::<AuthenticatedUser>()
+                    .map(|auth_user| auth_user.user.username.clone())
+            };
+
+            if let Some(username) = username {
                 let rbac_service = req
                     .app_data::<web::Data<Arc<RbacService>>>()
                     .expect("RbacService not found in app data");
 
-                let repository_id = req.match_info().get(repository_param).unwrap_or("unknown");
-
                 let has_permission = rbac_service
-                    .user_has_repository_permission(
-                        &auth_user.user.username,
-                        repository_id,
-                        &permission,
-                    )
+                    .user_has_repository_permission(&username, &repository_id, &permission)
                     .await
                     .unwrap_or(false);
 

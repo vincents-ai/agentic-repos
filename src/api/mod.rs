@@ -6,8 +6,7 @@ use crate::config::AppConfig;
 use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
-use crate::rbac::{configure_rbac_routes, RbacMiddleware, RbacService};
-use crate::web::WebUI;
+use crate::rbac::RbacService;
 use actix_web::{middleware::Logger, web, App, HttpServer};
 use std::sync::Arc;
 
@@ -33,10 +32,11 @@ impl ApiServer {
             config.server.host, config.server.port
         );
 
-        let git_service = self.git_service.clone();
+        let git_service = Arc::clone(&self.git_service);
         let feature_flags = self.feature_flags.clone();
+        let _enable_web_ui = feature_flags.web_ui;
 
-        let rbac_service = if feature_flags.rbac {
+        let _rbac_service = if feature_flags.rbac {
             let storage = Arc::new(InMemoryRbacStorage::new());
             let service = Arc::new(RbacService::new(storage));
 
@@ -55,29 +55,8 @@ impl ApiServer {
         HttpServer::new(move || {
             let app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
-                .wrap(Logger::default());
-
-            let app = if let Some(rbac) = &rbac_service {
-                println!("RBAC middleware enabled");
-                app.app_data(web::Data::new(rbac.clone()))
-                    .wrap(RbacMiddleware::new(rbac.clone()))
-                    .service(web::scope("/api/v1").configure(configure_rbac_routes))
-                    .service(web::scope("/api/v1").configure(routes::configure_routes))
-            } else {
-                app.service(web::scope("/api/v1").configure(routes::configure_routes))
-            };
-
-            if feature_flags.web_ui {
-                if let Ok(web_ui) = WebUI::new(git_service.clone(), feature_flags.clone()) {
-                    let web_ui_arc = Arc::new(web_ui);
-                    app = app.configure(|cfg| WebUI::configure(cfg, web_ui_arc));
-                    println!("Web UI enabled at /ui/");
-                } else {
-                    println!("Web UI feature enabled but failed to initialize");
-                }
-            } else {
-                println!("Web UI feature disabled");
-            }
+                .wrap(Logger::default())
+                .service(web::scope("/api/v1").configure(routes::configure_routes));
 
             app
         })

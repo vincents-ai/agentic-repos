@@ -1,15 +1,1 @@
-# Authorized SSH keys for repos-mcp Git Server
-# Format: username:ssh-key-type public-key comment
-#
-# Examples:
-# developer1:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGq4... developer1@company.com
-# admin:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... admin@company.com
-#
-# To add a user:
-# 1. Get their SSH public key (from ~/.ssh/id_ed25519.pub or similar)
-# 2. Add a line below with format: username:key-type public-key comment
-# 3. Restart the server or it will automatically reload
-
-# Example entries (replace with real keys):
-git:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample1234567890abcdef git@server.local
-developer:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDExample1234567890 developer@company.com
+test_user:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDm1RFFBYnrhF92Ozj80xM/pERE6PRL2cW3lTK2/e+sd shift@x1y

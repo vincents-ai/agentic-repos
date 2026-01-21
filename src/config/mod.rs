@@ -26,6 +26,10 @@ pub struct LfsConfig {
     pub max_object_size: u64,
     /// JWT token expiration in seconds (default: 1 hour)
     pub token_expiration_secs: u64,
+    /// JWT secret for token signing and verification (MUST be changed in production)
+    pub jwt_secret: String,
+    /// Base URL for LFS HTTP endpoints (e.g., "https://lfs.example.com")
+    pub base_url: String,
     /// Storage path pattern for LFS objects (relative to storage backend root)
     /// Default: {tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}
     pub storage_path_pattern: String,
@@ -140,6 +144,8 @@ impl Default for LfsConfig {
             enabled: false,
             max_object_size: 5 * 1024 * 1024 * 1024, // 5GB
             token_expiration_secs: 3600,             // 1 hour
+            jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING".to_string(),
+            base_url: "http://localhost:8090".to_string(),
             storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
                 .to_string(),
             locking_enabled: false,

@@ -450,6 +450,70 @@ impl russh::server::Handler for SshHandler {
                         session.exit_status_request(channel, 0)?;
                         session.eof(channel)?;
                     }
+                    crate::git::command::GitCommand::LfsAuthenticate {
+                        repository,
+                        operation,
+                    } => {
+                        // Parse tenant/repo from repository path (format: tenant/repo.git)
+                        let parts: Vec<&str> = repository.split('/').collect();
+                        if parts.len() < 2 {
+                            let error_msg = "Error: Invalid repository path format (expected: tenant/repo.git)\n";
+                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session.exit_status_request(channel, 1)?;
+                            session.eof(channel)?;
+                            return Ok(());
+                        }
+
+                        let tenant = parts[0];
+                        let repo = parts[1..].join("/");
+
+                        // Generate JWT token
+                        // TODO: Get secret from config instead of hardcoded value
+                        let generator = crate::lfs::LfsTokenGenerator::new(
+                            "your-secret-key-change-in-production".to_string(),
+                        );
+                        let lfs_op = if operation == "download" {
+                            crate::lfs::LfsOperation::Download
+                        } else {
+                            crate::lfs::LfsOperation::Upload
+                        };
+
+                        let token = match generator.generate_token(tenant, &repo, lfs_op, 3600) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                let error_msg = format!("Error: Token generation failed: {}\n", e);
+                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.exit_status_request(channel, 1)?;
+                                session.eof(channel)?;
+                                return Ok(());
+                            }
+                        };
+
+                        // Create response with endpoint URL
+                        // TODO: Get base URL from config instead of hardcoded value
+                        let base_url = "http://localhost:8090";
+                        let response = crate::lfs::LfsAuthResponse::new(base_url, token, 3600);
+
+                        let json = match serde_json::to_string(&response) {
+                            Ok(j) => j,
+                            Err(e) => {
+                                let error_msg =
+                                    format!("Error: JSON serialization failed: {}\n", e);
+                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.exit_status_request(channel, 1)?;
+                                session.eof(channel)?;
+                                return Ok(());
+                            }
+                        };
+
+                        info!(
+                            "LFS authenticate successful for {}/{} ({})",
+                            tenant, repo, operation
+                        );
+                        session.data(channel, json.as_bytes().to_vec().into())?;
+                        session.exit_status_request(channel, 0)?;
+                        session.eof(channel)?;
+                    }
                 }
             }
             Err(validation_error) => {

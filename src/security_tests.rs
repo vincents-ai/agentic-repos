@@ -147,12 +147,13 @@ mod integration_tests {
             assert!(result.is_ok(), "Valid command rejected: {}", valid_cmd);
 
             match result.unwrap() {
-                GitCommand::UploadPack { repository } | GitCommand::ReceivePack { repository } => {
+                GitCommand::UploadPack { repository }
+                | GitCommand::ReceivePack { repository }
+                | GitCommand::LfsAuthenticate { repository, .. } => {
                     assert!(
                         !repository.is_empty(),
                         "Repository name should not be empty"
                     );
-                    // Repository names can contain '/' for tenant/repository structure
                     assert!(
                         !repository.starts_with('/'),
                         "Repository name should not start with absolute path"

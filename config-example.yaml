@@ -143,6 +143,29 @@ features:
   graphql_api: false      # GraphQL API with advanced querying
   advanced_webhooks: false  # Advanced webhook filtering
   analytics: false        # Repository analytics dashboard
+  
+  # Git LFS - Large File Storage
+  git_lfs: false          # Git LFS support (open source feature)
+  lfs_locks: false        # LFS file locking (requires git_lfs)
+
+# Git LFS configuration (requires git_lfs feature flag)
+lfs:
+  # Enable Git LFS support
+  enabled: false
+  # Maximum object size in bytes (default: 5GB)
+  max_object_size: 5368709120
+  # JWT token expiration in seconds (default: 1 hour)
+  token_expiration_secs: 3600
+  # JWT secret for token signing (CHANGE IN PRODUCTION)
+  jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING"
+  # Base URL for LFS HTTP endpoints
+  base_url: "http://localhost:8090"
+  # Storage path pattern for LFS objects
+  storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
+  # Enable LFS file locking (requires lfs_locks feature flag)
+  locking_enabled: false
+  # Lock expiration in seconds (default: 24 hours)
+  lock_expiration_secs: 86400
 
 # Uncomment and configure if you have a commercial license
 

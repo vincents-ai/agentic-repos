@@ -1,4 +1,4 @@
-use crate::git::{error::Result, GitConfig, GitService};
+use crate::git::{auth::AuthorizedKeysManager, error::Result, GitConfig, GitService};
 use rand_core::OsRng;
 use russh::server::{Msg, Server as _, Session};
 use russh::*;
@@ -10,18 +10,23 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub struct SshServer {
     config: GitConfig,
     git_service: Arc<GitService>,
+    auth_manager: Arc<Mutex<AuthorizedKeysManager>>,
 }
 
 impl SshServer {
     pub fn new(git_service: Arc<GitService>, config: Option<GitConfig>) -> Self {
+        let config = config.unwrap_or_default();
+        let auth_manager = AuthorizedKeysManager::new(config.clone());
+
         Self {
-            config: config.unwrap_or_default(),
+            config,
             git_service,
+            auth_manager: Arc::new(Mutex::new(auth_manager)),
         }
     }
 
@@ -29,6 +34,25 @@ impl SshServer {
         let addr = format!("0.0.0.0:{}", self.config.ssh_port);
         let socket = TcpListener::bind(&addr).await?;
         info!("SSH server listening on {}", addr);
+
+        {
+            let mut auth_manager = self.auth_manager.lock().await;
+            if let Err(e) = auth_manager.load_authorized_keys().await {
+                error!("Failed to load authorized keys: {}", e);
+                warn!("SSH server will reject all authentication attempts");
+            } else if !auth_manager.has_authorized_users() {
+                warn!("No authorized users configured - SSH server will reject all authentication attempts");
+                warn!(
+                    "Add users to the authorized keys file: {:?}",
+                    self.config.authorized_keys_path
+                );
+            } else {
+                info!(
+                    "Loaded authorized keys for {} users",
+                    auth_manager.get_authorized_users().len()
+                );
+            }
+        }
 
         let keys = vec![PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?];
@@ -45,6 +69,7 @@ impl SshServer {
 
         let mut server = SshServerImpl {
             git_service: self.git_service.clone(),
+            auth_manager: self.auth_manager.clone(),
             clients: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
         };
@@ -69,6 +94,7 @@ impl SshServer {
 #[derive(Clone)]
 struct SshServerImpl {
     git_service: Arc<GitService>,
+    auth_manager: Arc<Mutex<AuthorizedKeysManager>>,
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
     id: usize,
 }
@@ -81,6 +107,7 @@ impl russh::server::Server for SshServerImpl {
         self.id += 1;
         SshHandler {
             git_service: self.git_service.clone(),
+            auth_manager: self.auth_manager.clone(),
             client_id: self.id,
             clients: self.clients.clone(),
         }
@@ -90,6 +117,7 @@ impl russh::server::Server for SshServerImpl {
 #[derive(Clone)]
 struct SshHandler {
     git_service: Arc<GitService>,
+    auth_manager: Arc<Mutex<AuthorizedKeysManager>>,
     client_id: usize,
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
 }
@@ -100,11 +128,21 @@ impl russh::server::Handler for SshHandler {
 
     async fn auth_publickey(
         &mut self,
-        _user: &str,
-        _public_key: &PublicKey,
+        user: &str,
+        public_key: &PublicKey,
     ) -> std::result::Result<russh::server::Auth, Self::Error> {
-        debug!("Public key authentication for user: {}", _user);
-        Ok(russh::server::Auth::Accept)
+        debug!("Public key authentication for user: {}", user);
+
+        let auth_manager = self.auth_manager.lock().await;
+        if auth_manager.is_key_authorized(user, public_key) {
+            info!("Authentication successful for user: {}", user);
+            Ok(russh::server::Auth::Accept)
+        } else {
+            warn!("Authentication rejected for user: {}", user);
+            Ok(russh::server::Auth::Reject {
+                proceed_with_methods: None,
+            })
+        }
     }
 
     async fn channel_open_session(

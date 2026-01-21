@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod branches;
+pub mod command;
 pub mod compliance;
 pub mod error;
 pub mod protocol;

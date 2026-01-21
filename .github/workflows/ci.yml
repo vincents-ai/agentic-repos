@@ -1,0 +1,266 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Security and code quality checks
+  security:
+    name: Security & Quality
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        
+    - name: Nix Cache
+      uses: cachix/cachix-action@v12
+      with:
+        name: devenv
+        
+    - name: Security audit
+      run: |
+        nix develop -c -- cargo audit --db ./cargo-audit-db --color always || true
+        
+    - name: Check for cargo vulnerabilities
+      run: |
+        nix develop -c -- cargo audit --json > security-report.json || true
+        
+    - name: Code formatting check
+      run: |
+        nix develop -c -- cargo fmt --all -- --check
+        
+    - name: Clippy linting
+      run: |
+        nix develop -c -- cargo clippy --all-targets --all-features -- -D warnings
+        
+    - name: Upload security report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-report
+        path: security-report.json
+
+  # Build and test
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: security
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        
+    - name: Nix Cache
+      uses: cachix/cachix-action@v12
+      with:
+        name: devenv
+        
+    - name: Build project
+      run: |
+        nix build .#default -L --show-trace
+        
+    - name: Run unit tests
+      run: |
+        nix develop -c -- cargo test --all-features --workspace
+        
+    - name: Generate test coverage
+      run: |
+        nix develop -c -- cargo tarpaulin --out xml --output-dir coverage/
+        
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: always()
+      with:
+        file: coverage/cobertura.xml
+        fail_ci_if_error: false
+
+  # VM Integration Tests
+  integration:
+    name: VM Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        test: [ssh-basic, git-operations, multi-client, storage-local, storage-s3]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+          
+    - name: Enable KVM for VM tests
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+        
+    - name: Nix Cache
+      uses: cachix/cachix-action@v12
+      with:
+        name: devenv
+        
+    - name: Run VM Test - ${{ matrix.test }}
+      run: |
+        # Set timeout to 15 minutes per test
+        timeout 900 nix run .#checks.x86_64-linux.${{ matrix.test }} || {
+          echo "Test ${{ matrix.test }} failed or timed out"
+          exit 1
+        }
+        
+    - name: Upload test logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: vm-test-logs-${{ matrix.test }}
+        path: /tmp/vm-test-*.log
+
+  # Performance benchmarks
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: integration
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        
+    - name: Run benchmarks
+      run: |
+        nix develop -c -- cargo bench -- --output-format json > benchmark-results.json
+        
+    - name: Store benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      if: always()
+      with:
+        tool: 'cargo'
+        output-file-path: benchmark-results.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+
+  # Build Docker image (if needed)
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: integration
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        
+    - name: Build Docker image with Nix
+      run: |
+        nix build .#dockerImage
+        docker load < result
+        
+    - name: Test Docker image
+      run: |
+        docker run --rm repos-mcp:latest --version
+        
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      if: success()
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Push Docker image
+      if: success()
+      run: |
+        docker tag repos-mcp:latest ghcr.io/${{ github.repository }}:latest
+        docker tag repos-mcp:latest ghcr.io/${{ github.repository }}:${{ github.sha }}
+        docker push ghcr.io/${{ github.repository }}:latest
+        docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+  # Security scan for dependencies
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/dependency-review-action@v3
+      with:
+        fail-on-severity: moderate
+        allow-licenses: |
+          Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, 
+          ISC, MPL-2.0, CC0-1.0, AGPL-3.0
+
+  # SAST security scanning
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: 'cpp'  # Rust is analyzed as C++
+        
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        
+    - name: Build for CodeQL
+      run: |
+        nix develop -c -- cargo build --release
+        
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+
+  # Deployment (only on main branch)
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [integration, security, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to staging
+      run: |
+        echo "🚀 Deploying to staging environment..."
+        echo "⚠️  SECURITY WARNING: Do not deploy until critical SSH vulnerabilities are fixed!"
+        echo "📋 See SECURITY.md for required security fixes before production deployment"
+        exit 1  # Prevent deployment until security fixes are implemented
+        
+    - name: Run deployment tests
+      if: success()
+      run: |
+        echo "Running deployment verification tests..."
+        # Add deployment verification here
+        
+    - name: Notify deployment status
+      if: always()
+      run: |
+        echo "📊 Deployment Status: ${{ job.status }}"

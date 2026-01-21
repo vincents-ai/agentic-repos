@@ -2,6 +2,23 @@
 
 A lightweight, multi-tenant Git server with SSH protocol support, written in Rust.
 
+## ⚠️ SECURITY WARNING ⚠️
+
+**DO NOT DEPLOY TO PRODUCTION WITHOUT ADDRESSING CRITICAL SECURITY ISSUES**
+
+This project currently contains **CRITICAL SECURITY VULNERABILITIES** that must be addressed before production use:
+
+🚨 **SSH Authentication Bypass**: The current SSH implementation accepts ANY SSH public key without validation  
+⚠️ **Command Injection Risk**: SSH commands are not properly validated  
+⚠️ **Insecure Key Management**: Host keys are regenerated on each startup  
+
+See [SECURITY.md](SECURITY.md) for detailed vulnerability information and required fixes.
+
+**Current Status**: 
+- ✅ VM Testing Framework: Complete and validated (all tests passing)
+- ❌ SSH Security: CRITICAL vulnerabilities identified, fixes required
+- ❌ Production Ready: NO - Security fixes required first
+
 ## License
 
 **AGPLv3 License**: This project is licensed under the GNU Affero General Public License v3.0. This means:

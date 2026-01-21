@@ -167,6 +167,7 @@ mod tests {
             authorized_keys_path,
             max_connections: 100,
             connection_timeout_secs: 30,
+            rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
         }
     }
 

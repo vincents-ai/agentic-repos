@@ -9,6 +9,7 @@ pub mod retention;
 pub mod ssh; // Re-enabled SSH module
 pub mod storage;
 
+use crate::git::rate_limit::RateLimitConfig;
 use crate::storage::StorageBackend;
 use std::sync::Arc;
 
@@ -24,6 +25,8 @@ pub struct GitConfig {
     pub authorized_keys_path: std::path::PathBuf,
     pub max_connections: usize,
     pub connection_timeout_secs: u64,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
 }
 
 impl Default for GitConfig {
@@ -34,6 +37,7 @@ impl Default for GitConfig {
             authorized_keys_path: std::path::PathBuf::from("authorized_keys"),
             max_connections: 100,
             connection_timeout_secs: 30,
+            rate_limit: RateLimitConfig::default(),
         }
     }
 }

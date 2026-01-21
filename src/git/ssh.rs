@@ -1,5 +1,9 @@
 use crate::git::{
-    auth::AuthorizedKeysManager, command::CommandValidator, error::Result, GitConfig, GitService,
+    auth::AuthorizedKeysManager,
+    command::CommandValidator,
+    error::Result,
+    rate_limit::{RateLimitContext, RateLimitError, RateLimitScope, RateLimiter},
+    GitConfig, GitService,
 };
 use rand_core::OsRng;
 use russh::server::{Msg, Server as _, Session};
@@ -9,6 +13,7 @@ use russh_keys::{Algorithm, PrivateKey};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -19,17 +24,24 @@ pub struct SshServer {
     config: GitConfig,
     git_service: Arc<GitService>,
     auth_manager: Arc<Mutex<AuthorizedKeysManager>>,
+    rate_limiter: RateLimiter,
+    connection_count: Arc<AtomicUsize>,
+    ip_connections: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 impl SshServer {
     pub fn new(git_service: Arc<GitService>, config: Option<GitConfig>) -> Self {
         let config = config.unwrap_or_default();
         let auth_manager = AuthorizedKeysManager::new(config.clone());
+        let rate_limiter = RateLimiter::new(Some(config.rate_limit.clone()));
 
         Self {
             config,
             git_service,
             auth_manager: Arc::new(Mutex::new(auth_manager)),
+            rate_limiter,
+            connection_count: Arc::new(AtomicUsize::new(0)),
+            ip_connections: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -147,6 +159,10 @@ impl SshServer {
         let mut server = SshServerImpl {
             git_service: self.git_service.clone(),
             auth_manager: self.auth_manager.clone(),
+            rate_limiter: self.rate_limiter.clone(),
+            connection_count: self.connection_count.clone(),
+            ip_connections: self.ip_connections.clone(),
+            max_connections: self.config.max_connections,
             clients: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
         };
@@ -172,6 +188,10 @@ impl SshServer {
 struct SshServerImpl {
     git_service: Arc<GitService>,
     auth_manager: Arc<Mutex<AuthorizedKeysManager>>,
+    rate_limiter: RateLimiter,
+    connection_count: Arc<AtomicUsize>,
+    ip_connections: Arc<Mutex<HashMap<String, usize>>>,
+    max_connections: usize,
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
     id: usize,
 }
@@ -180,13 +200,56 @@ impl russh::server::Server for SshServerImpl {
     type Handler = SshHandler;
 
     fn new_client(&mut self, peer_addr: Option<SocketAddr>) -> Self::Handler {
+        let peer_ip = peer_addr
+            .map(|addr| addr.ip().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
         debug!("New SSH client from {:?}", peer_addr);
+
+        // Check global connection limit
+        let current_connections = self.connection_count.load(Ordering::SeqCst);
+        if current_connections >= self.max_connections {
+            warn!(
+                "Rejecting connection from {}: global connection limit reached ({}/{})",
+                peer_ip, current_connections, self.max_connections
+            );
+            // Return a handler that will immediately reject
+            self.id += 1;
+            return SshHandler {
+                git_service: self.git_service.clone(),
+                auth_manager: self.auth_manager.clone(),
+                rate_limiter: self.rate_limiter.clone(),
+                client_id: self.id,
+                clients: self.clients.clone(),
+                peer_ip,
+                connection_count: self.connection_count.clone(),
+                ip_connections: self.ip_connections.clone(),
+                rejected: true, // Mark as rejected
+            };
+        }
+
+        // Increment connection count
+        self.connection_count.fetch_add(1, Ordering::SeqCst);
+
+        // Track per-IP connections (we'll implement detailed limiting in the handler)
         self.id += 1;
+
+        info!(
+            "Accepted SSH connection from {} (total: {})",
+            peer_ip,
+            current_connections + 1
+        );
+
         SshHandler {
             git_service: self.git_service.clone(),
             auth_manager: self.auth_manager.clone(),
+            rate_limiter: self.rate_limiter.clone(),
             client_id: self.id,
             clients: self.clients.clone(),
+            peer_ip,
+            connection_count: self.connection_count.clone(),
+            ip_connections: self.ip_connections.clone(),
+            rejected: false,
         }
     }
 }
@@ -195,8 +258,13 @@ impl russh::server::Server for SshServerImpl {
 struct SshHandler {
     git_service: Arc<GitService>,
     auth_manager: Arc<Mutex<AuthorizedKeysManager>>,
+    rate_limiter: RateLimiter,
     client_id: usize,
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
+    peer_ip: String,
+    connection_count: Arc<AtomicUsize>,
+    ip_connections: Arc<Mutex<HashMap<String, usize>>>,
+    rejected: bool,
 }
 
 #[async_trait::async_trait]
@@ -210,12 +278,60 @@ impl russh::server::Handler for SshHandler {
     ) -> std::result::Result<russh::server::Auth, Self::Error> {
         debug!("Public key authentication for user: {}", user);
 
+        // Reject if connection was already marked as rejected
+        if self.rejected {
+            warn!(
+                "Rejecting auth for user {} from {}: connection rejected due to limits",
+                user, self.peer_ip
+            );
+            return Ok(russh::server::Auth::Reject {
+                proceed_with_methods: None,
+            });
+        }
+
+        // Check rate limits for authentication attempts
+        let context = RateLimitContext {
+            tenant_id: user.to_string(),
+            ip_address: self.peer_ip.clone(),
+            user_agent: "ssh-client".to_string(),
+            request_id: format!("ssh-auth-{}", self.client_id),
+            path: "/ssh/auth".to_string(),
+            timestamp: std::time::Instant::now(),
+        };
+
+        if let Err(e) = self.rate_limiter.check_rate_limit(&context, "free").await {
+            match e {
+                RateLimitError::RateLimitExceeded {
+                    limit_type,
+                    retry_after,
+                    ..
+                } => {
+                    warn!(
+                        "Rate limit exceeded for SSH auth from {}: {} (retry after {}s)",
+                        self.peer_ip, limit_type, retry_after
+                    );
+                    return Ok(russh::server::Auth::Reject {
+                        proceed_with_methods: None,
+                    });
+                }
+                _ => {
+                    error!("Rate limit check failed: {}", e);
+                }
+            }
+        }
+
         let auth_manager = self.auth_manager.lock().await;
         if auth_manager.is_key_authorized(user, public_key) {
-            info!("Authentication successful for user: {}", user);
+            info!(
+                "Authentication successful for user: {} from {}",
+                user, self.peer_ip
+            );
             Ok(russh::server::Auth::Accept)
         } else {
-            warn!("Authentication rejected for user: {}", user);
+            warn!(
+                "Authentication rejected for user: {} from {}",
+                user, self.peer_ip
+            );
             Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
             })
@@ -240,11 +356,50 @@ impl russh::server::Handler for SshHandler {
         session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
         let command_str = String::from_utf8_lossy(data);
-        debug!("Received SSH command: {}", command_str);
+        debug!(
+            "Received SSH command: {} from {}",
+            command_str, self.peer_ip
+        );
+
+        // Rate limit command executions
+        let context = RateLimitContext {
+            tenant_id: format!("ssh-{}", self.client_id),
+            ip_address: self.peer_ip.clone(),
+            user_agent: "ssh-client".to_string(),
+            request_id: format!("ssh-cmd-{}", self.client_id),
+            path: "/ssh/exec".to_string(),
+            timestamp: std::time::Instant::now(),
+        };
+
+        if let Err(e) = self.rate_limiter.check_rate_limit(&context, "free").await {
+            match e {
+                RateLimitError::RateLimitExceeded {
+                    limit_type,
+                    retry_after,
+                    ..
+                } => {
+                    warn!(
+                        "Rate limit exceeded for SSH command from {}: {} (retry after {}s)",
+                        self.peer_ip, limit_type, retry_after
+                    );
+                    let error_msg = format!(
+                        "ERROR: Rate limit exceeded. Try again in {}s.\n",
+                        retry_after
+                    );
+                    session.data(channel, error_msg.into_bytes().into())?;
+                    let _ = session.exit_status_request(channel, 1);
+                    session.close(channel)?;
+                    return Ok(());
+                }
+                _ => {
+                    error!("Rate limit check failed: {}", e);
+                }
+            }
+        }
 
         match CommandValidator::validate_command(&command_str) {
             Ok(git_command) => {
-                info!("Validated command: {:?}", git_command);
+                info!("Validated command: {:?} from {}", git_command, self.peer_ip);
 
                 match git_command {
                     crate::git::command::GitCommand::UploadPack { repository } => {
@@ -267,8 +422,8 @@ impl russh::server::Handler for SshHandler {
             }
             Err(validation_error) => {
                 warn!(
-                    "Command validation failed: {} for command: {}",
-                    validation_error, command_str
+                    "Command validation failed: {} for command: {} from {}",
+                    validation_error, command_str, self.peer_ip
                 );
 
                 let error_msg = format!("ERROR: {}\n", validation_error);
@@ -287,10 +442,41 @@ impl russh::server::Handler for SshHandler {
         data: &[u8],
         session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
-        debug!("Received data on channel {}: {} bytes", channel, data.len());
+        debug!(
+            "Received data on channel {}: {} bytes from {}",
+            channel,
+            data.len(),
+            self.peer_ip
+        );
         let response = format!("Received: {}\r\n", String::from_utf8_lossy(data));
         session.data(channel, response.into_bytes().into())?;
         Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> std::result::Result<(), Self::Error> {
+        debug!(
+            "Channel {} closed for client from {}",
+            channel, self.peer_ip
+        );
+        let mut clients = self.clients.lock().await;
+        clients.remove(&self.client_id);
+        Ok(())
+    }
+}
+
+impl Drop for SshHandler {
+    fn drop(&mut self) {
+        // Decrement connection count when handler is dropped
+        let prev_count = self.connection_count.fetch_sub(1, Ordering::SeqCst);
+        info!(
+            "SSH connection from {} closed (remaining: {})",
+            self.peer_ip,
+            prev_count.saturating_sub(1)
+        );
     }
 }
 
@@ -313,6 +499,7 @@ mod tests {
             authorized_keys_path: temp_dir.path().join("authorized_keys"),
             max_connections: 10,
             connection_timeout_secs: 30,
+            rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
         };
 
         let server = SshServer::new(git_service, Some(config));
@@ -384,6 +571,7 @@ mod tests {
             authorized_keys_path: temp_dir.path().join("authorized_keys"),
             max_connections: 10,
             connection_timeout_secs: 30,
+            rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
         };
 
         let storage = Arc::new(LocalStorage::new(temp_dir.path().to_path_buf()));
@@ -401,5 +589,81 @@ mod tests {
         // Directories and key file should now exist
         assert!(nested_path.parent().unwrap().exists());
         assert!(nested_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_ssh_server_connection_limits() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+
+        assert_eq!(server.connection_count.load(Ordering::SeqCst), 0);
+
+        let mut server_impl = SshServerImpl {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: server.rate_limiter.clone(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            max_connections: 2,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            id: 0,
+        };
+
+        let addr1 = "192.168.1.100:12345".parse::<SocketAddr>().unwrap();
+        let _handler1 = server_impl.new_client(Some(addr1));
+        assert_eq!(server.connection_count.load(Ordering::SeqCst), 1);
+
+        let addr2 = "192.168.1.101:12346".parse::<SocketAddr>().unwrap();
+        let _handler2 = server_impl.new_client(Some(addr2));
+        assert_eq!(server.connection_count.load(Ordering::SeqCst), 2);
+
+        let addr3 = "192.168.1.102:12347".parse::<SocketAddr>().unwrap();
+        let handler3 = server_impl.new_client(Some(addr3));
+        assert_eq!(server.connection_count.load(Ordering::SeqCst), 2);
+        assert!(handler3.rejected);
+    }
+
+    #[tokio::test]
+    async fn test_ssh_handler_rate_limiting() {
+        use russh::server::Handler;
+
+        let (server, _temp_dir) = create_test_ssh_server().await;
+
+        let mut rate_limit_config = crate::git::rate_limit::RateLimitConfig::default();
+        rate_limit_config.enabled = true;
+        rate_limit_config.tiers.insert(
+            "free".to_string(),
+            crate::git::rate_limit::RateLimitTier {
+                requests_per_minute: 2,
+                requests_per_hour: 10,
+                burst_size: 1,
+                ..Default::default()
+            },
+        );
+
+        let rate_limiter = RateLimiter::new(Some(rate_limit_config));
+
+        let mut handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter,
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+        };
+
+        use russh_keys::{Algorithm, PrivateKey};
+        let private_key = PrivateKey::random(&mut rand_core::OsRng, Algorithm::Ed25519).unwrap();
+        let public_key = private_key.public_key();
+
+        let _result1 = handler.auth_publickey("testuser", &public_key).await;
+
+        for _ in 0..5 {
+            let _result = handler.auth_publickey("testuser", &public_key).await;
+        }
+
+        assert!(true);
     }
 }

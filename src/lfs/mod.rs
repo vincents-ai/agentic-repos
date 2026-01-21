@@ -6,7 +6,8 @@ pub mod verify;
 
 pub use auth::{LfsAuthResponse, LfsClaims, LfsOperation, LfsTokenGenerator};
 pub use models::{
-    Action, Actions, BatchRequest, BatchResponse, ObjectError, Operation, ResponseObject, Transfer,
+    Action, Actions, BatchRequest, BatchResponse, GitRef, ObjectError, Operation, RequestObject,
+    ResponseObject, Transfer,
 };
 pub use pointer::{LfsPointer, PointerParseError};
 pub use storage::{LfsStorage, LfsStorageAdapter, StorageKey};

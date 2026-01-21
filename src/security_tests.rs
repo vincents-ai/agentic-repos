@@ -39,7 +39,7 @@ mod integration_tests {
         };
 
         let auth_manager = AuthorizedKeysManager::new(config.clone());
-        let server = SshServer::new(git_service, Some(config.clone()));
+        let server = SshServer::new(git_service, Some(config.clone()), None);
 
         (server, temp_dir, auth_manager)
     }

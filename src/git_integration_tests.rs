@@ -310,7 +310,7 @@ mod integration_tests {
         )
         .unwrap();
 
-        let _server = SshServer::new(git_service, Some(config));
+        let _server = SshServer::new(git_service, Some(config), None);
 
         // Test passes if server can be instantiated without errors
     }

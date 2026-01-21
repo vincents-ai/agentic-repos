@@ -27,11 +27,17 @@ pub struct SshServer {
     rate_limiter: RateLimiter,
     connection_count: Arc<AtomicUsize>,
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
+    lfs_config: crate::config::LfsConfig,
 }
 
 impl SshServer {
-    pub fn new(git_service: Arc<GitService>, config: Option<GitConfig>) -> Self {
+    pub fn new(
+        git_service: Arc<GitService>,
+        config: Option<GitConfig>,
+        lfs_config: Option<crate::config::LfsConfig>,
+    ) -> Self {
         let config = config.unwrap_or_default();
+        let lfs_config = lfs_config.unwrap_or_default();
         let auth_manager = AuthorizedKeysManager::new(config.clone());
         let rate_limiter = RateLimiter::new(Some(config.rate_limit.clone()));
 
@@ -42,6 +48,7 @@ impl SshServer {
             rate_limiter,
             connection_count: Arc::new(AtomicUsize::new(0)),
             ip_connections: Arc::new(Mutex::new(HashMap::new())),
+            lfs_config,
         }
     }
 
@@ -165,6 +172,7 @@ impl SshServer {
             max_connections: self.config.max_connections,
             clients: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
+            lfs_config: self.lfs_config.clone(),
         };
 
         let mut shutdown_signal = Box::pin(signal::ctrl_c());
@@ -222,6 +230,7 @@ struct SshServerImpl {
     max_connections: usize,
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
     id: usize,
+    lfs_config: crate::config::LfsConfig,
 }
 
 impl russh::server::Server for SshServerImpl {
@@ -252,7 +261,8 @@ impl russh::server::Server for SshServerImpl {
                 peer_ip,
                 connection_count: self.connection_count.clone(),
                 ip_connections: self.ip_connections.clone(),
-                rejected: true, // Mark as rejected
+                rejected: true,
+                lfs_config: self.lfs_config.clone(),
             };
         }
 
@@ -278,6 +288,7 @@ impl russh::server::Server for SshServerImpl {
             connection_count: self.connection_count.clone(),
             ip_connections: self.ip_connections.clone(),
             rejected: false,
+            lfs_config: self.lfs_config.clone(),
         }
     }
 }
@@ -295,6 +306,7 @@ struct SshHandler {
     #[allow(dead_code)]
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
     rejected: bool,
+    lfs_config: crate::config::LfsConfig,
 }
 
 #[async_trait::async_trait]
@@ -467,18 +479,20 @@ impl russh::server::Handler for SshHandler {
                         let tenant = parts[0];
                         let repo = parts[1..].join("/");
 
-                        // Generate JWT token
-                        // TODO: Get secret from config instead of hardcoded value
-                        let generator = crate::lfs::LfsTokenGenerator::new(
-                            "your-secret-key-change-in-production".to_string(),
-                        );
+                        let generator =
+                            crate::lfs::LfsTokenGenerator::new(self.lfs_config.jwt_secret.clone());
                         let lfs_op = if operation == "download" {
                             crate::lfs::LfsOperation::Download
                         } else {
                             crate::lfs::LfsOperation::Upload
                         };
 
-                        let token = match generator.generate_token(tenant, &repo, lfs_op, 3600) {
+                        let token = match generator.generate_token(
+                            tenant,
+                            &repo,
+                            lfs_op,
+                            self.lfs_config.token_expiration_secs,
+                        ) {
                             Ok(t) => t,
                             Err(e) => {
                                 let error_msg = format!("Error: Token generation failed: {}\n", e);
@@ -489,10 +503,11 @@ impl russh::server::Handler for SshHandler {
                             }
                         };
 
-                        // Create response with endpoint URL
-                        // TODO: Get base URL from config instead of hardcoded value
-                        let base_url = "http://localhost:8090";
-                        let response = crate::lfs::LfsAuthResponse::new(base_url, token, 3600);
+                        let response = crate::lfs::LfsAuthResponse::new(
+                            &self.lfs_config.base_url,
+                            token,
+                            self.lfs_config.token_expiration_secs,
+                        );
 
                         let json = match serde_json::to_string(&response) {
                             Ok(j) => j,
@@ -598,7 +613,7 @@ mod tests {
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
         };
 
-        let server = SshServer::new(git_service, Some(config));
+        let server = SshServer::new(git_service, Some(config), None);
         (server, temp_dir)
     }
 
@@ -672,7 +687,7 @@ mod tests {
 
         let storage = Arc::new(LocalStorage::new(temp_dir.path().to_path_buf()));
         let git_service = Arc::new(GitService::new(storage, None));
-        let server = SshServer::new(git_service, Some(config));
+        let server = SshServer::new(git_service, Some(config), None);
 
         // Nested directories don't exist initially
         assert!(!nested_path.parent().unwrap().exists());
@@ -702,6 +717,7 @@ mod tests {
             max_connections: 2,
             clients: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
+            lfs_config: server.lfs_config.clone(),
         };
 
         let addr1 = "192.168.1.100:12345".parse::<SocketAddr>().unwrap();
@@ -748,6 +764,7 @@ mod tests {
             connection_count: server.connection_count.clone(),
             ip_connections: server.ip_connections.clone(),
             rejected: false,
+            lfs_config: server.lfs_config.clone(),
         };
 
         use russh_keys::{Algorithm, PrivateKey};

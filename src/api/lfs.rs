@@ -135,20 +135,16 @@ where
 
 pub async fn batch_endpoint<S>(
     _req: HttpRequest,
-    tenant: web::Path<String>,
-    repo: web::Path<String>,
+    path: web::Path<(String, String)>,
     batch_req: web::Json<BatchRequest>,
     handler: web::Data<LfsHandler<S>>,
 ) -> impl Responder
 where
     S: LfsStorage + 'static,
 {
+    let (tenant, repo) = path.into_inner();
     match handler
-        .handle_batch(
-            tenant.into_inner(),
-            repo.into_inner(),
-            batch_req.into_inner(),
-        )
+        .handle_batch(tenant, repo, batch_req.into_inner())
         .await
     {
         Ok(response) => HttpResponse::Ok().json(response),

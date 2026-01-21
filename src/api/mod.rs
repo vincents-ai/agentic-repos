@@ -60,6 +60,7 @@ impl ApiServer {
             None
         };
 
+        let config_clone = config.clone();
         HttpServer::new(move || {
             let mut app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
@@ -68,11 +69,24 @@ impl ApiServer {
                 .service(web::scope("/api/v1").configure(routes::configure_routes));
 
             if feature_flags.git_lfs && lfs_config.enabled {
-                app = app.service(web::scope("/lfs").configure(
-                    lfs::configure_lfs_routes::<
-                        crate::lfs::storage::LfsStorageAdapter<crate::storage::local::LocalStorage>,
-                    >,
-                ));
+                use crate::lfs::storage::LfsStorageAdapter;
+                use crate::storage::local::LocalStorage;
+                use std::path::PathBuf;
+                use std::sync::Arc;
+
+                let local_storage = LocalStorage::new(PathBuf::from("./test_repositories"));
+                let lfs_storage = LfsStorageAdapter::new(
+                    local_storage,
+                    lfs_config.storage_path_pattern.clone(),
+                    lfs_config.base_url.clone(),
+                );
+                let app_config = config_clone.clone();
+                let handler = lfs::LfsHandler::new(Arc::new(lfs_storage), app_config);
+
+                app = app.app_data(web::Data::new(handler)).service(
+                    web::scope("/lfs")
+                        .configure(lfs::configure_lfs_routes::<LfsStorageAdapter<LocalStorage>>),
+                );
             }
 
             app

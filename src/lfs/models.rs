@@ -11,7 +11,7 @@ pub struct BatchRequest {
     pub hash_algo: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Operation {
     Download,
@@ -36,7 +36,7 @@ pub struct BatchResponse {
     pub hash_algo: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Transfer {
     Basic,

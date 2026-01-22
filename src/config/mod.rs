@@ -40,6 +40,23 @@ pub struct LfsConfig {
     /// Garbage collection configuration
     #[serde(default)]
     pub gc: LfsGcConfig,
+    /// Storage quota configuration
+    #[serde(default)]
+    pub quota: LfsQuotaConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LfsQuotaConfig {
+    /// Enable quota enforcement (default: false)
+    pub enabled: bool,
+    /// Default quota per repository in bytes (default: 10GB)
+    pub default_quota_bytes: u64,
+    /// Per-tenant quota overrides (tenant_name -> bytes)
+    #[serde(default)]
+    pub per_tenant_quotas: HashMap<String, u64>,
+    /// Per-repository quota overrides (tenant/repo -> bytes)
+    #[serde(default)]
+    pub per_repo_quotas: HashMap<String, u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -166,6 +183,18 @@ impl Default for LfsConfig {
             locking_enabled: false,
             lock_expiration_secs: 86400, // 24 hours
             gc: LfsGcConfig::default(),
+            quota: LfsQuotaConfig::default(),
+        }
+    }
+}
+
+impl Default for LfsQuotaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_quota_bytes: 10 * 1024 * 1024 * 1024,
+            per_tenant_quotas: HashMap::new(),
+            per_repo_quotas: HashMap::new(),
         }
     }
 }

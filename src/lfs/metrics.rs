@@ -77,6 +77,24 @@ lazy_static! {
         &["tenant", "repo", "status"]
     )
     .expect("Failed to create lfs_gc_runs_total metric");
+    pub static ref LFS_QUOTA_BYTES_USED: IntCounterVec = register_int_counter_vec!(
+        "lfs_quota_bytes_used",
+        "Current LFS storage bytes used per tenant/repo",
+        &["tenant", "repo"]
+    )
+    .expect("Failed to create lfs_quota_bytes_used metric");
+    pub static ref LFS_QUOTA_OBJECTS_COUNT: IntCounterVec = register_int_counter_vec!(
+        "lfs_quota_objects_count",
+        "Current number of LFS objects per tenant/repo",
+        &["tenant", "repo"]
+    )
+    .expect("Failed to create lfs_quota_objects_count metric");
+    pub static ref LFS_QUOTA_EXCEEDED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "lfs_quota_exceeded_total",
+        "Total number of quota exceeded errors",
+        &["tenant", "repo"]
+    )
+    .expect("Failed to create lfs_quota_exceeded_total metric");
 }
 
 pub fn record_upload(tenant: &str, repo: &str, bytes: u64) {
@@ -123,6 +141,21 @@ pub fn record_gc_deletion(tenant: &str, repo: &str, bytes: u64) {
 pub fn record_gc_run(tenant: &str, repo: &str, status: &str) {
     LFS_GC_RUNS_TOTAL
         .with_label_values(&[tenant, repo, status])
+        .inc();
+}
+
+pub fn record_quota_usage(tenant: &str, repo: &str, bytes: u64, _objects: u64) {
+    LFS_QUOTA_BYTES_USED
+        .with_label_values(&[tenant, repo])
+        .reset();
+    LFS_QUOTA_BYTES_USED
+        .with_label_values(&[tenant, repo])
+        .inc_by(bytes);
+}
+
+pub fn record_quota_exceeded(tenant: &str, repo: &str) {
+    LFS_QUOTA_EXCEEDED_TOTAL
+        .with_label_values(&[tenant, repo])
         .inc();
 }
 

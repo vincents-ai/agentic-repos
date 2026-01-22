@@ -5,13 +5,14 @@ use std::sync::Arc;
 use crate::config::AppConfig;
 use crate::lfs::{
     record_batch_request, record_download, record_error, record_upload, Action, Actions,
-    BatchRequest, BatchResponse, LfsStorage, ObjectError, Operation, ResponseObject, StorageKey,
-    Transfer,
+    BatchRequest, BatchResponse, LfsStorage, ObjectError, Operation, QuotaManager, ResponseObject,
+    StorageKey, Transfer,
 };
 
 pub struct LfsHandler<S> {
     storage: Arc<S>,
     config: AppConfig,
+    quota_manager: Option<Arc<QuotaManager>>,
 }
 
 impl<S> LfsHandler<S>
@@ -19,7 +20,16 @@ where
     S: LfsStorage + 'static,
 {
     pub fn new(storage: Arc<S>, config: AppConfig) -> Self {
-        Self { storage, config }
+        Self {
+            storage,
+            config,
+            quota_manager: None,
+        }
+    }
+
+    pub fn with_quota_manager(mut self, quota_manager: Arc<QuotaManager>) -> Self {
+        self.quota_manager = Some(quota_manager);
+        self
     }
 
     pub async fn handle_batch(
@@ -106,6 +116,28 @@ where
                     }
                 },
                 Operation::Upload => {
+                    if let Some(ref quota_manager) = self.quota_manager {
+                        if self.config.lfs.quota.enabled {
+                            match quota_manager.check_quota(&tenant, &repo, obj.size).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    record_error("quota_exceeded", &tenant, &repo);
+                                    response_objects.push(ResponseObject {
+                                        oid: obj.oid.clone(),
+                                        size: obj.size,
+                                        authenticated: Some(true),
+                                        actions: None,
+                                        error: Some(ObjectError {
+                                            code: 507,
+                                            message: format!("Storage quota exceeded: {}", e),
+                                        }),
+                                    });
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     let upload_url = self
                         .storage
                         .get_upload_url(&key, std::time::Duration::from_secs(3600))
@@ -202,6 +234,15 @@ where
     match handler.storage.put_object(&key, body.to_vec()).await {
         Ok(()) => {
             record_upload(&tenant, &repo, body.len() as u64);
+
+            if let Some(ref quota_manager) = handler.quota_manager {
+                if handler.config.lfs.quota.enabled {
+                    quota_manager
+                        .update_usage(&tenant, &repo, body.len() as i64)
+                        .await;
+                }
+            }
+
             HttpResponse::Ok().finish()
         }
         Err(e) => {
@@ -265,6 +306,52 @@ where
                 web::post().to(batch_endpoint::<S>),
             )
             .route("/lfs/objects/{oid}", web::put().to(upload_object::<S>))
-            .route("/lfs/objects/{oid}", web::get().to(download_object::<S>)),
+            .route("/lfs/objects/{oid}", web::get().to(download_object::<S>))
+            .route("/quota", web::get().to(get_quota_info::<S>)),
     );
+}
+
+pub async fn get_quota_info<S>(
+    _req: HttpRequest,
+    path: web::Path<(String, String)>,
+    handler: web::Data<LfsHandler<S>>,
+) -> impl Responder
+where
+    S: LfsStorage + 'static,
+{
+    let (tenant, repo) = path.into_inner();
+
+    if !handler.config.lfs.enabled {
+        return HttpResponse::ServiceUnavailable().json(json!({
+            "message": "Git LFS is not enabled on this server"
+        }));
+    }
+
+    if !handler.config.lfs.quota.enabled {
+        return HttpResponse::Ok().json(json!({
+            "enabled": false,
+            "message": "Quota enforcement is not enabled"
+        }));
+    }
+
+    if let Some(ref quota_manager) = handler.quota_manager {
+        let limit = quota_manager.get_quota_limit(&tenant, &repo);
+        let (used, count) = quota_manager.get_current_usage(&tenant, &repo).await;
+
+        HttpResponse::Ok().json(json!({
+            "enabled": true,
+            "tenant": tenant,
+            "repo": repo,
+            "limit_bytes": limit,
+            "used_bytes": used,
+            "available_bytes": limit.saturating_sub(used),
+            "object_count": count,
+            "usage_percent": if limit > 0 { (used as f64 / limit as f64 * 100.0) } else { 0.0 }
+        }))
+    } else {
+        HttpResponse::Ok().json(json!({
+            "enabled": false,
+            "message": "Quota manager not initialized"
+        }))
+    }
 }

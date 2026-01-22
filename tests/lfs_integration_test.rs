@@ -16,6 +16,8 @@ fn test_lfs_jwt_authentication_flow() {
             .to_string(),
         locking_enabled: false,
         lock_expiration_secs: 86400,
+        gc: Default::default(),
+        quota: Default::default(),
     };
 
     let tenant = "test-tenant";
@@ -52,6 +54,8 @@ fn test_lfs_jwt_with_batch_request_structure() {
             .to_string(),
         locking_enabled: false,
         lock_expiration_secs: 86400,
+        gc: Default::default(),
+        quota: Default::default(),
     };
 
     let generator = LfsTokenGenerator::new(lfs_config.jwt_secret.clone());

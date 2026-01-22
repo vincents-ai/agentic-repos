@@ -17,7 +17,8 @@ pub use auth::{LfsAuthResponse, LfsClaims, LfsOperation, LfsTokenGenerator};
 pub use gc::{GcConfig, GcResult, LfsGarbageCollector};
 pub use metrics::{
     encode_metrics, record_batch_request, record_download, record_error, record_gc_deletion,
-    record_gc_run, record_gc_scan, record_quota_exceeded, record_quota_usage, record_upload,
+    record_gc_run, record_gc_scan, record_quota_exceeded, record_quota_usage,
+    record_throttle_bytes, record_throttle_wait, record_upload,
 };
 pub use models::{
     Action, Actions, BatchRequest, BatchResponse, GitRef, ObjectError, Operation, RequestObject,

@@ -95,6 +95,18 @@ lazy_static! {
         &["tenant", "repo"]
     )
     .expect("Failed to create lfs_quota_exceeded_total metric");
+    pub static ref LFS_THROTTLE_WAIT_SECONDS: HistogramVec = register_histogram_vec!(
+        "lfs_throttle_wait_seconds",
+        "Time spent waiting for bandwidth throttle",
+        &["tenant", "repo", "operation"]
+    )
+    .expect("Failed to create lfs_throttle_wait_seconds metric");
+    pub static ref LFS_THROTTLE_BYTES_LIMITED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "lfs_throttle_bytes_limited_total",
+        "Total bytes subject to throttling",
+        &["tenant", "repo", "operation"]
+    )
+    .expect("Failed to create lfs_throttle_bytes_limited_total metric");
 }
 
 pub fn record_upload(tenant: &str, repo: &str, bytes: u64) {
@@ -157,6 +169,18 @@ pub fn record_quota_exceeded(tenant: &str, repo: &str) {
     LFS_QUOTA_EXCEEDED_TOTAL
         .with_label_values(&[tenant, repo])
         .inc();
+}
+
+pub fn record_throttle_wait(tenant: &str, repo: &str, operation: &str, wait_seconds: f64) {
+    LFS_THROTTLE_WAIT_SECONDS
+        .with_label_values(&[tenant, repo, operation])
+        .observe(wait_seconds);
+}
+
+pub fn record_throttle_bytes(tenant: &str, repo: &str, operation: &str, bytes: u64) {
+    LFS_THROTTLE_BYTES_LIMITED_TOTAL
+        .with_label_values(&[tenant, repo, operation])
+        .inc_by(bytes);
 }
 
 pub fn encode_metrics() -> Result<String, prometheus::Error> {
@@ -261,5 +285,38 @@ mod tests {
         let metrics_text = result.unwrap();
         assert!(metrics_text.contains("lfs_uploads_total"));
         assert!(metrics_text.contains("lfs_upload_bytes_total"));
+    }
+
+    #[test]
+    fn test_record_throttle_wait() {
+        let tenant = "test_tenant_throttle";
+        let repo = "test_repo_throttle";
+        let operation = "upload";
+        let wait_seconds = 0.5;
+
+        record_throttle_wait(tenant, repo, operation, wait_seconds);
+
+        let encoded = encode_metrics().unwrap();
+        assert!(encoded.contains("lfs_throttle_wait_seconds"));
+    }
+
+    #[test]
+    fn test_record_throttle_bytes() {
+        let tenant = "test_tenant_throttle_bytes";
+        let repo = "test_repo_throttle_bytes";
+        let operation = "download";
+        let bytes = 1048576;
+
+        let before = LFS_THROTTLE_BYTES_LIMITED_TOTAL
+            .with_label_values(&[tenant, repo, operation])
+            .get();
+
+        record_throttle_bytes(tenant, repo, operation, bytes);
+
+        let after = LFS_THROTTLE_BYTES_LIMITED_TOTAL
+            .with_label_values(&[tenant, repo, operation])
+            .get();
+
+        assert_eq!(after, before + bytes);
     }
 }

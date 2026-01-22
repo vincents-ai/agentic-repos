@@ -19,6 +19,7 @@ fn test_lfs_jwt_authentication_flow() {
         gc: Default::default(),
         quota: Default::default(),
         audit: Default::default(),
+        throttle: Default::default(),
     };
 
     let tenant = "test-tenant";
@@ -58,6 +59,7 @@ fn test_lfs_jwt_with_batch_request_structure() {
         gc: Default::default(),
         quota: Default::default(),
         audit: Default::default(),
+        throttle: Default::default(),
     };
 
     let generator = LfsTokenGenerator::new(lfs_config.jwt_secret.clone());

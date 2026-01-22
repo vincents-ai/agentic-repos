@@ -276,7 +276,12 @@ where
 
     if let Some(ref throttler) = handler.throttler {
         if handler.config.lfs.throttle.enabled {
+            let start = std::time::Instant::now();
             throttler.acquire(&tenant, &repo, body.len() as u64).await;
+            let wait_time = start.elapsed().as_secs_f64();
+
+            crate::lfs::record_throttle_wait(&tenant, &repo, "upload", wait_time);
+            crate::lfs::record_throttle_bytes(&tenant, &repo, "upload", body.len() as u64);
         }
     }
 
@@ -348,7 +353,17 @@ where
         Ok(Some(data)) => {
             if let Some(ref throttler) = handler.throttler {
                 if handler.config.lfs.throttle.enabled {
+                    let start = std::time::Instant::now();
                     throttler.acquire(&tenant, &repo, data.len() as u64).await;
+                    let wait_time = start.elapsed().as_secs_f64();
+
+                    crate::lfs::record_throttle_wait(&tenant, &repo, "download", wait_time);
+                    crate::lfs::record_throttle_bytes(
+                        &tenant,
+                        &repo,
+                        "download",
+                        data.len() as u64,
+                    );
                 }
             }
 

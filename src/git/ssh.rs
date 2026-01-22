@@ -15,7 +15,9 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
+use tokio::process::Command;
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -445,22 +447,97 @@ impl russh::server::Handler for SshHandler {
 
                 match git_command {
                     crate::git::command::GitCommand::UploadPack { repository } => {
-                        let response = format!(
-                            "git-upload-pack operation for repository '{}' completed\n",
-                            repository
-                        );
-                        session.data(channel, response.as_bytes().to_vec().into())?;
-                        session.exit_status_request(channel, 0)?;
-                        session.eof(channel)?;
+                        let (tenant, repo_name) =
+                            match CommandValidator::parse_repository_path(&repository) {
+                                Some((t, r)) => (t, r),
+                                None => {
+                                    let error_msg = "Error: Invalid repository path format\n";
+                                    session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                    session.exit_status_request(channel, 1)?;
+                                    session.eof(channel)?;
+                                    return Ok(());
+                                }
+                            };
+
+                        let repo_path = self
+                            .git_service
+                            .get_repository_full_path(&tenant, &repo_name);
+                        let storage_root = self.git_service.get_storage_root();
+                        let full_path = storage_root.join(&repo_path);
+
+                        if !full_path.exists() {
+                            let error_msg =
+                                format!("Error: Repository '{}' not found\n", repository);
+                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session.exit_status_request(channel, 128)?;
+                            session.eof(channel)?;
+                            return Ok(());
+                        }
+
+                        match self.run_git_upload_pack(channel, session, &full_path).await {
+                            Ok(()) => {
+                                info!(
+                                    "git-upload-pack completed for {} from {}",
+                                    repository, self.peer_ip
+                                );
+                            }
+                            Err(e) => {
+                                error!("git-upload-pack failed for {}: {}", repository, e);
+                                let error_msg = format!("Error: {}\n", e);
+                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.exit_status_request(channel, 1)?;
+                                session.eof(channel)?;
+                                return Ok(());
+                            }
+                        }
                     }
                     crate::git::command::GitCommand::ReceivePack { repository } => {
-                        let response = format!(
-                            "git-receive-pack operation for repository '{}' completed\n",
-                            repository
-                        );
-                        session.data(channel, response.as_bytes().to_vec().into())?;
-                        session.exit_status_request(channel, 0)?;
-                        session.eof(channel)?;
+                        let (tenant, repo_name) =
+                            match CommandValidator::parse_repository_path(&repository) {
+                                Some((t, r)) => (t, r),
+                                None => {
+                                    let error_msg = "Error: Invalid repository path format\n";
+                                    session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                    session.exit_status_request(channel, 1)?;
+                                    session.eof(channel)?;
+                                    return Ok(());
+                                }
+                            };
+
+                        let repo_path = self
+                            .git_service
+                            .get_repository_full_path(&tenant, &repo_name);
+                        let storage_root = self.git_service.get_storage_root();
+                        let full_path = storage_root.join(&repo_path);
+
+                        if !full_path.exists() {
+                            let error_msg =
+                                format!("Error: Repository '{}' not found\n", repository);
+                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session.exit_status_request(channel, 128)?;
+                            session.eof(channel)?;
+                            return Ok(());
+                        }
+
+                        match self
+                            .run_git_receive_pack(channel, session, &full_path)
+                            .await
+                        {
+                            Ok(()) => {
+                                info!(
+                                    "git-receive-pack completed for {} from {}",
+                                    repository, self.peer_ip
+                                );
+                            }
+                            Err(e) => {
+                                error!("git-receive-pack failed for {}: {}", repository, e);
+                                let error_msg = format!("Error: {}\n", e);
+                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.exit_status_request(channel, 1)?;
+                                session.eof(channel)?;
+                                return Ok(());
+                            }
+                        }
                     }
                     crate::git::command::GitCommand::LfsAuthenticate {
                         repository,
@@ -589,6 +666,186 @@ impl Drop for SshHandler {
             self.peer_ip,
             prev_count.saturating_sub(1)
         );
+    }
+}
+
+impl SshHandler {
+    async fn run_git_upload_pack(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        repo_path: &Path,
+    ) -> std::result::Result<(), russh::Error> {
+        debug!("Starting git-upload-pack for {:?}", repo_path);
+
+        let mut child = Command::new("git")
+            .args(&["upload-pack", repo_path.to_string_lossy().as_ref()])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                error!("Failed to spawn git-upload-pack: {}", e);
+                russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
+            })?;
+
+        let mut child_stdout = child.stdout.take().unwrap();
+        let mut child_stderr = child.stderr.take().unwrap();
+
+        let channel_clone = channel;
+        let session_clone = session.handle();
+        let peer_ip = self.peer_ip.clone();
+
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 8192];
+            loop {
+                match child_stdout.read(&mut buffer).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if let Err(e) = session_clone
+                            .data(channel_clone, buffer[..n].to_vec().into())
+                            .await
+                        {
+                            error!(
+                                "Failed to send data to SSH client from {}: {:?}",
+                                peer_ip, e
+                            );
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to read from git-upload-pack: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        let channel_clone = channel;
+        let session_clone = session.handle();
+        let _peer_ip = self.peer_ip.clone();
+
+        tokio::spawn(async move {
+            let mut stderr_buffer = [0u8; 1024];
+            loop {
+                match child_stderr.read(&mut stderr_buffer).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        debug!(
+                            "git-upload-pack stderr: {}",
+                            String::from_utf8_lossy(&stderr_buffer[..n])
+                        );
+                    }
+                    Err(e) => {
+                        debug!("Error reading git-upload-pack stderr: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        let exit_status = child.wait().await.map_err(|e| {
+            error!("git-upload-pack process error: {}", e);
+            russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
+        })?;
+
+        let exit_code = exit_status.code().unwrap_or(1);
+        debug!("git-upload-pack exited with code: {}", exit_code);
+
+        session.exit_status_request(channel, exit_code as u32)?;
+        session.eof(channel)?;
+
+        Ok(())
+    }
+
+    async fn run_git_receive_pack(
+        &self,
+        channel: ChannelId,
+        session: &mut Session,
+        repo_path: &Path,
+    ) -> std::result::Result<(), russh::Error> {
+        debug!("Starting git-receive-pack for {:?}", repo_path);
+
+        let mut child = Command::new("git")
+            .args(&["receive-pack", repo_path.to_string_lossy().as_ref()])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                error!("Failed to spawn git-receive-pack: {}", e);
+                russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
+            })?;
+
+        let mut child_stdout = child.stdout.take().unwrap();
+        let mut child_stderr = child.stderr.take().unwrap();
+
+        let channel_clone = channel;
+        let session_clone = session.handle();
+        let peer_ip = self.peer_ip.clone();
+
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 8192];
+            loop {
+                match child_stdout.read(&mut buffer).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if let Err(e) = session_clone
+                            .data(channel_clone, buffer[..n].to_vec().into())
+                            .await
+                        {
+                            error!(
+                                "Failed to send data to SSH client from {}: {:?}",
+                                peer_ip, e
+                            );
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to read from git-receive-pack: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        let channel_clone = channel;
+        let session_clone = session.handle();
+        let _peer_ip = self.peer_ip.clone();
+
+        tokio::spawn(async move {
+            let mut stderr_buffer = [0u8; 1024];
+            loop {
+                match child_stderr.read(&mut stderr_buffer).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        debug!(
+                            "git-receive-pack stderr: {}",
+                            String::from_utf8_lossy(&stderr_buffer[..n])
+                        );
+                    }
+                    Err(e) => {
+                        debug!("Error reading git-receive-pack stderr: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        let exit_status = child.wait().await.map_err(|e| {
+            error!("git-receive-pack process error: {}", e);
+            russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
+        })?;
+
+        let exit_code = exit_status.code().unwrap_or(1);
+        debug!("git-receive-pack exited with code: {}", exit_code);
+
+        session.exit_status_request(channel, exit_code as u32)?;
+        session.eof(channel)?;
+
+        Ok(())
     }
 }
 

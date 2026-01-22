@@ -1,10 +1,12 @@
 use crate::api::ApiServer;
 use crate::config::AppConfig;
 use crate::features::FeatureFlags;
-use crate::git::{GitConfig, GitService};
+use crate::git::{ssh::SshServer, GitConfig, GitService};
 use crate::storage::local::LocalStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::spawn;
+use tokio::time::{interval, Duration};
 
 pub struct Server {
     config: Arc<AppConfig>,
@@ -38,10 +40,22 @@ impl Server {
         let git_service = self.git_service.clone();
         let feature_flags = self.feature_flags.clone();
 
+        // Start SSH server in background
+        println!("Starting SSH server on port 2222...");
+        let ssh_git_service = git_service.clone();
+        spawn(async move {
+            let ssh_server = SshServer::new(ssh_git_service, None, None);
+            if let Err(e) = ssh_server.run().await {
+                eprintln!("SSH server error: {}", e);
+            }
+        });
+
+        // Start HTTP API server (blocks until server stops)
         println!("Starting API server on port {}...", config.server.port);
         let lfs_config = config.lfs.clone();
         let api_server = ApiServer::new(git_service.clone(), feature_flags, lfs_config);
 
+        // Run API server - this will block
         api_server.run(config).await
     }
 }

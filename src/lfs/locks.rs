@@ -49,13 +49,16 @@ impl LfsLockManager {
         request: CreateLockRequest,
         owner_name: &str,
         owner_id: Option<Uuid>,
+        expiration_secs: Option<u64>,
     ) -> Result<CreateLockResponse, LockManagerError> {
         let ref_name = request.git_ref.as_ref().map(|r| r.name.as_str());
+        let expires_at =
+            expiration_secs.map(|secs| Utc::now() + chrono::Duration::seconds(secs as i64));
 
         let row = sqlx::query(
             r#"
-            INSERT INTO lfs_locks (tenant, repo, path, ref_name, owner_name, owner_id)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO lfs_locks (tenant, repo, path, ref_name, owner_name, owner_id, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id, path, locked_at, owner_name
             "#,
         )
@@ -65,6 +68,7 @@ impl LfsLockManager {
         .bind(ref_name)
         .bind(owner_name)
         .bind(owner_id)
+        .bind(expires_at)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| {
@@ -105,6 +109,7 @@ impl LfsLockManager {
             SELECT id, path, locked_at, owner_name
             FROM lfs_locks
             WHERE tenant = $1 AND repo = $2
+            AND (expires_at IS NULL OR expires_at > NOW())
             "#,
         );
 

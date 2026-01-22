@@ -299,6 +299,14 @@ impl GitService {
         PathBuf::from(owner).join(format!("{}.git", name))
     }
 
+    pub fn get_repository_full_path(&self, owner: &str, name: &str) -> PathBuf {
+        self.get_repository_path(owner, name)
+    }
+
+    pub fn get_storage_root(&self) -> PathBuf {
+        self.storage.root().to_path_buf()
+    }
+
     fn validate_repository_name(&self, name: &str) -> GitServiceResult<()> {
         if name.is_empty() {
             return Err(GitServiceError::InvalidName(

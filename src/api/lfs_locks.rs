@@ -78,9 +78,22 @@ pub async fn create_lock(
         Err(response) => return response,
     };
 
+    let expiration_secs = if handler.lfs_config.locking_enabled {
+        Some(handler.lfs_config.lock_expiration_secs)
+    } else {
+        None
+    };
+
     match handler
         .lock_manager
-        .create_lock(&tenant, &repo, body.into_inner(), &username, None)
+        .create_lock(
+            &tenant,
+            &repo,
+            body.into_inner(),
+            &username,
+            None,
+            expiration_secs,
+        )
         .await
     {
         Ok(response) => HttpResponse::Created().json(response),

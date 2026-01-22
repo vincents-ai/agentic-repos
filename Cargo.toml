@@ -63,7 +63,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Utilities
 walkdir = "2.4"
 tempfile = "3.8"
-thiserror = "1.0"
+thiserror = "2.0"
 regex = "1.10"
 http = "1.0"
 rand_core = "0.6"

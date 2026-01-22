@@ -19,7 +19,7 @@ jobs:
     name: Cargo Security Audit
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -60,7 +60,7 @@ jobs:
     name: SSH Security Validation
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Check for SSH authentication bypass
       run: |
@@ -96,7 +96,7 @@ jobs:
     name: Dependency Security Check
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -131,7 +131,7 @@ jobs:
     name: Security Policy Validation
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Validate README security warnings
       run: |
@@ -171,7 +171,7 @@ jobs:
     name: VM Security Tests
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31

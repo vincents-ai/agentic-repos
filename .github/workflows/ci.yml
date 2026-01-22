@@ -15,7 +15,7 @@ jobs:
     name: Security & Quality
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: security
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -96,7 +96,7 @@ jobs:
       matrix:
         test: [ssh-basic, git-operations, multi-client, storage-local, storage-s3]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -138,7 +138,7 @@ jobs:
     needs: integration
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -165,7 +165,7 @@ jobs:
     needs: integration
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -215,7 +215,7 @@ jobs:
   #   runs-on: ubuntu-latest
   #   if: github.event_name == 'pull_request'
   #   steps:
-  #   - uses: actions/checkout@v4
+  #   - uses: actions/checkout@v6
   #   - uses: actions/dependency-review-action@v4
   #     with:
   #       # Only fail on high/critical severity issues
@@ -232,7 +232,7 @@ jobs:
   #   permissions:
   #     security-events: write
   #   steps:
-  #   - uses: actions/checkout@v4
+  #   - uses: actions/checkout@v6
   #   
   #   - name: Initialize CodeQL
   #     uses: github/codeql-action/init@v4
@@ -259,7 +259,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: production
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Deploy to staging
       run: |

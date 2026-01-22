@@ -5,30 +5,41 @@ use std::sync::Arc;
 use crate::config::AppConfig;
 use crate::lfs::{
     record_batch_request, record_download, record_error, record_upload, Action, Actions,
-    BatchRequest, BatchResponse, LfsStorage, ObjectError, Operation, QuotaManager, ResponseObject,
-    StorageKey, Transfer,
+    AuditEvent, AuditEventType, AuditLogger, AuditStorage, BatchRequest, BatchResponse, LfsStorage,
+    ObjectError, Operation, QuotaManager, ResponseObject, StorageKey, Transfer,
 };
 
-pub struct LfsHandler<S> {
+pub struct LfsHandler<S, A>
+where
+    A: AuditStorage,
+{
     storage: Arc<S>,
     config: AppConfig,
     quota_manager: Option<Arc<QuotaManager>>,
+    audit_logger: Option<Arc<AuditLogger<A>>>,
 }
 
-impl<S> LfsHandler<S>
+impl<S, A> LfsHandler<S, A>
 where
     S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
 {
     pub fn new(storage: Arc<S>, config: AppConfig) -> Self {
         Self {
             storage,
             config,
             quota_manager: None,
+            audit_logger: None,
         }
     }
 
     pub fn with_quota_manager(mut self, quota_manager: Arc<QuotaManager>) -> Self {
         self.quota_manager = Some(quota_manager);
+        self
+    }
+
+    pub fn with_audit_logger(mut self, audit_logger: Arc<AuditLogger<A>>) -> Self {
+        self.audit_logger = Some(audit_logger);
         self
     }
 
@@ -39,6 +50,26 @@ where
         batch_req: BatchRequest,
     ) -> Result<BatchResponse, ObjectError> {
         record_batch_request(&format!("{:?}", batch_req.operation), &tenant, &repo);
+
+        if let Some(ref logger) = self.audit_logger {
+            logger
+                .log(
+                    AuditEvent::new(
+                        AuditEventType::LfsBatchRequest,
+                        tenant.clone(),
+                        repo.clone(),
+                    )
+                    .with_metadata(
+                        "operation".to_string(),
+                        format!("{:?}", batch_req.operation),
+                    )
+                    .with_metadata(
+                        "object_count".to_string(),
+                        batch_req.objects.len().to_string(),
+                    ),
+                )
+                .await;
+        }
 
         if !self.config.lfs.enabled {
             record_error("lfs_disabled", &tenant, &repo);
@@ -172,14 +203,15 @@ where
     }
 }
 
-pub async fn batch_endpoint<S>(
+pub async fn batch_endpoint<S, A>(
     _req: HttpRequest,
     path: web::Path<(String, String)>,
     batch_req: web::Json<BatchRequest>,
-    handler: web::Data<LfsHandler<S>>,
+    handler: web::Data<LfsHandler<S, A>>,
 ) -> impl Responder
 where
     S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
 {
     let (tenant, repo) = path.into_inner();
     match handler
@@ -197,14 +229,15 @@ where
     }
 }
 
-pub async fn upload_object<S>(
+pub async fn upload_object<S, A>(
     _req: HttpRequest,
     path: web::Path<(String, String, String)>,
     body: web::Bytes,
-    handler: web::Data<LfsHandler<S>>,
+    handler: web::Data<LfsHandler<S, A>>,
 ) -> impl Responder
 where
     S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
 {
     let (tenant, repo, oid) = path.into_inner();
 
@@ -243,10 +276,31 @@ where
                 }
             }
 
+            if let Some(ref logger) = handler.audit_logger {
+                logger
+                    .log(
+                        AuditEvent::new(AuditEventType::LfsUpload, tenant.clone(), repo.clone())
+                            .with_oid(&oid)
+                            .with_size(body.len() as u64),
+                    )
+                    .await;
+            }
+
             HttpResponse::Ok().finish()
         }
         Err(e) => {
             record_error("storage_error", &tenant, &repo);
+
+            if let Some(ref logger) = handler.audit_logger {
+                logger
+                    .log(
+                        AuditEvent::new(AuditEventType::LfsError, tenant.clone(), repo.clone())
+                            .with_oid(&oid)
+                            .with_error(&e.to_string()),
+                    )
+                    .await;
+            }
+
             HttpResponse::InternalServerError().json(json!({
                 "message": format!("Storage error: {}", e)
             }))
@@ -254,13 +308,14 @@ where
     }
 }
 
-pub async fn download_object<S>(
+pub async fn download_object<S, A>(
     _req: HttpRequest,
     path: web::Path<(String, String, String)>,
-    handler: web::Data<LfsHandler<S>>,
+    handler: web::Data<LfsHandler<S, A>>,
 ) -> impl Responder
 where
     S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
 {
     let (tenant, repo, oid) = path.into_inner();
 
@@ -276,18 +331,51 @@ where
     match handler.storage.get_object(&key).await {
         Ok(Some(data)) => {
             record_download(&tenant, &repo, data.len() as u64);
+
+            if let Some(ref logger) = handler.audit_logger {
+                logger
+                    .log(
+                        AuditEvent::new(AuditEventType::LfsDownload, tenant.clone(), repo.clone())
+                            .with_oid(&oid)
+                            .with_size(data.len() as u64),
+                    )
+                    .await;
+            }
+
             HttpResponse::Ok()
                 .content_type("application/octet-stream")
                 .body(data)
         }
         Ok(None) => {
             record_error("object_not_found", &tenant, &repo);
+
+            if let Some(ref logger) = handler.audit_logger {
+                logger
+                    .log(
+                        AuditEvent::new(AuditEventType::LfsError, tenant.clone(), repo.clone())
+                            .with_oid(&oid)
+                            .with_error("Object not found"),
+                    )
+                    .await;
+            }
+
             HttpResponse::NotFound().json(json!({
                 "message": "Object not found"
             }))
         }
         Err(e) => {
             record_error("storage_error", &tenant, &repo);
+
+            if let Some(ref logger) = handler.audit_logger {
+                logger
+                    .log(
+                        AuditEvent::new(AuditEventType::LfsError, tenant.clone(), repo.clone())
+                            .with_oid(&oid)
+                            .with_error(&e.to_string()),
+                    )
+                    .await;
+            }
+
             HttpResponse::InternalServerError().json(json!({
                 "message": format!("Storage error: {}", e)
             }))
@@ -295,29 +383,31 @@ where
     }
 }
 
-pub fn configure_lfs_routes<S>(cfg: &mut web::ServiceConfig)
+pub fn configure_lfs_routes<S, A>(cfg: &mut web::ServiceConfig)
 where
     S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
 {
     cfg.service(
         web::scope("/{tenant}/{repo}")
             .route(
                 "/info/lfs/objects/batch",
-                web::post().to(batch_endpoint::<S>),
+                web::post().to(batch_endpoint::<S, A>),
             )
-            .route("/lfs/objects/{oid}", web::put().to(upload_object::<S>))
-            .route("/lfs/objects/{oid}", web::get().to(download_object::<S>))
-            .route("/quota", web::get().to(get_quota_info::<S>)),
+            .route("/lfs/objects/{oid}", web::put().to(upload_object::<S, A>))
+            .route("/lfs/objects/{oid}", web::get().to(download_object::<S, A>))
+            .route("/quota", web::get().to(get_quota_info::<S, A>)),
     );
 }
 
-pub async fn get_quota_info<S>(
+pub async fn get_quota_info<S, A>(
     _req: HttpRequest,
     path: web::Path<(String, String)>,
-    handler: web::Data<LfsHandler<S>>,
+    handler: web::Data<LfsHandler<S, A>>,
 ) -> impl Responder
 where
     S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
 {
     let (tenant, repo) = path.into_inner();
 
@@ -346,7 +436,7 @@ where
             "used_bytes": used,
             "available_bytes": limit.saturating_sub(used),
             "object_count": count,
-            "usage_percent": if limit > 0 { (used as f64 / limit as f64 * 100.0) } else { 0.0 }
+            "usage_percent": if limit > 0 { used as f64 / limit as f64 * 100.0 } else { 0.0 }
         }))
     } else {
         HttpResponse::Ok().json(json!({

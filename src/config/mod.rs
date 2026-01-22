@@ -43,6 +43,9 @@ pub struct LfsConfig {
     /// Storage quota configuration
     #[serde(default)]
     pub quota: LfsQuotaConfig,
+    /// Audit logging configuration
+    #[serde(default)]
+    pub audit: LfsAuditConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -69,6 +72,15 @@ pub struct LfsGcConfig {
     pub schedule: String,
     /// Maximum objects to delete per GC run (0 = unlimited, default: 1000)
     pub max_deletions_per_run: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LfsAuditConfig {
+    pub enabled: bool,
+    pub retention_days: u32,
+    pub include_ip_addresses: bool,
+    pub log_successful_operations: bool,
+    pub log_failed_operations: bool,
 }
 
 impl AppConfig {
@@ -184,6 +196,7 @@ impl Default for LfsConfig {
             lock_expiration_secs: 86400, // 24 hours
             gc: LfsGcConfig::default(),
             quota: LfsQuotaConfig::default(),
+            audit: LfsAuditConfig::default(),
         }
     }
 }
@@ -206,6 +219,18 @@ impl Default for LfsGcConfig {
             grace_period_days: 7,
             schedule: "0 2 * * *".to_string(),
             max_deletions_per_run: 1000,
+        }
+    }
+}
+
+impl Default for LfsAuditConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            retention_days: 90,
+            include_ip_addresses: true,
+            log_successful_operations: true,
+            log_failed_operations: true,
         }
     }
 }

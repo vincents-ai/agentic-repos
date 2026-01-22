@@ -24,6 +24,16 @@ pub struct QuotaConfig {
     pub per_repo_quotas: HashMap<String, u64>,
 }
 
+impl From<crate::config::LfsQuotaConfig> for QuotaConfig {
+    fn from(config: crate::config::LfsQuotaConfig) -> Self {
+        Self {
+            default_quota_bytes: config.default_quota_bytes,
+            per_tenant_quotas: config.per_tenant_quotas,
+            per_repo_quotas: config.per_repo_quotas,
+        }
+    }
+}
+
 impl Default for QuotaConfig {
     fn default() -> Self {
         Self {

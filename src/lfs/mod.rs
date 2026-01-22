@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth;
 pub mod gc;
 pub mod metrics;
@@ -7,6 +8,10 @@ pub mod quota;
 pub mod storage;
 pub mod verify;
 
+pub use audit::{
+    AuditError, AuditEvent, AuditEventType, AuditLogConfig, AuditLogger, AuditStorage,
+    InMemoryAuditStorage,
+};
 pub use auth::{LfsAuthResponse, LfsClaims, LfsOperation, LfsTokenGenerator};
 pub use gc::{GcConfig, GcResult, LfsGarbageCollector};
 pub use metrics::{

@@ -82,6 +82,7 @@ impl ApiServer {
 
             if feature_flags.git_lfs && lfs_config.enabled {
                 use crate::lfs::storage::LfsStorageAdapter;
+                use crate::lfs::{AuditLogger, InMemoryAuditStorage, QuotaManager};
                 use crate::storage::local::LocalStorage;
                 use std::path::PathBuf;
                 use std::sync::Arc;
@@ -93,12 +94,27 @@ impl ApiServer {
                     lfs_config.base_url.clone(),
                 );
                 let app_config = config_clone.clone();
-                let handler = lfs::LfsHandler::new(Arc::new(lfs_storage), app_config);
 
-                app = app.app_data(web::Data::new(handler)).service(
-                    web::scope("/lfs")
-                        .configure(lfs::configure_lfs_routes::<LfsStorageAdapter<LocalStorage>>),
-                );
+                let audit_storage = Arc::new(InMemoryAuditStorage::new(10000));
+                let audit_logger = Arc::new(AuditLogger::new(
+                    audit_storage,
+                    lfs_config.audit.clone().into(),
+                ));
+
+                let quota_manager = Arc::new(QuotaManager::new(lfs_config.quota.clone().into()));
+
+                let handler = lfs::LfsHandler::new(Arc::new(lfs_storage), app_config)
+                    .with_audit_logger(audit_logger)
+                    .with_quota_manager(quota_manager);
+
+                app = app
+                    .app_data(web::Data::new(handler))
+                    .service(web::scope("/lfs").configure(
+                        lfs::configure_lfs_routes::<
+                            LfsStorageAdapter<LocalStorage>,
+                            InMemoryAuditStorage,
+                        >,
+                    ));
             }
 
             app

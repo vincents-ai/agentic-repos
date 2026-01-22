@@ -95,31 +95,37 @@ jobs:
   # for testing complete server deployment scenarios (SSH, multi-client, storage backends)
 
   # Performance benchmarks
-  benchmark:
-    name: Performance Benchmarks
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-    - uses: actions/checkout@v6
-    
-    - name: Install Nix
-      uses: cachix/install-nix-action@v31
-      with:
-        nix_path: nixpkgs=channel:nixos-unstable
-        
-    - name: Run benchmarks
-      run: |
-        nix develop -c -- cargo bench -- --output-format json > benchmark-results.json
-        
-    - name: Store benchmark results
-      uses: benchmark-action/github-action-benchmark@v1
-      if: always()
-      with:
-        tool: 'cargo'
-        output-file-path: benchmark-results.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+  # NOTE: Benchmarks are disabled because no benchmarks are currently defined
+  # To enable:
+  # 1. Add benchmarks to benches/ directory
+  # 2. Add criterion to [dev-dependencies] in Cargo.toml
+  # 3. Uncomment this job
+  #
+  # benchmark:
+  #   name: Performance Benchmarks
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   steps:
+  #   - uses: actions/checkout@v6
+  #   
+  #   - name: Install Nix
+  #     uses: cachix/install-nix-action@v31
+  #     with:
+  #       nix_path: nixpkgs=channel:nixos-unstable
+  #       
+  #   - name: Run benchmarks
+  #     run: |
+  #       nix develop -c -- cargo bench --bench '*' -- --output-format bencher | tee benchmark-results.txt
+  #       
+  #   - name: Store benchmark results
+  #     uses: benchmark-action/github-action-benchmark@v1
+  #     if: always()
+  #     with:
+  #       tool: 'cargo'
+  #       output-file-path: benchmark-results.txt
+  #       github-token: ${{ secrets.GITHUB_TOKEN }}
+  #       auto-push: true
 
   # Build Docker image (if needed)
   docker:

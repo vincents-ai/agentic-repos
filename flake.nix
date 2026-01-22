@@ -92,6 +92,7 @@
         packages = {
           default = repos-mcp;
           inherit repos-mcp containerImage;
+          dockerImage = containerImage;  # Alias for CI compatibility
         };
 
         devShells.default = pkgs.mkShell {

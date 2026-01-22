@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use crate::config::AppConfig;
 use crate::lfs::{
-    Action, Actions, BatchRequest, BatchResponse, LfsStorage, ObjectError, Operation,
-    ResponseObject, StorageKey, Transfer,
+    record_batch_request, record_download, record_error, record_upload, Action, Actions,
+    BatchRequest, BatchResponse, LfsStorage, ObjectError, Operation, ResponseObject, StorageKey,
+    Transfer,
 };
 
 pub struct LfsHandler<S> {
@@ -27,7 +28,10 @@ where
         repo: String,
         batch_req: BatchRequest,
     ) -> Result<BatchResponse, ObjectError> {
+        record_batch_request(&format!("{:?}", batch_req.operation), &tenant, &repo);
+
         if !self.config.lfs.enabled {
+            record_error("lfs_disabled", &tenant, &repo);
             return Err(ObjectError {
                 code: 503,
                 message: "Git LFS is not enabled on this server".to_string(),
@@ -38,6 +42,7 @@ where
 
         for obj in batch_req.objects {
             if obj.size > self.config.lfs.max_object_size {
+                record_error("object_too_large", &tenant, &repo);
                 response_objects.push(ResponseObject {
                     oid: obj.oid.clone(),
                     size: obj.size,
@@ -79,6 +84,7 @@ where
                                 error: None,
                             });
                         } else {
+                            record_error("object_not_found", &tenant, &repo);
                             response_objects.push(ResponseObject {
                                 oid: obj.oid.clone(),
                                 size: obj.size,
@@ -89,6 +95,7 @@ where
                         }
                     }
                     Err(e) => {
+                        record_error("storage_error", &tenant, &repo);
                         response_objects.push(ResponseObject {
                             oid: obj.oid.clone(),
                             size: obj.size,
@@ -170,30 +177,39 @@ where
     let (tenant, repo, oid) = path.into_inner();
 
     if !handler.config.lfs.enabled {
+        record_error("lfs_disabled", &tenant, &repo);
         return HttpResponse::ServiceUnavailable().json(json!({
             "message": "Git LFS is not enabled on this server"
         }));
     }
 
     if body.len() as u64 > handler.config.lfs.max_object_size {
+        record_error("object_too_large", &tenant, &repo);
         return HttpResponse::PayloadTooLarge().json(json!({
             "message": format!("Object exceeds maximum size of {} bytes", handler.config.lfs.max_object_size)
         }));
     }
 
     if !crate::lfs::verify::verify_sha256(&body, &oid) {
+        record_error("hash_mismatch", &tenant, &repo);
         return HttpResponse::UnprocessableEntity().json(json!({
             "message": "Object hash does not match OID"
         }));
     }
 
-    let key = StorageKey::new(tenant, repo, oid);
+    let key = StorageKey::new(&tenant, &repo, &oid);
 
     match handler.storage.put_object(&key, body.to_vec()).await {
-        Ok(()) => HttpResponse::Ok().finish(),
-        Err(e) => HttpResponse::InternalServerError().json(json!({
-            "message": format!("Storage error: {}", e)
-        })),
+        Ok(()) => {
+            record_upload(&tenant, &repo, body.len() as u64);
+            HttpResponse::Ok().finish()
+        }
+        Err(e) => {
+            record_error("storage_error", &tenant, &repo);
+            HttpResponse::InternalServerError().json(json!({
+                "message": format!("Storage error: {}", e)
+            }))
+        }
     }
 }
 
@@ -208,23 +224,33 @@ where
     let (tenant, repo, oid) = path.into_inner();
 
     if !handler.config.lfs.enabled {
+        record_error("lfs_disabled", &tenant, &repo);
         return HttpResponse::ServiceUnavailable().json(json!({
             "message": "Git LFS is not enabled on this server"
         }));
     }
 
-    let key = StorageKey::new(tenant, repo, oid);
+    let key = StorageKey::new(&tenant, &repo, &oid);
 
     match handler.storage.get_object(&key).await {
-        Ok(Some(data)) => HttpResponse::Ok()
-            .content_type("application/octet-stream")
-            .body(data),
-        Ok(None) => HttpResponse::NotFound().json(json!({
-            "message": "Object not found"
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(json!({
-            "message": format!("Storage error: {}", e)
-        })),
+        Ok(Some(data)) => {
+            record_download(&tenant, &repo, data.len() as u64);
+            HttpResponse::Ok()
+                .content_type("application/octet-stream")
+                .body(data)
+        }
+        Ok(None) => {
+            record_error("object_not_found", &tenant, &repo);
+            HttpResponse::NotFound().json(json!({
+                "message": "Object not found"
+            }))
+        }
+        Err(e) => {
+            record_error("storage_error", &tenant, &repo);
+            HttpResponse::InternalServerError().json(json!({
+                "message": format!("Storage error: {}", e)
+            }))
+        }
     }
 }
 

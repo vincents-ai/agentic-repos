@@ -8,8 +8,19 @@ use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
-use actix_web::{middleware::Logger, web, App, HttpServer};
+use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
 use std::sync::Arc;
+
+async fn metrics_endpoint() -> HttpResponse {
+    match crate::lfs::encode_metrics() {
+        Ok(metrics) => HttpResponse::Ok()
+            .content_type("text/plain; version=0.0.4")
+            .body(metrics),
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("Failed to encode metrics: {}", e))
+        }
+    }
+}
 
 pub struct ApiServer {
     git_service: Arc<GitService>,
@@ -66,6 +77,7 @@ impl ApiServer {
                 .app_data(web::Data::new(git_service.clone()))
                 .app_data(web::Data::new(lfs_config.clone()))
                 .wrap(Logger::default())
+                .route("/metrics", web::get().to(metrics_endpoint))
                 .service(web::scope("/api/v1").configure(routes::configure_routes));
 
             if feature_flags.git_lfs && lfs_config.enabled {

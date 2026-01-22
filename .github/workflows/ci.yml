@@ -87,55 +87,18 @@ jobs:
         file: coverage/cobertura.xml
         fail_ci_if_error: false
 
-  # VM Integration Tests
-  integration:
-    name: VM Integration Tests
-    runs-on: ubuntu-latest
-    needs: build
-    strategy:
-      matrix:
-        test: [ssh-basic, git-operations, multi-client, storage-local, storage-s3]
-    steps:
-    - uses: actions/checkout@v6
-    
-    - name: Install Nix
-      uses: cachix/install-nix-action@v31
-      with:
-        nix_path: nixpkgs=channel:nixos-unstable
-        extra_nix_config: |
-          experimental-features = nix-command flakes
-          
-    - name: Enable KVM for VM tests
-      run: |
-        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-        sudo udevadm control --reload-rules
-        sudo udevadm trigger --name-match=kvm
-        
-    - name: Nix Cache
-      uses: cachix/cachix-action@v12
-      with:
-        name: devenv
-        
-    - name: Run VM Test - ${{ matrix.test }}
-      run: |
-        # Set timeout to 15 minutes per test
-        timeout 900 nix run .#checks.x86_64-linux.${{ matrix.test }} || {
-          echo "Test ${{ matrix.test }} failed or timed out"
-          exit 1
-        }
-        
-    - name: Upload test logs
-      uses: actions/upload-artifact@v6
-      if: always()
-      with:
-        name: vm-test-logs-${{ matrix.test }}
-        path: /tmp/vm-test-*.log
+  # NOTE: VM Integration Tests are not yet implemented
+  # The integration tests run as part of the Build & Test job via `cargo test`
+  # which includes git_integration_tests.rs and lfs_integration_test.rs
+  # 
+  # Future work: Implement full VM-based end-to-end tests using NixOS test framework
+  # for testing complete server deployment scenarios (SSH, multi-client, storage backends)
 
   # Performance benchmarks
   benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
-    needs: integration
+    needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
     - uses: actions/checkout@v6
@@ -162,7 +125,7 @@ jobs:
   docker:
     name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: integration
+    needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
     - uses: actions/checkout@v6
@@ -255,7 +218,7 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
-    needs: [integration, security, docker]
+    needs: [build, security, docker]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: production
     steps:

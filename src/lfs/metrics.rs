@@ -53,6 +53,30 @@ lazy_static! {
         &["tenant", "repo"]
     )
     .expect("Failed to create lfs_download_duration_seconds metric");
+    pub static ref LFS_GC_OBJECTS_SCANNED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "lfs_gc_objects_scanned_total",
+        "Total number of LFS objects scanned during garbage collection",
+        &["tenant", "repo"]
+    )
+    .expect("Failed to create lfs_gc_objects_scanned_total metric");
+    pub static ref LFS_GC_OBJECTS_DELETED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "lfs_gc_objects_deleted_total",
+        "Total number of LFS objects deleted during garbage collection",
+        &["tenant", "repo"]
+    )
+    .expect("Failed to create lfs_gc_objects_deleted_total metric");
+    pub static ref LFS_GC_BYTES_FREED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "lfs_gc_bytes_freed_total",
+        "Total bytes freed during garbage collection",
+        &["tenant", "repo"]
+    )
+    .expect("Failed to create lfs_gc_bytes_freed_total metric");
+    pub static ref LFS_GC_RUNS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "lfs_gc_runs_total",
+        "Total number of garbage collection runs",
+        &["tenant", "repo", "status"]
+    )
+    .expect("Failed to create lfs_gc_runs_total metric");
 }
 
 pub fn record_upload(tenant: &str, repo: &str, bytes: u64) {
@@ -78,6 +102,27 @@ pub fn record_error(error_type: &str, tenant: &str, repo: &str) {
 pub fn record_batch_request(operation: &str, tenant: &str, repo: &str) {
     LFS_BATCH_REQUESTS_TOTAL
         .with_label_values(&[operation, tenant, repo])
+        .inc();
+}
+
+pub fn record_gc_scan(tenant: &str, repo: &str, count: u64) {
+    LFS_GC_OBJECTS_SCANNED_TOTAL
+        .with_label_values(&[tenant, repo])
+        .inc_by(count);
+}
+
+pub fn record_gc_deletion(tenant: &str, repo: &str, bytes: u64) {
+    LFS_GC_OBJECTS_DELETED_TOTAL
+        .with_label_values(&[tenant, repo])
+        .inc();
+    LFS_GC_BYTES_FREED_TOTAL
+        .with_label_values(&[tenant, repo])
+        .inc_by(bytes);
+}
+
+pub fn record_gc_run(tenant: &str, repo: &str, status: &str) {
+    LFS_GC_RUNS_TOTAL
+        .with_label_values(&[tenant, repo, status])
         .inc();
 }
 

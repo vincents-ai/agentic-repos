@@ -37,6 +37,21 @@ pub struct LfsConfig {
     pub locking_enabled: bool,
     /// Lock expiration in seconds (default: 24 hours)
     pub lock_expiration_secs: u64,
+    /// Garbage collection configuration
+    #[serde(default)]
+    pub gc: LfsGcConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LfsGcConfig {
+    /// Enable automatic garbage collection (default: false)
+    pub enabled: bool,
+    /// Grace period in days before deleting unreferenced objects (default: 7)
+    pub grace_period_days: u64,
+    /// GC schedule in cron format (default: "0 2 * * *" = 2 AM daily)
+    pub schedule: String,
+    /// Maximum objects to delete per GC run (0 = unlimited, default: 1000)
+    pub max_deletions_per_run: usize,
 }
 
 impl AppConfig {
@@ -150,6 +165,18 @@ impl Default for LfsConfig {
                 .to_string(),
             locking_enabled: false,
             lock_expiration_secs: 86400, // 24 hours
+            gc: LfsGcConfig::default(),
+        }
+    }
+}
+
+impl Default for LfsGcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            grace_period_days: 7,
+            schedule: "0 2 * * *".to_string(),
+            max_deletions_per_run: 1000,
         }
     }
 }

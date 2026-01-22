@@ -21,8 +21,10 @@ pub use metrics::{
     record_throttle_bytes, record_throttle_wait, record_upload,
 };
 pub use models::{
-    Action, Actions, BatchRequest, BatchResponse, GitRef, ObjectError, Operation, RequestObject,
-    ResponseObject, Transfer,
+    Action, Actions, BatchRequest, BatchResponse, CreateLockRequest, CreateLockResponse,
+    DeleteLockRequest, DeleteLockResponse, GitRef, LfsLock, LfsLockOwner, ListLocksResponse,
+    LockError, ObjectError, Operation, RequestObject, ResponseObject, Transfer, VerifyLocksRequest,
+    VerifyLocksResponse,
 };
 pub use pointer::{LfsPointer, PointerParseError};
 pub use quota::{QuotaConfig, QuotaError, QuotaManager};

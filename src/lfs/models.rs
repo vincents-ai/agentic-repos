@@ -1,5 +1,7 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchRequest {
@@ -117,6 +119,104 @@ impl ObjectError {
         Self {
             code: 500,
             message: format!("Storage error for object {}: {}", oid, error),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LfsLock {
+    pub id: Uuid,
+    pub path: String,
+    pub locked_at: DateTime<Utc>,
+    pub owner: LfsLockOwner,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LfsLockOwner {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateLockRequest {
+    pub path: String,
+    #[serde(rename = "ref")]
+    pub git_ref: Option<GitRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateLockResponse {
+    pub lock: LfsLock,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListLocksResponse {
+    pub locks: Vec<LfsLock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteLockRequest {
+    #[serde(default)]
+    pub force: bool,
+    #[serde(rename = "ref")]
+    pub git_ref: Option<GitRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteLockResponse {
+    pub lock: LfsLock,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyLocksRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(rename = "ref")]
+    pub git_ref: Option<GitRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyLocksResponse {
+    pub ours: Vec<LfsLock>,
+    pub theirs: Vec<LfsLock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockError {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub documentation_url: Option<String>,
+}
+
+impl LockError {
+    pub fn already_locked(path: &str) -> Self {
+        Self {
+            message: format!("File {} is already locked", path),
+            request_id: None,
+            documentation_url: None,
+        }
+    }
+
+    pub fn not_found(lock_id: &Uuid) -> Self {
+        Self {
+            message: format!("Lock {} not found", lock_id),
+            request_id: None,
+            documentation_url: None,
+        }
+    }
+
+    pub fn forbidden(reason: &str) -> Self {
+        Self {
+            message: reason.to_string(),
+            request_id: None,
+            documentation_url: None,
         }
     }
 }

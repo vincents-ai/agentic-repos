@@ -138,6 +138,12 @@ mod integration_tests {
 
         assert!(status.success(), "Failed to create initial commit");
 
+        Command::new("git")
+            .args(&["branch", "-M", "main"])
+            .current_dir(&work_dir)
+            .status()
+            .expect("Failed to rename branch to main");
+
         let status = Command::new("git")
             .args(&["push", "origin", "main"])
             .current_dir(&work_dir)

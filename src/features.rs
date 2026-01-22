@@ -165,3 +165,46 @@ impl FeatureFlags {
             || self.lfs_locks
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lfs_locks_feature_flag_default() {
+        let flags = FeatureFlags::default();
+        assert!(!flags.lfs_locks);
+    }
+
+    #[test]
+    fn test_lfs_locks_feature_flag_enabled() {
+        let mut flags = FeatureFlags::default();
+        flags.lfs_locks = true;
+        assert!(flags.lfs_locks);
+        assert!(flags.is_commercial_feature_enabled());
+    }
+
+    #[test]
+    fn test_lfs_locks_load_from_env() {
+        std::env::set_var("FEATURE_LFS_LOCKS", "true");
+        let flags = FeatureFlags::load_from_env();
+        assert!(flags.lfs_locks);
+        std::env::remove_var("FEATURE_LFS_LOCKS");
+    }
+
+    #[test]
+    fn test_lfs_locks_load_from_config() {
+        let mut config = HashMap::new();
+        config.insert("lfs_locks".to_string(), true);
+        let flags = FeatureFlags::load_from_config(&config);
+        assert!(flags.lfs_locks);
+    }
+
+    #[test]
+    fn test_lfs_locks_independent_flag() {
+        let mut flags = FeatureFlags::default();
+        flags.lfs_locks = true;
+        assert!(flags.lfs_locks);
+        assert!(!flags.git_lfs);
+    }
+}

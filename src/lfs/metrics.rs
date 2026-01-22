@@ -137,6 +137,12 @@ lazy_static! {
         &["bucket"]
     )
     .expect("Failed to create s3_simple_upload_total metric");
+    pub static ref LFS_LOCK_CLEANUP_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "lfs_lock_cleanup_total",
+        "Total number of expired locks cleaned up",
+        &[]
+    )
+    .expect("Failed to create lfs_lock_cleanup_total metric");
 }
 
 pub fn record_upload(tenant: &str, repo: &str, bytes: u64) {
@@ -230,6 +236,10 @@ pub fn record_s3_multipart_upload(bucket: &str, num_parts: u64, bytes: u64, dura
 
 pub fn record_s3_simple_upload(bucket: &str) {
     S3_SIMPLE_UPLOAD_TOTAL.with_label_values(&[bucket]).inc();
+}
+
+pub fn record_lock_cleanup(count: u64) {
+    LFS_LOCK_CLEANUP_TOTAL.with_label_values(&[]).inc_by(count);
 }
 
 pub fn encode_metrics() -> Result<String, Box<dyn std::error::Error>> {

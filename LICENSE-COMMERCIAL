@@ -1,0 +1,67 @@
+COMMERCIAL LICENSE
+
+Copyright (c) 2025 Labbs
+
+This software is available under a dual licensing model:
+
+1. GNU Affero General Public License v3.0 (AGPLv3) - See LICENSE file
+2. Commercial License (this document)
+
+COMMERCIAL LICENSE TERMS
+
+If you wish to use this software in a way that is not compatible with the 
+AGPLv3 license (such as using it in proprietary software without making your 
+source code available), you may obtain a commercial license.
+
+Commercial licenses provide:
+- Freedom to use in proprietary/closed-source applications
+- No requirement to share source code modifications
+- Freedom to distribute without AGPLv3 obligations
+- Enterprise support and feature development
+- Custom integration assistance
+- Priority bug fixes and security updates
+
+For commercial licensing inquiries, please contact:
+  Email: shift@someone.section.me
+  Subject: repos-mcp Commercial License Inquiry
+
+PRICING
+
+Commercial licensing is available with different tiers based on your needs:
+- Startup License: For companies with <10 employees
+- Business License: For companies with 10-100 employees  
+- Enterprise License: For companies with >100 employees
+- Custom arrangements available for specific use cases
+
+Each commercial license includes:
+- Perpetual license for the version purchased
+- 12 months of updates and support
+- Priority email support
+- Access to enterprise features (see COMMERCIAL_ROADMAP.md)
+
+TERMS AND CONDITIONS
+
+By obtaining a commercial license, you agree to:
+1. Use the software in accordance with the commercial license terms
+2. Not redistribute the software under AGPLv3 terms
+3. Maintain proper attribution in your products
+4. Comply with export control regulations
+
+This commercial license does not grant you:
+- Rights to use Labbs trademarks without permission
+- Rights to remove or modify license notices
+- Liability coverage beyond what is agreed in the license agreement
+
+For full commercial license terms and pricing, please contact us at the 
+email address above.
+
+WARRANTY DISCLAIMER
+
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+LIMITATION OF LIABILITY
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.

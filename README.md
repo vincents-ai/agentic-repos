@@ -97,10 +97,12 @@ Contact shift@someone.section.me for commercial licensing and enterprise support
 
 - **Git LFS (Large File Storage)**: Built-in support for large files
   - Git LFS Batch API (upload/download)
+  - Git LFS File Locking (lock/unlock/verify)
   - JWT-based authentication for HTTP transfers
   - Multi-tenant object storage with path sharding
   - SHA256 content verification
   - Configurable object size limits
+  - RBAC-integrated lock permissions
 
 ## Git LFS Support
 
@@ -109,10 +111,12 @@ repos-mcp includes full Git LFS support for managing large files efficiently.
 ### Features
 
 - **Batch API**: RFC-compliant Git LFS Batch API implementation
+- **File Locking**: Git LFS file locking API (lock, unlock, list, verify)
 - **Multi-Tenant**: Complete isolation between tenants and repositories  
 - **Authentication**: JWT tokens generated via SSH for secure HTTP transfers
 - **Storage**: Flexible storage with local filesystem (S3 support planned)
 - **Verification**: Automatic SHA256 integrity checking on uploads
+- **RBAC Integration**: Fine-grained permissions for lock operations
 
 ### Quick Setup
 
@@ -169,6 +173,7 @@ curl -X PUT "http://localhost:8090/lfs/tenant/repo/lfs/objects/$OID" \
 ### Documentation
 
 - [LFS Configuration Reference](docs/LFS_CONFIGURATION.md) - Complete configuration guide
+- [LFS File Locking Guide](docs/LFS_FILE_LOCKING.md) - File locking API and usage
 - [Git LFS Specification](https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md) - Official API spec
 
 ## Quick Start

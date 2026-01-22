@@ -8,25 +8,30 @@ A lightweight, multi-tenant Git server with SSH protocol support, written in Rus
 
 ## 🔒 Security Status
 
-**PRODUCTION READY** - All critical security vulnerabilities have been resolved!
+⚠️ **SECURITY WARNING: DO NOT DEPLOY TO PRODUCTION WITHOUT SECURITY REVIEW**
 
-✅ **SSH Authentication**: Proper authorized keys validation implemented  
-✅ **Command Injection Prevention**: SSH commands are properly validated with size limits  
-✅ **Secure Key Management**: Host keys persist securely across restarts with proper permissions  
-✅ **Rate Limiting & DoS Protection**: Connection limits and authentication rate limiting implemented  
+This project implements security features but requires thorough security review and hardening before production use.
 
-**Security Features**:
-- Authorized SSH key validation with per-user authentication
-- Command injection prevention with input validation and 4KB size limits
-- Persistent Ed25519 host keys with secure file permissions (0600)
-- Rate limiting for authentication attempts and command execution
-- Global connection limits with automatic cleanup
-- Comprehensive security test suite (10 test functions, 100% passing)
+**Implemented Security Features**:
+- ✅ SSH public key authentication
+- ✅ Command injection prevention with input validation
+- ✅ Secure Ed25519 host key management
+- ✅ Rate limiting and connection limits
+- ✅ Comprehensive security test suite (10 test functions)
 
-**Current Status**: 
-- ✅ SSH Security: All vulnerabilities resolved and tested
-- ✅ Security Test Suite: 10/10 tests passing, comprehensive coverage
-- ✅ Production Ready: YES - Ready for production deployment
+**Security Considerations**:
+- Requires proper SSH key management and authorized_keys configuration
+- JWT secrets must be securely generated and managed (for LFS)
+- HTTPS strongly recommended for HTTP API endpoints
+- Regular security audits recommended
+- See [SECURITY.md](SECURITY.md) for security policy and vulnerability reporting
+
+**Before Production Deployment**:
+1. Complete security audit and penetration testing
+2. Review and harden configuration
+3. Implement proper secrets management
+4. Set up monitoring and logging
+5. Follow deployment best practices in documentation
 
 ## License
 

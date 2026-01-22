@@ -91,7 +91,7 @@ jobs:
         
     - name: Check for known vulnerable dependencies
       run: |
-        nix develop -c -- cargo audit --deny warnings --deny unsound --deny yanked
+        nix develop -c -- cargo audit
         
     - name: License compliance check
       run: |

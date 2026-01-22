@@ -1,4 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -397,7 +399,8 @@ where
             .route("/lfs/objects/{oid}", web::put().to(upload_object::<S, A>))
             .route("/lfs/objects/{oid}", web::get().to(download_object::<S, A>))
             .route("/quota", web::get().to(get_quota_info::<S, A>)),
-    );
+    )
+    .route("/audit/logs", web::get().to(query_audit_logs::<S, A>));
 }
 
 pub async fn get_quota_info<S, A>(
@@ -442,6 +445,74 @@ where
         HttpResponse::Ok().json(json!({
             "enabled": false,
             "message": "Quota manager not initialized"
+        }))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AuditQueryParams {
+    pub tenant: Option<String>,
+    pub repo: Option<String>,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    pub limit: Option<usize>,
+}
+
+pub async fn query_audit_logs<S, A>(
+    _req: HttpRequest,
+    query: web::Query<AuditQueryParams>,
+    handler: web::Data<LfsHandler<S, A>>,
+) -> impl Responder
+where
+    S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
+{
+    if !handler.config.lfs.audit.enabled {
+        return HttpResponse::Ok().json(json!({
+            "enabled": false,
+            "message": "Audit logging is not enabled"
+        }));
+    }
+
+    if let Some(ref audit_logger) = handler.audit_logger {
+        let start_time = query.start_time.as_ref().and_then(|s| {
+            DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+        });
+
+        let end_time = query.end_time.as_ref().and_then(|s| {
+            DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+        });
+
+        let limit = query.limit.unwrap_or(100).min(1000);
+
+        match audit_logger
+            .query(
+                query.tenant.as_deref(),
+                query.repo.as_deref(),
+                start_time,
+                end_time,
+                limit,
+            )
+            .await
+        {
+            Ok(events) => HttpResponse::Ok().json(json!({
+                "enabled": true,
+                "events": events,
+                "count": events.len(),
+                "limit": limit
+            })),
+            Err(e) => HttpResponse::InternalServerError().json(json!({
+                "message": format!("Failed to query audit logs: {}", e)
+            })),
+        }
+    } else {
+        HttpResponse::Ok().json(json!({
+            "enabled": false,
+            "message": "Audit logger not initialized"
         }))
     }
 }

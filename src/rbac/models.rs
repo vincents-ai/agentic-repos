@@ -21,6 +21,11 @@ pub enum Permission {
 
     WebhookManage,
     SettingsManage,
+
+    LfsLockCreate,
+    LfsLockRead,
+    LfsLockDelete,
+    LfsLockForce,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,14 +183,22 @@ pub fn create_default_roles() -> Vec<Role> {
     admin_permissions.insert(Permission::SystemAdmin);
     admin_permissions.insert(Permission::WebhookManage);
     admin_permissions.insert(Permission::SettingsManage);
+    admin_permissions.insert(Permission::LfsLockCreate);
+    admin_permissions.insert(Permission::LfsLockRead);
+    admin_permissions.insert(Permission::LfsLockDelete);
+    admin_permissions.insert(Permission::LfsLockForce);
 
     let mut developer_permissions = HashSet::new();
     developer_permissions.insert(Permission::RepositoryRead);
     developer_permissions.insert(Permission::RepositoryWrite);
     developer_permissions.insert(Permission::BranchCreate);
+    developer_permissions.insert(Permission::LfsLockCreate);
+    developer_permissions.insert(Permission::LfsLockRead);
+    developer_permissions.insert(Permission::LfsLockDelete);
 
     let mut readonly_permissions = HashSet::new();
     readonly_permissions.insert(Permission::RepositoryRead);
+    readonly_permissions.insert(Permission::LfsLockRead);
 
     vec![
         Role::system_role(

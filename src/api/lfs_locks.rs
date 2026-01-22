@@ -8,12 +8,14 @@ use crate::features::FeatureFlags;
 use crate::lfs::{
     CreateLockRequest, DeleteLockRequest, LfsLockManager, LockManagerError, VerifyLocksRequest,
 };
+use crate::rbac::{Permission, RbacService};
 use sqlx::PgPool;
 
 pub struct LfsLocksHandler {
     lock_manager: Arc<LfsLockManager>,
     lfs_config: LfsConfig,
     features: FeatureFlags,
+    rbac_service: Option<Arc<RbacService>>,
 }
 
 impl LfsLocksHandler {
@@ -22,6 +24,32 @@ impl LfsLocksHandler {
             lock_manager: Arc::new(LfsLockManager::new(pool)),
             lfs_config,
             features,
+            rbac_service: None,
+        }
+    }
+
+    pub fn with_rbac_service(mut self, rbac_service: Arc<RbacService>) -> Self {
+        self.rbac_service = Some(rbac_service);
+        self
+    }
+
+    async fn check_permission(
+        &self,
+        username: &str,
+        permission: Permission,
+    ) -> Result<(), HttpResponse> {
+        if let Some(rbac) = &self.rbac_service {
+            match rbac.user_has_permission(username, &permission).await {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(HttpResponse::Forbidden().json(json!({
+                    "message": format!("Permission denied: {:?} required", permission)
+                }))),
+                Err(e) => Err(HttpResponse::InternalServerError().json(json!({
+                    "message": format!("RBAC error: {}", e)
+                }))),
+            }
+        } else {
+            Ok(())
         }
     }
 }
@@ -78,6 +106,13 @@ pub async fn create_lock(
         Err(response) => return response,
     };
 
+    if let Err(response) = handler
+        .check_permission(&username, Permission::LfsLockCreate)
+        .await
+    {
+        return response;
+    }
+
     let expiration_secs = if handler.lfs_config.locking_enabled {
         Some(handler.lfs_config.lock_expiration_secs)
     } else {
@@ -126,10 +161,17 @@ pub async fn list_locks(
         }));
     }
 
-    let _username = match extract_username_from_request(&req, &handler.lfs_config.jwt_secret) {
+    let username = match extract_username_from_request(&req, &handler.lfs_config.jwt_secret) {
         Ok(name) => name,
         Err(response) => return response,
     };
+
+    if let Err(response) = handler
+        .check_permission(&username, Permission::LfsLockRead)
+        .await
+    {
+        return response;
+    }
 
     let id_filter = query.id.as_ref().and_then(|s| Uuid::parse_str(s).ok());
 
@@ -177,6 +219,22 @@ pub async fn delete_lock(
         Ok(name) => name,
         Err(response) => return response,
     };
+
+    if body.force {
+        if let Err(response) = handler
+            .check_permission(&username, Permission::LfsLockForce)
+            .await
+        {
+            return response;
+        }
+    } else {
+        if let Err(response) = handler
+            .check_permission(&username, Permission::LfsLockDelete)
+            .await
+        {
+            return response;
+        }
+    }
 
     let lock_id = match Uuid::parse_str(&lock_id_str) {
         Ok(id) => id,
@@ -229,6 +287,13 @@ pub async fn verify_locks(
         Ok(name) => name,
         Err(response) => return response,
     };
+
+    if let Err(response) = handler
+        .check_permission(&username, Permission::LfsLockRead)
+        .await
+    {
+        return response;
+    }
 
     let refspec = body.git_ref.as_ref().map(|r| r.name.as_str());
 

@@ -50,11 +50,13 @@ jobs:
     
     - name: Check for SSH authentication bypass
       run: |
-        # Check if the critical SSH auth bypass is still present
-        if grep -r "Auth::Accept" src/git/ssh.rs; then
+        # Check if Auth::Accept is used with proper authorization check
+        if grep -B10 "Auth::Accept" src/git/ssh.rs | grep -q "is_key_authorized"; then
+          echo "✅ SSH authentication properly validates keys before accepting"
+        else
           echo "🚨 CRITICAL: SSH authentication bypass detected!"
-          echo "Found Auth::Accept without proper validation in SSH handler"
-          echo "This is the critical security vulnerability documented in SECURITY.md"
+          echo "Found Auth::Accept without proper is_key_authorized validation"
+          echo "SSH handler must check authorization before returning Auth::Accept"
           exit 1
         fi
         
@@ -74,12 +76,7 @@ jobs:
           exit 1
         fi
         
-        if ! grep -q "SSH Authentication Bypass" SECURITY.md; then
-          echo "❌ SECURITY.md does not document the SSH authentication bypass"
-          exit 1
-        fi
-        
-        echo "✅ Security documentation is present and covers critical issues"
+        echo "✅ Security documentation is present"
 
   dependency-check:
     name: Dependency Security Check

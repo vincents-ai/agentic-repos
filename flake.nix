@@ -100,6 +100,8 @@
             pkg-config
             openssl
             git
+            cargo-audit
+            cargo-license
           ];
           
           shellHook = ''

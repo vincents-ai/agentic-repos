@@ -8,25 +8,30 @@ A lightweight, multi-tenant Git server with SSH protocol support, written in Rus
 
 ## 🔒 Security Status
 
-**PRODUCTION READY** - All critical security vulnerabilities have been resolved!
+⚠️ **SECURITY WARNING: DO NOT DEPLOY TO PRODUCTION WITHOUT SECURITY REVIEW**
 
-✅ **SSH Authentication**: Proper authorized keys validation implemented  
-✅ **Command Injection Prevention**: SSH commands are properly validated with size limits  
-✅ **Secure Key Management**: Host keys persist securely across restarts with proper permissions  
-✅ **Rate Limiting & DoS Protection**: Connection limits and authentication rate limiting implemented  
+This project implements security features but requires thorough security review and hardening before production use.
 
-**Security Features**:
-- Authorized SSH key validation with per-user authentication
-- Command injection prevention with input validation and 4KB size limits
-- Persistent Ed25519 host keys with secure file permissions (0600)
-- Rate limiting for authentication attempts and command execution
-- Global connection limits with automatic cleanup
-- Comprehensive security test suite (10 test functions, 100% passing)
+**Implemented Security Features**:
+- ✅ SSH public key authentication
+- ✅ Command injection prevention with input validation
+- ✅ Secure Ed25519 host key management
+- ✅ Rate limiting and connection limits
+- ✅ Comprehensive security test suite (10 test functions)
 
-**Current Status**: 
-- ✅ SSH Security: All vulnerabilities resolved and tested
-- ✅ Security Test Suite: 10/10 tests passing, comprehensive coverage
-- ✅ Production Ready: YES - Ready for production deployment
+**Security Considerations**:
+- Requires proper SSH key management and authorized_keys configuration
+- JWT secrets must be securely generated and managed (for LFS)
+- HTTPS strongly recommended for HTTP API endpoints
+- Regular security audits recommended
+- See [SECURITY.md](SECURITY.md) for security policy and vulnerability reporting
+
+**Before Production Deployment**:
+1. Complete security audit and penetration testing
+2. Review and harden configuration
+3. Implement proper secrets management
+4. Set up monitoring and logging
+5. Follow deployment best practices in documentation
 
 ## License
 
@@ -89,6 +94,82 @@ Contact shift@someone.section.me for commercial licensing and enterprise support
   - Extensible authentication framework
 
 - **Logging**: Structured logging with tracing
+
+- **Git LFS (Large File Storage)**: Built-in support for large files
+  - Git LFS Batch API (upload/download)
+  - JWT-based authentication for HTTP transfers
+  - Multi-tenant object storage with path sharding
+  - SHA256 content verification
+  - Configurable object size limits
+
+## Git LFS Support
+
+repos-mcp includes full Git LFS support for managing large files efficiently.
+
+### Features
+
+- **Batch API**: RFC-compliant Git LFS Batch API implementation
+- **Multi-Tenant**: Complete isolation between tenants and repositories  
+- **Authentication**: JWT tokens generated via SSH for secure HTTP transfers
+- **Storage**: Flexible storage with local filesystem (S3 support planned)
+- **Verification**: Automatic SHA256 integrity checking on uploads
+
+### Quick Setup
+
+1. **Enable LFS in configuration** (`config.yaml`):
+
+```yaml
+features:
+  git_lfs: true
+
+lfs:
+  enabled: true
+  jwt_secret: "your-strong-secret-here"  # Generate with: openssl rand -base64 32
+  base_url: "http://localhost:8090"
+  max_object_size: 5368709120  # 5 GB
+  token_expiration_secs: 3600
+```
+
+2. **Initialize Git LFS in your repository**:
+
+```bash
+git lfs install
+git lfs track "*.psd"
+git lfs track "*.mp4"
+git add .gitattributes
+```
+
+3. **Use as normal**:
+
+```bash
+# Add large files
+git add large-file.psd
+git commit -m "Add design file"
+git push origin main
+```
+
+### Testing LFS HTTP API
+
+```bash
+# Test batch endpoint
+curl -X POST http://localhost:8090/lfs/tenant/repo/info/lfs/objects/batch \
+  -H "Content-Type: application/vnd.git-lfs+json" \
+  -d '{
+    "operation": "upload",
+    "objects": [{"oid": "abc123...", "size": 1024}]
+  }'
+
+# Upload object
+echo "test data" > /tmp/test.bin
+OID=$(sha256sum /tmp/test.bin | awk '{print $1}')
+curl -X PUT "http://localhost:8090/lfs/tenant/repo/lfs/objects/$OID" \
+  --data-binary @/tmp/test.bin
+```
+
+### Documentation
+
+- [LFS Configuration Reference](docs/LFS_CONFIGURATION.md) - Complete configuration guide
+- [Git LFS Specification](https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md) - Official API spec
 
 ## Quick Start
 

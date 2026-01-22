@@ -3,8 +3,16 @@ use tracing::{debug, warn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GitCommand {
-    UploadPack { repository: String },
-    ReceivePack { repository: String },
+    UploadPack {
+        repository: String,
+    },
+    ReceivePack {
+        repository: String,
+    },
+    LfsAuthenticate {
+        repository: String,
+        operation: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,9 +60,9 @@ impl CommandValidator {
 
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
 
-        if parts.len() != 2 {
+        if parts.len() < 2 || parts.len() > 3 {
             warn!(
-                "Invalid command format: expected 2 parts, got {}",
+                "Invalid command format: expected 2-3 parts, got {}",
                 parts.len()
             );
             return Err(CommandValidationError::InvalidFormat);
@@ -68,6 +76,21 @@ impl CommandValidator {
         match git_command {
             "git-upload-pack" => Ok(GitCommand::UploadPack { repository }),
             "git-receive-pack" => Ok(GitCommand::ReceivePack { repository }),
+            "git-lfs-authenticate" => {
+                if parts.len() != 3 {
+                    warn!("git-lfs-authenticate requires operation argument");
+                    return Err(CommandValidationError::InvalidFormat);
+                }
+                let operation = parts[2].to_string();
+                if operation != "download" && operation != "upload" {
+                    warn!("Invalid LFS operation: {}", operation);
+                    return Err(CommandValidationError::InvalidFormat);
+                }
+                Ok(GitCommand::LfsAuthenticate {
+                    repository,
+                    operation,
+                })
+            }
             _ => {
                 warn!("Unsupported command: {}", git_command);
                 Err(CommandValidationError::UnsupportedCommand)
@@ -274,5 +297,46 @@ mod tests {
             result,
             Err(CommandValidationError::EmptyRepository)
         ));
+    }
+
+    #[test]
+    fn test_lfs_authenticate_download() {
+        let result =
+            CommandValidator::validate_command("git-lfs-authenticate tenant/repo.git download");
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            GitCommand::LfsAuthenticate {
+                repository: "tenant/repo.git".to_string(),
+                operation: "download".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_lfs_authenticate_upload() {
+        let result =
+            CommandValidator::validate_command("git-lfs-authenticate 'tenant/repo.git' upload");
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            GitCommand::LfsAuthenticate {
+                repository: "tenant/repo.git".to_string(),
+                operation: "upload".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_lfs_authenticate_missing_operation() {
+        let result = CommandValidator::validate_command("git-lfs-authenticate tenant/repo.git");
+        assert!(matches!(result, Err(CommandValidationError::InvalidFormat)));
+    }
+
+    #[test]
+    fn test_lfs_authenticate_invalid_operation() {
+        let result =
+            CommandValidator::validate_command("git-lfs-authenticate tenant/repo.git delete");
+        assert!(matches!(result, Err(CommandValidationError::InvalidFormat)));
     }
 }

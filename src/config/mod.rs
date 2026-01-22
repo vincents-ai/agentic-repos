@@ -8,12 +8,35 @@ pub struct AppConfig {
     pub server: ServerConfig,
     #[serde(default)]
     pub features: Option<HashMap<String, bool>>,
+    #[serde(default)]
+    pub lfs: LfsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LfsConfig {
+    /// Enable Git LFS support (requires git_lfs feature flag)
+    pub enabled: bool,
+    /// Maximum object size in bytes (default: 5GB)
+    pub max_object_size: u64,
+    /// JWT token expiration in seconds (default: 1 hour)
+    pub token_expiration_secs: u64,
+    /// JWT secret for token signing and verification (MUST be changed in production)
+    pub jwt_secret: String,
+    /// Base URL for LFS HTTP endpoints (e.g., "https://lfs.example.com")
+    pub base_url: String,
+    /// Storage path pattern for LFS objects (relative to storage backend root)
+    /// Default: {tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}
+    pub storage_path_pattern: String,
+    /// Enable LFS file locking support (requires lfs_locks feature flag)
+    pub locking_enabled: bool,
+    /// Lock expiration in seconds (default: 24 hours)
+    pub lock_expiration_secs: u64,
 }
 
 impl AppConfig {
@@ -87,6 +110,8 @@ impl AppConfig {
                     advanced_webhooks: env_flags.advanced_webhooks
                         || config_feature_flags.advanced_webhooks,
                     analytics: env_flags.analytics || config_feature_flags.analytics,
+                    git_lfs: env_flags.git_lfs || config_feature_flags.git_lfs,
+                    lfs_locks: env_flags.lfs_locks || config_feature_flags.lfs_locks,
                 }
             }
             None => FeatureFlags::load_from_env(),
@@ -99,6 +124,7 @@ impl Default for AppConfig {
         Self {
             server: ServerConfig::default(),
             features: None,
+            lfs: LfsConfig::default(),
         }
     }
 }
@@ -108,6 +134,22 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 8090,
+        }
+    }
+}
+
+impl Default for LfsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_object_size: 5 * 1024 * 1024 * 1024, // 5GB
+            token_expiration_secs: 3600,             // 1 hour
+            jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING".to_string(),
+            base_url: "http://localhost:8090".to_string(),
+            storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
+                .to_string(),
+            locking_enabled: false,
+            lock_expiration_secs: 86400, // 24 hours
         }
     }
 }

@@ -151,6 +151,12 @@ mod integration_tests {
             .expect("Failed to push initial commit");
 
         assert!(status.success(), "Failed to push initial commit");
+
+        Command::new("git")
+            .args(&["symbolic-ref", "HEAD", "refs/heads/main"])
+            .current_dir(repo_path)
+            .status()
+            .expect("Failed to update HEAD in bare repository");
     }
 
     #[tokio::test]

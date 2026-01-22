@@ -102,6 +102,7 @@
             git
             cargo-audit
             cargo-license
+            cargo-tarpaulin
           ];
           
           shellHook = ''

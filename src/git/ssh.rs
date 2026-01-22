@@ -750,10 +750,10 @@ impl SshHandler {
             russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
         })?;
 
-        let exit_code = exit_status.code().unwrap_or(1);
-        debug!("git-upload-pack exited with code: {}", exit_code);
+        let exit_code = exit_status.code().unwrap_or(1) as u32;
+        debug!("git-receive-pack exited with code: {}", exit_code);
 
-        session.exit_status_request(channel, exit_code as u32)?;
+        session.exit_status_request(channel, exit_code)?;
         session.eof(channel)?;
 
         Ok(())
@@ -839,10 +839,10 @@ impl SshHandler {
             russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
         })?;
 
-        let exit_code = exit_status.code().unwrap_or(1);
-        debug!("git-receive-pack exited with code: {}", exit_code);
+        let exit_code = exit_status.code().unwrap_or(1) as u32;
+        debug!("git-upload-pack exited with code: {}", exit_code);
 
-        session.exit_status_request(channel, exit_code as u32)?;
+        session.exit_status_request(channel, exit_code)?;
         session.eof(channel)?;
 
         Ok(())

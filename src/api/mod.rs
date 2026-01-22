@@ -1,5 +1,6 @@
 pub mod handlers;
 pub mod lfs;
+pub mod lfs_locks;
 pub mod models;
 pub mod routes;
 

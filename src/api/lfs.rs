@@ -8,8 +8,8 @@ use crate::config::AppConfig;
 use crate::lfs::{
     record_batch_request, record_download, record_error, record_upload, Action, Actions,
     AuditEvent, AuditEventType, AuditLogger, AuditStorage, BandwidthThrottler, BatchRequest,
-    BatchResponse, LfsStorage, ObjectError, Operation, QuotaManager, ResponseObject, StorageKey,
-    Transfer,
+    BatchResponse, LfsLockManager, LfsStorage, ObjectError, Operation, QuotaManager,
+    ResponseObject, StorageKey, Transfer,
 };
 
 pub struct LfsHandler<S, A>
@@ -21,6 +21,8 @@ where
     quota_manager: Option<Arc<QuotaManager>>,
     audit_logger: Option<Arc<AuditLogger<A>>>,
     throttler: Option<Arc<BandwidthThrottler>>,
+    // TODO: Integrate with git-receive-pack for push-time lock verification
+    lock_manager: Option<Arc<LfsLockManager>>,
 }
 
 impl<S, A> LfsHandler<S, A>
@@ -35,6 +37,7 @@ where
             quota_manager: None,
             audit_logger: None,
             throttler: None,
+            lock_manager: None,
         }
     }
 
@@ -50,6 +53,11 @@ where
 
     pub fn with_throttler(mut self, throttler: Arc<BandwidthThrottler>) -> Self {
         self.throttler = Some(throttler);
+        self
+    }
+
+    pub fn with_lock_manager(mut self, lock_manager: Arc<LfsLockManager>) -> Self {
+        self.lock_manager = Some(lock_manager);
         self
     }
 

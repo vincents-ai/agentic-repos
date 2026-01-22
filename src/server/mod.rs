@@ -6,7 +6,6 @@ use crate::storage::local::LocalStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::spawn;
-use tokio::time::{interval, Duration};
 
 pub struct Server {
     config: Arc<AppConfig>,

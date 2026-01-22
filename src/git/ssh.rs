@@ -722,8 +722,8 @@ impl SshHandler {
             }
         });
 
-        let channel_clone = channel;
-        let session_clone = session.handle();
+        let _channel_clone = channel;
+        let _session_clone = session.handle();
         let _peer_ip = self.peer_ip.clone();
 
         tokio::spawn(async move {
@@ -811,8 +811,8 @@ impl SshHandler {
             }
         });
 
-        let channel_clone = channel;
-        let session_clone = session.handle();
+        let _channel_clone = channel;
+        let _session_clone = session.handle();
         let _peer_ip = self.peer_ip.clone();
 
         tokio::spawn(async move {

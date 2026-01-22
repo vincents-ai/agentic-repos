@@ -82,7 +82,10 @@ impl ApiServer {
 
             if feature_flags.git_lfs && lfs_config.enabled {
                 use crate::lfs::storage::LfsStorageAdapter;
-                use crate::lfs::{AuditLogger, InMemoryAuditStorage, QuotaManager};
+                use crate::lfs::{
+                    AuditLogger, BandwidthThrottler, InMemoryAuditStorage, QuotaManager,
+                    ThrottleConfig,
+                };
                 use crate::storage::local::LocalStorage;
                 use std::path::PathBuf;
                 use std::sync::Arc;
@@ -103,9 +106,25 @@ impl ApiServer {
 
                 let quota_manager = Arc::new(QuotaManager::new(lfs_config.quota.clone().into()));
 
-                let handler = lfs::LfsHandler::new(Arc::new(lfs_storage), app_config)
+                let throttler = if lfs_config.throttle.enabled {
+                    let throttle_config = ThrottleConfig {
+                        default_bytes_per_second: lfs_config.throttle.default_bytes_per_second,
+                        per_tenant_limits: lfs_config.throttle.per_tenant_limits.clone(),
+                        per_repo_limits: lfs_config.throttle.per_repo_limits.clone(),
+                        burst_size: lfs_config.throttle.burst_size,
+                    };
+                    Some(Arc::new(BandwidthThrottler::new(throttle_config)))
+                } else {
+                    None
+                };
+
+                let mut handler = lfs::LfsHandler::new(Arc::new(lfs_storage), app_config)
                     .with_audit_logger(audit_logger)
                     .with_quota_manager(quota_manager);
+
+                if let Some(throttler) = throttler {
+                    handler = handler.with_throttler(throttler);
+                }
 
                 app = app
                     .app_data(web::Data::new(handler))

@@ -46,6 +46,9 @@ pub struct LfsConfig {
     /// Audit logging configuration
     #[serde(default)]
     pub audit: LfsAuditConfig,
+    /// Bandwidth throttling configuration
+    #[serde(default)]
+    pub throttle: LfsThrottleConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -81,6 +84,17 @@ pub struct LfsAuditConfig {
     pub include_ip_addresses: bool,
     pub log_successful_operations: bool,
     pub log_failed_operations: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LfsThrottleConfig {
+    pub enabled: bool,
+    pub default_bytes_per_second: u64,
+    #[serde(default)]
+    pub per_tenant_limits: HashMap<String, u64>,
+    #[serde(default)]
+    pub per_repo_limits: HashMap<String, u64>,
+    pub burst_size: u64,
 }
 
 impl AppConfig {
@@ -197,6 +211,7 @@ impl Default for LfsConfig {
             gc: LfsGcConfig::default(),
             quota: LfsQuotaConfig::default(),
             audit: LfsAuditConfig::default(),
+            throttle: LfsThrottleConfig::default(),
         }
     }
 }
@@ -231,6 +246,18 @@ impl Default for LfsAuditConfig {
             include_ip_addresses: true,
             log_successful_operations: true,
             log_failed_operations: true,
+        }
+    }
+}
+
+impl Default for LfsThrottleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_bytes_per_second: 10 * 1024 * 1024,
+            per_tenant_limits: HashMap::new(),
+            per_repo_limits: HashMap::new(),
+            burst_size: 50 * 1024 * 1024,
         }
     }
 }

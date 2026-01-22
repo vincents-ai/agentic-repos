@@ -6,6 +6,7 @@ pub mod models;
 pub mod pointer;
 pub mod quota;
 pub mod storage;
+pub mod throttle;
 pub mod verify;
 
 pub use audit::{
@@ -25,4 +26,5 @@ pub use models::{
 pub use pointer::{LfsPointer, PointerParseError};
 pub use quota::{QuotaConfig, QuotaError, QuotaManager};
 pub use storage::{LfsStorage, LfsStorageAdapter, StorageKey};
+pub use throttle::{BandwidthThrottler, ThrottleConfig};
 pub use verify::verify_sha256;

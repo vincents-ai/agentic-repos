@@ -7,8 +7,9 @@ use std::sync::Arc;
 use crate::config::AppConfig;
 use crate::lfs::{
     record_batch_request, record_download, record_error, record_upload, Action, Actions,
-    AuditEvent, AuditEventType, AuditLogger, AuditStorage, BatchRequest, BatchResponse, LfsStorage,
-    ObjectError, Operation, QuotaManager, ResponseObject, StorageKey, Transfer,
+    AuditEvent, AuditEventType, AuditLogger, AuditStorage, BandwidthThrottler, BatchRequest,
+    BatchResponse, LfsStorage, ObjectError, Operation, QuotaManager, ResponseObject, StorageKey,
+    Transfer,
 };
 
 pub struct LfsHandler<S, A>
@@ -19,6 +20,7 @@ where
     config: AppConfig,
     quota_manager: Option<Arc<QuotaManager>>,
     audit_logger: Option<Arc<AuditLogger<A>>>,
+    throttler: Option<Arc<BandwidthThrottler>>,
 }
 
 impl<S, A> LfsHandler<S, A>
@@ -32,6 +34,7 @@ where
             config,
             quota_manager: None,
             audit_logger: None,
+            throttler: None,
         }
     }
 
@@ -42,6 +45,11 @@ where
 
     pub fn with_audit_logger(mut self, audit_logger: Arc<AuditLogger<A>>) -> Self {
         self.audit_logger = Some(audit_logger);
+        self
+    }
+
+    pub fn with_throttler(mut self, throttler: Arc<BandwidthThrottler>) -> Self {
+        self.throttler = Some(throttler);
         self
     }
 
@@ -266,6 +274,12 @@ where
 
     let key = StorageKey::new(&tenant, &repo, &oid);
 
+    if let Some(ref throttler) = handler.throttler {
+        if handler.config.lfs.throttle.enabled {
+            throttler.acquire(&tenant, &repo, body.len() as u64).await;
+        }
+    }
+
     match handler.storage.put_object(&key, body.to_vec()).await {
         Ok(()) => {
             record_upload(&tenant, &repo, body.len() as u64);
@@ -332,6 +346,12 @@ where
 
     match handler.storage.get_object(&key).await {
         Ok(Some(data)) => {
+            if let Some(ref throttler) = handler.throttler {
+                if handler.config.lfs.throttle.enabled {
+                    throttler.acquire(&tenant, &repo, data.len() as u64).await;
+                }
+            }
+
             record_download(&tenant, &repo, data.len() as u64);
 
             if let Some(ref logger) = handler.audit_logger {

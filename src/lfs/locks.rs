@@ -269,14 +269,456 @@ impl LfsLockManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn setup_test_db() -> Arc<PgPool> {
+        let database_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://postgres:postgres@localhost/repos_mcp_test".to_string()
+        });
+
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("Failed to connect to test database");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS lfs_locks (
+                id UUID PRIMARY KEY,
+                tenant TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                path TEXT NOT NULL,
+                ref_name TEXT,
+                owner_name TEXT NOT NULL,
+                owner_id TEXT,
+                locked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMPTZ,
+                UNIQUE(tenant, repo, path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_lfs_locks_tenant_repo ON lfs_locks(tenant, repo);
+            CREATE INDEX IF NOT EXISTS idx_lfs_locks_path ON lfs_locks(tenant, repo, path);
+            CREATE INDEX IF NOT EXISTS idx_lfs_locks_owner ON lfs_locks(tenant, repo, owner_name);
+            CREATE INDEX IF NOT EXISTS idx_lfs_locks_ref ON lfs_locks(tenant, repo, ref_name);
+            CREATE INDEX IF NOT EXISTS idx_lfs_locks_expires ON lfs_locks(expires_at);
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create test table");
+
+        Arc::new(pool)
+    }
+
+    async fn cleanup_test_db(pool: &PgPool) {
+        sqlx::query("DELETE FROM lfs_locks")
+            .execute(pool)
+            .await
+            .expect("Failed to cleanup test data");
+    }
 
     #[tokio::test]
-    async fn test_lock_manager_requires_pool() {
-        let pool = Arc::new(
-            PgPool::connect("postgresql://localhost/test")
+    async fn test_create_lock_success() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+        let request = CreateLockRequest {
+            path: "designs/logo.psd".to_string(),
+            git_ref: None,
+        };
+
+        let response = manager
+            .create_lock("tenant1", "repo1", request, "alice", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        assert_eq!(response.lock.path, "designs/logo.psd");
+        assert_eq!(response.lock.owner.name, "alice");
+        assert!(response.lock.id != Uuid::nil());
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_create_lock_with_expiration() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+        let request = CreateLockRequest {
+            path: "video.mp4".to_string(),
+            git_ref: None,
+        };
+
+        let response = manager
+            .create_lock("tenant1", "repo1", request, "bob", None, Some(3600))
+            .await
+            .expect("Failed to create lock with expiration");
+
+        assert_eq!(response.lock.path, "video.mp4");
+        assert_eq!(response.lock.owner.name, "bob");
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_create_lock_duplicate_fails() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+        let request1 = CreateLockRequest {
+            path: "document.pdf".to_string(),
+            git_ref: None,
+        };
+
+        manager
+            .create_lock("tenant1", "repo1", request1, "alice", None, None)
+            .await
+            .expect("Failed to create first lock");
+
+        let request2 = CreateLockRequest {
+            path: "document.pdf".to_string(),
+            git_ref: None,
+        };
+
+        let result = manager
+            .create_lock("tenant1", "repo1", request2, "bob", None, None)
+            .await;
+
+        assert!(matches!(result, Err(LockManagerError::AlreadyLocked(_))));
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_list_locks_all() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+
+        for i in 1..=3 {
+            let request = CreateLockRequest {
+                path: format!("file{}.txt", i),
+                git_ref: None,
+            };
+            manager
+                .create_lock("tenant1", "repo1", request, "alice", None, None)
                 .await
-                .unwrap_or_else(|_| panic!("Test requires PostgreSQL")),
-        );
-        let _manager = LfsLockManager::new(pool);
+                .expect("Failed to create lock");
+        }
+
+        let response = manager
+            .list_locks("tenant1", "repo1", None, None, None, None, None)
+            .await
+            .expect("Failed to list locks");
+
+        assert_eq!(response.locks.len(), 3);
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_list_locks_by_path() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+
+        let request = CreateLockRequest {
+            path: "specific.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request, "alice", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let request = CreateLockRequest {
+            path: "other.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request, "bob", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let response = manager
+            .list_locks(
+                "tenant1",
+                "repo1",
+                Some("specific.txt"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("Failed to list locks by path");
+
+        assert_eq!(response.locks.len(), 1);
+        assert_eq!(response.locks[0].path, "specific.txt");
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_list_locks_with_limit() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+
+        for i in 1..=5 {
+            let request = CreateLockRequest {
+                path: format!("file{}.txt", i),
+                git_ref: None,
+            };
+            manager
+                .create_lock("tenant1", "repo1", request, "alice", None, None)
+                .await
+                .expect("Failed to create lock");
+        }
+
+        let response = manager
+            .list_locks("tenant1", "repo1", None, None, None, Some(3), None)
+            .await
+            .expect("Failed to list locks with limit");
+
+        assert_eq!(response.locks.len(), 3);
+        assert!(response.next_cursor.is_some());
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_lock_as_owner() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+        let request = CreateLockRequest {
+            path: "to_delete.txt".to_string(),
+            git_ref: None,
+        };
+
+        let create_response = manager
+            .create_lock("tenant1", "repo1", request, "alice", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let lock_id = create_response.lock.id;
+
+        let delete_response = manager
+            .delete_lock("tenant1", "repo1", lock_id, "alice", false)
+            .await
+            .expect("Failed to delete lock as owner");
+
+        assert_eq!(delete_response.lock.id, lock_id);
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_lock_as_non_owner_without_force_fails() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+        let request = CreateLockRequest {
+            path: "protected.txt".to_string(),
+            git_ref: None,
+        };
+
+        let create_response = manager
+            .create_lock("tenant1", "repo1", request, "alice", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let lock_id = create_response.lock.id;
+
+        let result = manager
+            .delete_lock("tenant1", "repo1", lock_id, "bob", false)
+            .await;
+
+        assert!(matches!(result, Err(LockManagerError::Forbidden(_))));
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_lock_with_force_succeeds() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+        let request = CreateLockRequest {
+            path: "forced.txt".to_string(),
+            git_ref: None,
+        };
+
+        let create_response = manager
+            .create_lock("tenant1", "repo1", request, "alice", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let lock_id = create_response.lock.id;
+
+        let delete_response = manager
+            .delete_lock("tenant1", "repo1", lock_id, "admin", true)
+            .await
+            .expect("Failed to force delete lock");
+
+        assert_eq!(delete_response.lock.id, lock_id);
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_lock_not_found() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+        let fake_id = Uuid::new_v4();
+
+        let result = manager
+            .delete_lock("tenant1", "repo1", fake_id, "alice", false)
+            .await;
+
+        assert!(matches!(result, Err(LockManagerError::NotFound(_))));
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_verify_locks_partitions_correctly() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+
+        let request1 = CreateLockRequest {
+            path: "mine1.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request1, "alice", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let request2 = CreateLockRequest {
+            path: "mine2.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request2, "alice", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let request3 = CreateLockRequest {
+            path: "theirs.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request3, "bob", None, None)
+            .await
+            .expect("Failed to create lock");
+
+        let response = manager
+            .verify_locks("tenant1", "repo1", "alice", None, None, None)
+            .await
+            .expect("Failed to verify locks");
+
+        assert_eq!(response.ours.len(), 2);
+        assert_eq!(response.theirs.len(), 1);
+        assert_eq!(response.theirs[0].owner.name, "bob");
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_locks() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+
+        let request1 = CreateLockRequest {
+            path: "expired.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request1, "alice", None, Some(1))
+            .await
+            .expect("Failed to create expiring lock");
+
+        let request2 = CreateLockRequest {
+            path: "permanent.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request2, "bob", None, None)
+            .await
+            .expect("Failed to create permanent lock");
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        let count = manager
+            .cleanup_expired_locks()
+            .await
+            .expect("Failed to cleanup expired locks");
+
+        assert_eq!(count, 1);
+
+        let remaining = manager
+            .list_locks("tenant1", "repo1", None, None, None, None, None)
+            .await
+            .expect("Failed to list remaining locks");
+
+        assert_eq!(remaining.locks.len(), 1);
+        assert_eq!(remaining.locks[0].path, "permanent.txt");
+
+        cleanup_test_db(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn test_list_locks_excludes_expired() {
+        let pool = setup_test_db().await;
+        cleanup_test_db(&pool).await;
+
+        let manager = LfsLockManager::new(pool.clone());
+
+        let request1 = CreateLockRequest {
+            path: "expired.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request1, "alice", None, Some(1))
+            .await
+            .expect("Failed to create expiring lock");
+
+        let request2 = CreateLockRequest {
+            path: "active.txt".to_string(),
+            git_ref: None,
+        };
+        manager
+            .create_lock("tenant1", "repo1", request2, "bob", None, None)
+            .await
+            .expect("Failed to create active lock");
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        let response = manager
+            .list_locks("tenant1", "repo1", None, None, None, None, None)
+            .await
+            .expect("Failed to list locks");
+
+        assert_eq!(response.locks.len(), 1);
+        assert_eq!(response.locks[0].path, "active.txt");
+
+        cleanup_test_db(&pool).await;
     }
 }

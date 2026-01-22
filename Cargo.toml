@@ -52,7 +52,7 @@ sha2 = "0.10"
 # MCP Protocol
 bytes = "1.5"
 uuid = { version = "1.6", features = ["v4", "serde"] }
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.28"
 futures-util = "0.3"
 async-trait = "0.1"
 

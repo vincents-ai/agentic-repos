@@ -70,5 +70,5 @@ rand_core = "0.6"
 
 [dev-dependencies]
 tokio-test = "0.4"
-mockall = "0.12"
+mockall = "0.14"
 serial_test = "3.0"

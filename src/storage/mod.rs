@@ -191,6 +191,9 @@ pub mod s3 {
 
         /// Upload data to S3 using multipart upload for large files
         async fn multipart_upload(&self, key: &str, data: &[u8]) -> Result<(), StorageError> {
+            use std::time::Instant;
+            let start = Instant::now();
+
             // Step 1: Initiate multipart upload
             let upload_id = self
                 .client
@@ -291,6 +294,14 @@ pub mod s3 {
                     StorageError::Io(format!("Failed to complete multipart upload: {}", e))
                 })?;
 
+            let duration = start.elapsed().as_secs_f64();
+            crate::lfs::metrics::record_s3_multipart_upload(
+                &self.bucket,
+                num_parts as u64,
+                total_size as u64,
+                duration,
+            );
+
             Ok(())
         }
     }
@@ -344,6 +355,8 @@ pub mod s3 {
                     .send()
                     .await
                     .map_err(|e| StorageError::Io(e.to_string()))?;
+
+                crate::lfs::metrics::record_s3_simple_upload(&self.bucket);
                 Ok(())
             }
         }

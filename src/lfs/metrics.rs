@@ -107,6 +107,36 @@ lazy_static! {
         &["tenant", "repo", "operation"]
     )
     .expect("Failed to create lfs_throttle_bytes_limited_total metric");
+    pub static ref S3_MULTIPART_UPLOADS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "s3_multipart_uploads_total",
+        "Total number of S3 multipart uploads initiated",
+        &["bucket"]
+    )
+    .expect("Failed to create s3_multipart_uploads_total metric");
+    pub static ref S3_MULTIPART_PARTS_UPLOADED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "s3_multipart_parts_uploaded_total",
+        "Total number of S3 multipart parts uploaded",
+        &["bucket"]
+    )
+    .expect("Failed to create s3_multipart_parts_uploaded_total metric");
+    pub static ref S3_MULTIPART_UPLOAD_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
+        "s3_multipart_upload_duration_seconds",
+        "Duration of S3 multipart upload operations in seconds",
+        &["bucket"]
+    )
+    .expect("Failed to create s3_multipart_upload_duration_seconds metric");
+    pub static ref S3_MULTIPART_BYTES_UPLOADED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "s3_multipart_bytes_uploaded_total",
+        "Total bytes uploaded via S3 multipart",
+        &["bucket"]
+    )
+    .expect("Failed to create s3_multipart_bytes_uploaded_total metric");
+    pub static ref S3_SIMPLE_UPLOAD_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "s3_simple_upload_total",
+        "Total number of S3 simple PUT uploads",
+        &["bucket"]
+    )
+    .expect("Failed to create s3_simple_upload_total metric");
 }
 
 pub fn record_upload(tenant: &str, repo: &str, bytes: u64) {
@@ -183,12 +213,31 @@ pub fn record_throttle_bytes(tenant: &str, repo: &str, operation: &str, bytes: u
         .inc_by(bytes);
 }
 
-pub fn encode_metrics() -> Result<String, prometheus::Error> {
+pub fn record_s3_multipart_upload(bucket: &str, num_parts: u64, bytes: u64, duration_secs: f64) {
+    S3_MULTIPART_UPLOADS_TOTAL
+        .with_label_values(&[bucket])
+        .inc();
+    S3_MULTIPART_PARTS_UPLOADED_TOTAL
+        .with_label_values(&[bucket])
+        .inc_by(num_parts);
+    S3_MULTIPART_BYTES_UPLOADED_TOTAL
+        .with_label_values(&[bucket])
+        .inc_by(bytes);
+    S3_MULTIPART_UPLOAD_DURATION_SECONDS
+        .with_label_values(&[bucket])
+        .observe(duration_secs);
+}
+
+pub fn record_s3_simple_upload(bucket: &str) {
+    S3_SIMPLE_UPLOAD_TOTAL.with_label_values(&[bucket]).inc();
+}
+
+pub fn encode_metrics() -> Result<String, Box<dyn std::error::Error>> {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = Vec::new();
     encoder.encode(&metric_families, &mut buffer)?;
-    Ok(String::from_utf8_lossy(&buffer).to_string())
+    Ok(String::from_utf8(buffer)?)
 }
 
 #[cfg(test)]

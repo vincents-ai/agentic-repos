@@ -117,7 +117,18 @@
         checks = {
           build = repos-mcp;
           container = containerImage;
-        };
+        } 
+        # Import and add all VM test categories to checks
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).auth
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).git-protocol
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).storage
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).multi-tenancy
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).performance
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).network
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).lfs
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; })."error-handling"
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).security
+        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; })."edge-cases";
       }
     );
 }

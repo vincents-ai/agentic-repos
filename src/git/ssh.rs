@@ -15,9 +15,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
-use tokio::process::Command;
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -29,6 +27,7 @@ pub struct SshServer {
     rate_limiter: RateLimiter,
     connection_count: Arc<AtomicUsize>,
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
+    channel_senders: Arc<Mutex<HashMap<ChannelId, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     lfs_config: crate::config::LfsConfig,
 }
 
@@ -50,6 +49,7 @@ impl SshServer {
             rate_limiter,
             connection_count: Arc::new(AtomicUsize::new(0)),
             ip_connections: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
             lfs_config,
         }
     }
@@ -173,6 +173,7 @@ impl SshServer {
             ip_connections: self.ip_connections.clone(),
             max_connections: self.config.max_connections,
             clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
             lfs_config: self.lfs_config.clone(),
         };
@@ -231,6 +232,7 @@ struct SshServerImpl {
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
     max_connections: usize,
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
+    channel_senders: Arc<Mutex<HashMap<ChannelId, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     id: usize,
     lfs_config: crate::config::LfsConfig,
 }
@@ -260,6 +262,7 @@ impl russh::server::Server for SshServerImpl {
                 rate_limiter: self.rate_limiter.clone(),
                 client_id: self.id,
                 clients: self.clients.clone(),
+                channel_senders: self.channel_senders.clone(),
                 peer_ip,
                 connection_count: self.connection_count.clone(),
                 ip_connections: self.ip_connections.clone(),
@@ -286,6 +289,7 @@ impl russh::server::Server for SshServerImpl {
             rate_limiter: self.rate_limiter.clone(),
             client_id: self.id,
             clients: self.clients.clone(),
+            channel_senders: self.channel_senders.clone(),
             peer_ip,
             connection_count: self.connection_count.clone(),
             ip_connections: self.ip_connections.clone(),
@@ -303,6 +307,7 @@ struct SshHandler {
     rate_limiter: RateLimiter,
     client_id: usize,
     clients: Arc<Mutex<HashMap<usize, (ChannelId, russh::server::Handle)>>>,
+    channel_senders: Arc<Mutex<HashMap<ChannelId, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     peer_ip: String,
     connection_count: Arc<AtomicUsize>,
     #[allow(dead_code)]
@@ -629,7 +634,7 @@ impl russh::server::Handler for SshHandler {
         &mut self,
         channel: ChannelId,
         data: &[u8],
-        session: &mut Session,
+        _session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
         debug!(
             "Received data on channel {}: {} bytes from {}",
@@ -637,8 +642,12 @@ impl russh::server::Handler for SshHandler {
             data.len(),
             self.peer_ip
         );
-        let response = format!("Received: {}\r\n", String::from_utf8_lossy(data));
-        session.data(channel, response.into_bytes().into())?;
+
+        let senders = self.channel_senders.lock().await;
+        if let Some(tx) = senders.get(&channel) {
+            let _ = tx.send(data.to_vec());
+        }
+
         Ok(())
     }
 
@@ -653,6 +662,10 @@ impl russh::server::Handler for SshHandler {
         );
         let mut clients = self.clients.lock().await;
         clients.remove(&self.client_id);
+
+        let mut senders = self.channel_senders.lock().await;
+        senders.remove(&channel);
+
         Ok(())
     }
 }
@@ -676,87 +689,41 @@ impl SshHandler {
         session: &mut Session,
         repo_path: &Path,
     ) -> std::result::Result<(), russh::Error> {
-        debug!("Starting git-upload-pack for {:?}", repo_path);
+        debug!("Starting native git-upload-pack for {:?}", repo_path);
 
-        let mut child = Command::new("git")
-            .args(&["upload-pack", repo_path.to_string_lossy().as_ref()])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| {
-                error!("Failed to spawn git-upload-pack: {}", e);
-                russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
-            })?;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let mut child_stdout = child.stdout.take().unwrap();
-        let mut child_stderr = child.stderr.take().unwrap();
+        {
+            let mut senders = self.channel_senders.lock().await;
+            senders.insert(channel, tx);
+        }
 
-        let channel_clone = channel;
-        let session_clone = session.handle();
-        let peer_ip = self.peer_ip.clone();
+        let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
+        let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, session.handle());
 
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 8192];
-            loop {
-                match child_stdout.read(&mut buffer).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if let Err(e) = session_clone
-                            .data(channel_clone, buffer[..n].to_vec().into())
-                            .await
-                        {
-                            error!(
-                                "Failed to send data to SSH client from {}: {:?}",
-                                peer_ip, e
-                            );
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to read from git-upload-pack: {}", e);
-                        break;
-                    }
-                }
+        let handler = crate::git::protocol::GitProtocolHandler::new();
+
+        let result = handler.handle_upload_pack(reader, writer, repo_path).await;
+
+        let mut senders = self.channel_senders.lock().await;
+        senders.remove(&channel);
+
+        match result {
+            Ok(()) => {
+                session.exit_status_request(channel, 0)?;
+                session.eof(channel)?;
+                Ok(())
             }
-        });
-
-        let _channel_clone = channel;
-        let _session_clone = session.handle();
-        let _peer_ip = self.peer_ip.clone();
-
-        tokio::spawn(async move {
-            let mut stderr_buffer = [0u8; 1024];
-            loop {
-                match child_stderr.read(&mut stderr_buffer).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        debug!(
-                            "git-upload-pack stderr: {}",
-                            String::from_utf8_lossy(&stderr_buffer[..n])
-                        );
-                    }
-                    Err(e) => {
-                        debug!("Error reading git-upload-pack stderr: {}", e);
-                        break;
-                    }
-                }
+            Err(e) => {
+                error!("git-upload-pack error: {}", e);
+                session.exit_status_request(channel, 1)?;
+                session.eof(channel)?;
+                Err(russh::Error::IO(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e,
+                )))
             }
-        });
-
-        let exit_status = child.wait().await.map_err(|e| {
-            error!("git-upload-pack process error: {}", e);
-            russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
-        })?;
-
-        let exit_code = exit_status.code().unwrap_or(1) as u32;
-        debug!("git-receive-pack exited with code: {}", exit_code);
-
-        session.exit_status_request(channel, exit_code)?;
-        session.eof(channel)?;
-
-        Ok(())
+        }
     }
 
     async fn run_git_receive_pack(
@@ -765,87 +732,41 @@ impl SshHandler {
         session: &mut Session,
         repo_path: &Path,
     ) -> std::result::Result<(), russh::Error> {
-        debug!("Starting git-receive-pack for {:?}", repo_path);
+        debug!("Starting native git-receive-pack for {:?}", repo_path);
 
-        let mut child = Command::new("git")
-            .args(&["receive-pack", repo_path.to_string_lossy().as_ref()])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| {
-                error!("Failed to spawn git-receive-pack: {}", e);
-                russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
-            })?;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let mut child_stdout = child.stdout.take().unwrap();
-        let mut child_stderr = child.stderr.take().unwrap();
+        {
+            let mut senders = self.channel_senders.lock().await;
+            senders.insert(channel, tx);
+        }
 
-        let channel_clone = channel;
-        let session_clone = session.handle();
-        let peer_ip = self.peer_ip.clone();
+        let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
+        let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, session.handle());
+        
+        let handler = crate::git::protocol::GitProtocolHandler::new();
+        
+        let result = handler.handle_receive_pack(reader, writer, repo_path).await;
 
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 8192];
-            loop {
-                match child_stdout.read(&mut buffer).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if let Err(e) = session_clone
-                            .data(channel_clone, buffer[..n].to_vec().into())
-                            .await
-                        {
-                            error!(
-                                "Failed to send data to SSH client from {}: {:?}",
-                                peer_ip, e
-                            );
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to read from git-receive-pack: {}", e);
-                        break;
-                    }
-                }
+        let mut senders = self.channel_senders.lock().await;
+        senders.remove(&channel);
+
+        match result {
+            Ok(()) => {
+                session.exit_status_request(channel, 0)?;
+                session.eof(channel)?;
+                Ok(())
             }
-        });
-
-        let _channel_clone = channel;
-        let _session_clone = session.handle();
-        let _peer_ip = self.peer_ip.clone();
-
-        tokio::spawn(async move {
-            let mut stderr_buffer = [0u8; 1024];
-            loop {
-                match child_stderr.read(&mut stderr_buffer).await {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        debug!(
-                            "git-receive-pack stderr: {}",
-                            String::from_utf8_lossy(&stderr_buffer[..n])
-                        );
-                    }
-                    Err(e) => {
-                        debug!("Error reading git-receive-pack stderr: {}", e);
-                        break;
-                    }
-                }
+            Err(e) => {
+                error!("git-receive-pack error: {}", e);
+                session.exit_status_request(channel, 1)?;
+                session.eof(channel)?;
+                Err(russh::Error::IO(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e,
+                )))
             }
-        });
-
-        let exit_status = child.wait().await.map_err(|e| {
-            error!("git-receive-pack process error: {}", e);
-            russh::Error::IO(std::io::Error::new(std::io::ErrorKind::Other, e))
-        })?;
-
-        let exit_code = exit_status.code().unwrap_or(1) as u32;
-        debug!("git-upload-pack exited with code: {}", exit_code);
-
-        session.exit_status_request(channel, exit_code)?;
-        session.eof(channel)?;
-
-        Ok(())
+        }
     }
 }
 
@@ -973,6 +894,7 @@ mod tests {
             ip_connections: server.ip_connections.clone(),
             max_connections: 2,
             clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
             lfs_config: server.lfs_config.clone(),
         };
@@ -1017,6 +939,7 @@ mod tests {
             rate_limiter,
             client_id: 1,
             clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
             peer_ip: "192.168.1.100".to_string(),
             connection_count: server.connection_count.clone(),
             ip_connections: server.ip_connections.clone(),

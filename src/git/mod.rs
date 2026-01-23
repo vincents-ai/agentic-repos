@@ -7,6 +7,7 @@ pub mod protocol;
 pub mod rate_limit;
 pub mod retention;
 pub mod ssh;
+pub mod ssh_channel;
 pub mod storage;
 
 use crate::git::rate_limit::RateLimitConfig;

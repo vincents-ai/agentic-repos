@@ -5,49 +5,57 @@
 use super::packetline::{read_packet, write_data_packet, write_flush_packet, write_text_packet};
 use crate::git::error::{GitError, Result};
 use git2::{Oid, Repository};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, error, info};
 
 pub struct ReceivePackHandler {
-    repo: Repository,
+    repo_path: PathBuf,
 }
 
 impl ReceivePackHandler {
     pub fn new(repo_path: &Path) -> Result<Self> {
-        let repo = Repository::open(repo_path)
+        Repository::open(repo_path)
             .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
 
-        Ok(Self { repo })
+        Ok(Self { repo_path: repo_path.to_path_buf() })
     }
 
-    pub async fn handle<R, W>(&self, mut reader: R, mut writer: W) -> Result<()>
+    pub async fn handle<R, W>(&self, reader: R, writer: W) -> Result<()>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        Self::handle_impl(self.repo_path.clone(), reader, writer).await
+    }
+
+    async fn handle_impl<R, W>(repo_path: std::path::PathBuf, mut reader: R, mut writer: W) -> Result<()>
     where
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
         info!("Starting receive-pack protocol handler");
 
-        self.advertise_refs(&mut writer).await?;
+        Self::advertise_refs_impl(&repo_path, &mut writer).await?;
 
-        let updates = self.read_updates(&mut reader).await?;
+        let updates = Self::read_updates_impl(&mut reader).await?;
 
         if updates.is_empty() {
             debug!("No updates received");
             return Ok(());
         }
 
-        self.receive_packfile(&mut reader).await?;
+        Self::receive_packfile_impl(&repo_path, &mut reader).await?;
 
-        self.apply_updates(&updates).await?;
+        Self::apply_updates_impl(&repo_path, &updates).await?;
 
-        self.send_status(&mut writer, &updates).await?;
+        Self::send_status_impl(&mut writer, &updates).await?;
 
         info!("Receive-pack completed successfully");
         Ok(())
     }
 
-    async fn advertise_refs<W: AsyncWrite + Unpin>(&self, writer: &mut W) -> Result<()> {
+    async fn advertise_refs_impl<W: AsyncWrite + Unpin>(repo_path: &Path, writer: &mut W) -> Result<()> {
         debug!("Advertising references for receive-pack");
 
         let capabilities = vec![
@@ -57,8 +65,36 @@ impl ReceivePackHandler {
             "agent=repos-mcp/0.1.0",
         ];
 
-        let head = self.repo.head().ok();
-        let head_target = head.as_ref().and_then(|h| h.target());
+        let repo_path_clone1 = repo_path.to_path_buf();
+        let head_target = tokio::task::spawn_blocking(move || -> Result<Option<Oid>> {
+            let repo = Repository::open(&repo_path_clone1)
+                .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
+            Ok(repo.head().ok().and_then(|h| h.target()))
+        })
+        .await
+        .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
+
+        // Collect all reference data before async operations to avoid Send issues
+        let repo_path_clone2 = repo_path.to_path_buf();
+        let ref_data = tokio::task::spawn_blocking(move || -> Result<Vec<(String, Oid)>> {
+            let repo_clone = Repository::open(&repo_path_clone2)
+                .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
+            let refs = repo_clone.references()
+                .map_err(|e| GitError::ProtocolError(format!("Failed to list references: {}", e)))?;
+
+            let mut results = Vec::new();
+            for reference in refs {
+                let reference = reference
+                    .map_err(|e| GitError::ProtocolError(format!("Failed to read reference: {}", e)))?;
+
+                if let (Some(name), Some(target)) = (reference.name(), reference.target()) {
+                    results.push((name.to_string(), target));
+                }
+            }
+            Ok(results)
+        })
+        .await
+        .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
 
         let mut first = true;
         let mut count = 0;
@@ -76,27 +112,17 @@ impl ReceivePackHandler {
             count += 1;
         }
 
-        let refs = self
-            .repo
-            .references()
-            .map_err(|e| GitError::ProtocolError(format!("Failed to list references: {}", e)))?;
+        for (name, target) in ref_data {
+            let caps = if first {
+                format!(" {}", capabilities.join(" "))
+            } else {
+                String::new()
+            };
 
-        for reference in refs {
-            let reference = reference
-                .map_err(|e| GitError::ProtocolError(format!("Failed to read reference: {}", e)))?;
-
-            if let (Some(name), Some(target)) = (reference.name(), reference.target()) {
-                let caps = if first {
-                    format!(" {}", capabilities.join(" "))
-                } else {
-                    String::new()
-                };
-
-                let line = format!("{} {}{}\n", target, name, caps);
-                write_data_packet(writer, line.as_bytes()).await?;
-                first = false;
-                count += 1;
-            }
+            let line = format!("{} {}{}\n", target, name, caps);
+            write_data_packet(writer, line.as_bytes()).await?;
+            first = false;
+            count += 1;
         }
 
         if count == 0 {
@@ -114,7 +140,7 @@ impl ReceivePackHandler {
         Ok(())
     }
 
-    async fn read_updates<R: AsyncRead + Unpin>(&self, reader: &mut R) -> Result<Vec<RefUpdate>> {
+    async fn read_updates_impl<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<RefUpdate>> {
         let mut updates = Vec::new();
 
         loop {
@@ -163,7 +189,7 @@ impl ReceivePackHandler {
         Ok(updates)
     }
 
-    async fn receive_packfile<R: AsyncRead + Unpin>(&self, reader: &mut R) -> Result<()> {
+    async fn receive_packfile_impl<R: AsyncRead + Unpin>(repo_path: &Path, reader: &mut R) -> Result<()> {
         debug!("Receiving packfile");
 
         let mut packfile_data = Vec::new();
@@ -188,75 +214,97 @@ impl ReceivePackHandler {
         if !packfile_data.is_empty() {
             use std::io::Write;
 
-            let odb = self
-                .repo
-                .odb()
-                .map_err(|e| GitError::ProtocolError(format!("Failed to get ODB: {}", e)))?;
+            let repo_path_clone = repo_path.to_path_buf();
+            tokio::task::spawn_blocking(move || -> Result<()> {
+                let repo = Repository::open(&repo_path_clone)
+                    .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
+                
+                let odb = repo
+                    .odb()
+                    .map_err(|e| GitError::ProtocolError(format!("Failed to get ODB: {}", e)))?;
 
-            let mut packwriter = odb.packwriter().map_err(|e| {
-                GitError::ProtocolError(format!("Failed to create packwriter: {}", e))
-            })?;
+                let mut packwriter = odb.packwriter().map_err(|e| {
+                    GitError::ProtocolError(format!("Failed to create packwriter: {}", e))
+                })?;
 
-            packwriter
-                .write_all(&packfile_data)
-                .map_err(|e| GitError::IoError(e))?;
+                packwriter
+                    .write_all(&packfile_data)
+                    .map_err(|e| GitError::IoError(e))?;
 
-            packwriter.commit().map_err(|e| {
-                GitError::ProtocolError(format!("Failed to commit packfile: {}", e))
-            })?;
+                packwriter.commit().map_err(|e| {
+                    GitError::ProtocolError(format!("Failed to commit packfile: {}", e))
+                })?;
 
-            debug!(
-                "Received and indexed packfile: {} bytes",
-                packfile_data.len()
-            );
+                debug!(
+                    "Received and indexed packfile: {} bytes",
+                    packfile_data.len()
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
         }
 
         Ok(())
     }
 
-    async fn apply_updates(&self, updates: &[RefUpdate]) -> Result<()> {
-        for update in updates {
-            match (&update.old_oid, &update.new_oid) {
-                (_, Some(new_oid)) => {
-                    self.repo
-                        .reference(&update.refname, *new_oid, true, "push")
-                        .map_err(|e| {
+    async fn apply_updates_impl(repo_path: &Path, updates: &[RefUpdate]) -> Result<()> {
+        let repo_path_clone = repo_path.to_path_buf();
+        let updates_owned: Vec<RefUpdate> = updates.iter().map(|u| RefUpdate {
+            refname: u.refname.clone(),
+            old_oid: u.old_oid,
+            new_oid: u.new_oid,
+        }).collect();
+
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let repo = Repository::open(&repo_path_clone)
+                .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
+
+            for update in &updates_owned {
+                match (&update.old_oid, &update.new_oid) {
+                    (_, Some(new_oid)) => {
+                        repo
+                            .reference(&update.refname, *new_oid, true, "push")
+                            .map_err(|e| {
+                                GitError::ProtocolError(format!(
+                                    "Failed to update ref {}: {}",
+                                    update.refname, e
+                                ))
+                            })?;
+                        info!("Updated {} to {}", update.refname, new_oid);
+                    }
+                    (Some(_), None) => {
+                        let mut reference = repo.find_reference(&update.refname).map_err(|e| {
                             GitError::ProtocolError(format!(
-                                "Failed to update ref {}: {}",
+                                "Failed to find ref {}: {}",
                                 update.refname, e
                             ))
                         })?;
-                    info!("Updated {} to {}", update.refname, new_oid);
-                }
-                (Some(_), None) => {
-                    let mut reference = self.repo.find_reference(&update.refname).map_err(|e| {
-                        GitError::ProtocolError(format!(
-                            "Failed to find ref {}: {}",
-                            update.refname, e
-                        ))
-                    })?;
 
-                    reference.delete().map_err(|e| {
-                        GitError::ProtocolError(format!(
-                            "Failed to delete ref {}: {}",
-                            update.refname, e
-                        ))
-                    })?;
-                    info!("Deleted {}", update.refname);
-                }
-                (None, None) => {
-                    return Err(GitError::ProtocolError(
-                        "Invalid update: both old and new OID are None".to_string(),
-                    ));
+                        reference.delete().map_err(|e| {
+                            GitError::ProtocolError(format!(
+                                "Failed to delete ref {}: {}",
+                                update.refname, e
+                            ))
+                        })?;
+                        info!("Deleted {}", update.refname);
+                    }
+                    (None, None) => {
+                        return Err(GitError::ProtocolError(
+                            "Invalid update: both old and new OID are None".to_string(),
+                        ));
+                    }
                 }
             }
-        }
+            Ok(())
+        })
+        .await
+        .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
 
         Ok(())
     }
 
-    async fn send_status<W: AsyncWrite + Unpin>(
-        &self,
+    async fn send_status_impl<W: AsyncWrite + Unpin>(
         writer: &mut W,
         updates: &[RefUpdate],
     ) -> Result<()> {
@@ -274,7 +322,7 @@ impl ReceivePackHandler {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct RefUpdate {
     refname: String,
     old_oid: Option<Oid>,
@@ -294,11 +342,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_advertise_refs() {
-        let (_dir, repo) = create_test_repo();
-        let handler = ReceivePackHandler { repo };
-
+        let (dir, _repo) = create_test_repo();
+        
         let mut output = Vec::new();
-        handler.advertise_refs(&mut output).await.unwrap();
+        ReceivePackHandler::advertise_refs_impl(dir.path(), &mut output).await.unwrap();
 
         assert!(!output.is_empty());
 
@@ -309,8 +356,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_handler() {
-        let (_dir, _repo) = create_test_repo();
-        let result = ReceivePackHandler::new(_dir.path());
+        let (dir, _repo) = create_test_repo();
+        let result = ReceivePackHandler::new(dir.path());
         assert!(result.is_ok());
     }
 }

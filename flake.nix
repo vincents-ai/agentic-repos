@@ -4,10 +4,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     rust-overlay.url = "github:oxalica/rust-overlay";
+    crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, ... }:
+  outputs = { self, nixpkgs, rust-overlay, crane, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
@@ -18,46 +19,38 @@
           extensions = [ "rust-src" "rust-analyzer" ];
         };
 
-        # Build just the binary with Nix
-        repos-mcp-binary = pkgs.writeShellScriptBin "repos-mcp-builder" ''
-          cd ${./.}
-          export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig"
-          export OPENSSL_DIR="${pkgs.openssl.dev}"
-          export OPENSSL_LIB_DIR="${pkgs.openssl.out}/lib"
-          export OPENSSL_INCLUDE_DIR="${pkgs.openssl.dev}/include"
-          ${pkgs.cargo}/bin/cargo build --release
-          cp target/release/repos-mcp $out/bin/
-        '';
+        # Configure crane to use our custom rust toolchain
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        # Create a proper Rust package build
-        repos-mcp = pkgs.stdenv.mkDerivation {
-          pname = "repos-mcp";
-          version = "0.1.0";
-          src = ./.;
-          
+        # Common arguments for crane derivations
+        commonArgs = {
+          src = craneLib.cleanCargoSource ./.;
+          strictDeps = true;
+
           nativeBuildInputs = with pkgs; [
-            rustToolchain
             pkg-config
           ];
-          
+
           buildInputs = with pkgs; [
             openssl
             git
           ];
-          
-          buildPhase = ''
-            export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig"
-            export OPENSSL_DIR="${pkgs.openssl.dev}"
-            export OPENSSL_LIB_DIR="${pkgs.openssl.out}/lib"
-            export OPENSSL_INCLUDE_DIR="${pkgs.openssl.dev}/include"
-            cargo build --release
-          '';
-          
-          installPhase = ''
-            mkdir -p $out/bin
-            cp target/release/repos-mcp $out/bin/
-          '';
+
+          # Environment variables for OpenSSL
+          PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
+          OPENSSL_DIR = "${pkgs.openssl.dev}";
+          OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
+          OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
         };
+
+        # Build *just* the cargo dependencies, so we can reuse
+        # all of that work (e.g. via cachix or CI) when running in CI
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+        # Build the actual crate itself, reusing the dependency artifacts
+        repos-mcp = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+        });
 
         containerImage = pkgs.dockerTools.buildLayeredImage {
           name = "repos-mcp";

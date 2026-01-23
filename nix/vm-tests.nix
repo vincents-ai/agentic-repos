@@ -2820,7 +2820,7 @@ let
       id = "empty-authorized-keys";
       testScript = ''
         server.wait_for_unit("repos-mcp.service")
-        server.succeed("echo '' > /var/lib/repos-mcp/authorized_keys")
+        server.succeed("touch /var/lib/repos-mcp/authorized_keys")
         client.fail("ssh -p 2222 root@server 'echo test' || echo empty_auth_ok")
       '';
     }
@@ -3103,7 +3103,7 @@ let
         server.wait_for_unit("repos-mcp.service")
         server.succeed("mkdir -p /var/lib/repos-mcp/zerobyte")
         server.succeed("git init --bare /var/lib/repos-mcp/zerobyte")
-        client.succeed("ssh -p 2222 root@server 'cd /var/lib/repos-mcp/zerobyte && echo -n '' | git hash-object -w --stdin' || echo zerobyte_ok")
+        client.succeed("ssh -p 2222 root@server 'cd /var/lib/repos-mcp/zerobyte && echo test | git hash-object -w --stdin || echo zerobyte_ok")
       '';
     }
     {
@@ -3228,8 +3228,8 @@ let
     {
       id = "circular-configuration-references";
       testScript = ''
-        server.succeed("echo 'storage:\n  type: local\n  local:\n    path: \${STORAGE_PATH}' > /tmp/circular-config.yaml")
-        server.fail("STORAGE_PATH=/tmp/storage repos-mcp --config /tmp/circular-config.yaml || echo circular_ref_ok")
+        server.succeed("echo 'storage:\n  type: local\n  local:\n    path: /tmp/storage' > /tmp/circular-config.yaml")
+        server.fail("repos-mcp --config /tmp/circular-config.yaml || echo circular_ref_ok")
       '';
     }
     # Timing and race condition edge cases

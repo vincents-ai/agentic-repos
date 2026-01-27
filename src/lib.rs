@@ -13,6 +13,8 @@ pub mod server;
 pub mod storage;
 pub mod web;
 
+pub use config::AppConfig;
+
 #[cfg(test)]
 mod security_tests;
 

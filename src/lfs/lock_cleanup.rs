@@ -68,7 +68,7 @@ impl LockCleanupScheduler {
 mod tests {
     use super::*;
     use sqlx::PgPool;
-
+    use crate::lfs::test_utils::{cleanup_test_db, setup_test_db};
     #[tokio::test]
     async fn test_scheduler_construction() {
         let database_url = std::env::var("TEST_DATABASE_URL")

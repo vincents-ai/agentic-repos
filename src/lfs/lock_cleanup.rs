@@ -71,8 +71,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_scheduler_construction() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgresql://localhost/test".to_string());
+
         let pool = Arc::new(
-            PgPool::connect("postgresql://localhost/test")
+            PgPool::connect(&database_url)
                 .await
                 .unwrap_or_else(|_| panic!("Test requires PostgreSQL")),
         );
@@ -85,8 +88,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_scheduler_disabled() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgresql://localhost/test".to_string());
+
         let pool = Arc::new(
-            PgPool::connect("postgresql://localhost/test")
+            PgPool::connect(&database_url)
                 .await
                 .unwrap_or_else(|_| panic!("Test requires PostgreSQL")),
         );

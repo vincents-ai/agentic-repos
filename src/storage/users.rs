@@ -4,7 +4,7 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 use thiserror::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct User {
     pub id: Uuid,
     pub username: String,
@@ -109,7 +109,8 @@ impl UserRepository {
         )
         .bind(username)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| UserStorageError::Database(e))?;
 
         Ok(result)
     }
@@ -124,7 +125,8 @@ impl UserRepository {
         )
         .bind(id)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| UserStorageError::Database(e))?;
 
         Ok(result)
     }
@@ -139,7 +141,8 @@ impl UserRepository {
         )
         .bind(email)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| UserStorageError::Database(e))?;
 
         Ok(result)
     }
@@ -210,7 +213,8 @@ impl UserRepository {
             "#,
         )
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| UserStorageError::Database(e))?;
 
         Ok(users)
     }

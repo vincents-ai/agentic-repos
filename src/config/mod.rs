@@ -1,47 +1,7 @@
 use crate::features::FeatureFlags;
 use config::{Config as ConfigBuilder, File};
-use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::env;
-
-fn generate_secure_jwt_secret() -> String {
-    let mut rng = OsRng;
-    let mut secret = vec![0u8; 64];
-    rng.fill_bytes(&mut secret);
-    format!("{:x}", Sha256::digest(secret.as_slice()))
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct DatabaseConfig {
-    pub backend_type: String,
-    pub postgres_config: Option<ServerConfig>,
-    pub sqlite_config: Option<ServerConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AppConfig {
-    pub server: ServerConfig,
-    pub features: FeatureFlags,
-    pub lfs: LfsConfig,
-    pub database: DatabaseConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AppConfig {
-    pub server: ServerConfig,
-    pub features: FeatureFlags,
-    pub lfs: LfsConfig,
-    pub database: DatabaseConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct DatabaseConfig {
-    pub backend_type: String,
-    pub postgres_config: Option<ServerConfig>,
-    pub sqlite_config: Option<ServerConfig>,
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
@@ -49,9 +9,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub features: Option<HashMap<String, bool>>,
     #[serde(default)]
-    pub lfs: crate::config::LfsConfig,
-    #[serde(default)]
-    pub database: DatabaseConfig,
+    pub lfs: LfsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ServerConfig {
+    pub host: String,
+    pub port: u16,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -135,64 +99,7 @@ pub struct LfsThrottleConfig {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Self::from_file_with_database_type("config.yaml")
-    }
-
-    pub fn from_file_with_database_type(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let path_without_ext = path.trim_end_matches(".yaml").trim_end_matches(".yml");
-        
-        let database_type = std::env::var("DATABASE_TYPE")
-            .unwrap_or_else(|_| "postgres".to_string());
-
-        let settings = ConfigBuilder::builder()
-            .add_source(File::with_name(path_without_ext).required(false))
-            .build();
-        
-        match settings {
-            Ok(config) => {
-                println!("Loading config from {} (database: {})", path, database_type);
-                let app_config = config.try_deserialize()?;
-                println!(
-                    "Config loaded: host={}, port={}, database={}",
-                    app_config.server.host, app_config.server.port, database_type
-                );
-                Ok(app_config)
-            }
-            Err(e) => {
-                println!(
-                    "Config file {} not found or invalid ({}), using defaults with database={}",
-                    path, e, database_type
-                );
-                Ok(Self::default())
-            }
-        }
-    }
-
-    pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let path_without_ext = path.trim_end_matches(".yaml").trim_end_matches(".yml");
-        let settings = ConfigBuilder::builder()
-            .add_source(File::with_name(path_without_ext).required(false))
-            .build();
-
-        match settings {
-            Ok(config) => {
-                println!("Loading config from {}", path);
-                let app_config: config.try_deserialize()?;
-                println!(
-                    "Config loaded: host={}, port={}",
-                    app_config.server.host, app_config.server.port
-                );
-                Ok(app_config)
-            }
-            Err(e) => {
-                println!(
-                    "Config file {} not found or invalid ({}), using defaults",
-                    path, e
-                );
-                Ok(Self::default())
-            }
-        }
-    }
+        Self::from_file("config.yaml")
     }
 
     pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
@@ -295,7 +202,7 @@ impl Default for LfsConfig {
             enabled: false,
             max_object_size: 5 * 1024 * 1024 * 1024, // 5GB
             token_expiration_secs: 3600,             // 1 hour
-            jwt_secret: generate_secure_jwt_secret(),
+            jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING".to_string(),
             base_url: "http://localhost:8090".to_string(),
             storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
                 .to_string(),

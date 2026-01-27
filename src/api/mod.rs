@@ -45,7 +45,7 @@ impl ApiServer {
 
     pub async fn run(
         &self,
-        config: AppConfig,
+        config: crate::config::AppConfig,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!(
             "API Server starting on {}:{}",

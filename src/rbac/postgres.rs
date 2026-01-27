@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use crate::rbac::models::{Permission, RepositoryPermission, Role, User};
 use crate::rbac::storage::{RbacStorage, StorageError};
+use crate::rbac::db_models::{DbUser, DbRole, DbRepositoryPermission};
 use sqlx::PgPool;
+use std::collections::HashMap;
+use std::str::FromStr;
 use uuid::Uuid;
 
 pub struct PostgresRbacStorage {
@@ -27,19 +30,20 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(user.id)
         .bind(&user.username)
         .bind(&user.email)
-        .bind(&user.password_hash)
+        // domain User doesn't carry password_hash; store NULL
+        .bind(None::<String>)
         .bind(&user.created_at)
         .bind(&user.updated_at)
         .bind(user.is_active)
         .execute(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
 
     async fn get_user(&self, username: &str) -> Result<Option<User>, StorageError> {
-        let result = sqlx::query_as(
+        let db = sqlx::query_as::<_, DbUser>(
             r#"
             SELECT id, username, email, password_hash, created_at, updated_at, is_active
             FROM users
@@ -49,13 +53,13 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(username)
         .fetch_optional(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(result)
+        Ok(db.map(|d| d.into()))
     }
 
     async fn get_user_by_id(&self, id: &Uuid) -> Result<Option<User>, StorageError> {
-        let result = sqlx::query_as(
+        let db = sqlx::query_as::<_, DbUser>(
             r#"
             SELECT id, username, email, password_hash, created_at, updated_at, is_active
             FROM users
@@ -65,9 +69,9 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(result)
+        Ok(db.map(|d| d.into()))
     }
 
     async fn update_user(&self, user: User) -> Result<(), StorageError> {
@@ -80,12 +84,13 @@ impl RbacStorage for PostgresRbacStorage {
         )
         .bind(&user.username)
         .bind(&user.email)
-        .bind(&user.password_hash)
+        // domain User doesn't carry password_hash; do not change it
+        .bind(None::<String>)
         .bind(&user.updated_at)
         .bind(user.is_active)
         .execute(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -100,7 +105,7 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(username)
         .execute(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -116,13 +121,13 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(username)
         .fetch_one(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(result)
     }
 
     async fn list_users(&self) -> Result<Vec<User>, StorageError> {
-        let users = sqlx::query_as(
+        let db_users = sqlx::query_as::<_, DbUser>(
             r#"
             SELECT id, username, email, password_hash, created_at, updated_at, is_active
             FROM users
@@ -131,9 +136,9 @@ impl RbacStorage for PostgresRbacStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(users)
+        Ok(db_users.into_iter().map(|d| d.into()).collect())
     }
 
     async fn create_role(&self, role: Role) -> Result<(), StorageError> {
@@ -151,13 +156,13 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(&role.updated_at)
         .execute(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
 
     async fn get_role(&self, name: &str) -> Result<Option<Role>, StorageError> {
-        let result = sqlx::query_as(
+        let db = sqlx::query_as::<_, DbRole>(
             r#"
             SELECT id, name, description, created_at, updated_at
             FROM roles
@@ -167,13 +172,13 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(result)
+        Ok(db.map(|d| d.into()))
     }
 
     async fn get_role_by_id(&self, id: &Uuid) -> Result<Option<Role>, StorageError> {
-        let result = sqlx::query_as(
+        let db = sqlx::query_as::<_, DbRole>(
             r#"
             SELECT id, name, description, created_at, updated_at
             FROM roles
@@ -183,9 +188,9 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(result)
+        Ok(db.map(|d| d.into()))
     }
 
     async fn update_role(&self, role: Role) -> Result<(), StorageError> {
@@ -201,7 +206,7 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(&role.updated_at)
         .execute(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -216,7 +221,7 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(name)
         .execute(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -232,13 +237,13 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(name)
         .fetch_one(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(result)
     }
 
     async fn list_roles(&self) -> Result<Vec<Role>, StorageError> {
-        let roles = sqlx::query_as(
+        let db_roles = sqlx::query_as::<_, DbRole>(
             r#"
             SELECT id, name, description, created_at, updated_at
             FROM roles
@@ -247,9 +252,9 @@ impl RbacStorage for PostgresRbacStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(roles)
+        Ok(db_roles.into_iter().map(|d| d.into()).collect())
     }
 
     async fn create_repository_permission(
@@ -269,12 +274,12 @@ impl RbacStorage for PostgresRbacStorage {
             .bind(Uuid::new_v4())
             .bind(&permission.repository_id)
             .bind(&permission.user_id)
-            .bind(perm)
+            .bind((*perm).to_string())
             .bind(chrono::Utc::now())
-            .bind(permission.granted_by.as_ref())
+            .bind(permission.granted_by.clone())
             .execute(&self.pool)
             .await
-            .map_err(StorageError::OperationFailed)?;
+            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
         }
 
         Ok(())
@@ -285,7 +290,7 @@ impl RbacStorage for PostgresRbacStorage {
         repository_id: &str,
         user_id: &Uuid,
     ) -> Result<Vec<RepositoryPermission>, StorageError> {
-        let permissions = sqlx::query_as(
+        let rows = sqlx::query_as::<_, DbRepositoryPermission>(
             r#"
             SELECT id, repository_id, user_id, permission_id, granted_at, granted_by
             FROM repository_permissions
@@ -296,9 +301,34 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(permissions)
+        // Group rows by (repository_id, user_id) into RepositoryPermission structs
+        let mut map: HashMap<(String, Uuid), RepositoryPermission> = HashMap::new();
+        for r in rows {
+            let key = (r.repository_id.clone(), r.user_id);
+            let perm = match Permission::from_str(&r.permission_id) {
+                Ok(p) => p,
+                Err(_) => continue, // skip unknown permissions
+            };
+
+            map.entry(key.clone()).and_modify(|rp| {
+                rp.permissions.insert(perm.clone());
+            }).or_insert_with(|| RepositoryPermission {
+                repository_id: key.0.clone(),
+                user_id: key.1,
+                permissions: {
+                    let mut s = std::collections::HashSet::new();
+                    s.insert(perm.clone());
+                    s
+                },
+                granted_by: r.granted_by,
+                granted_at: r.granted_at,
+                expires_at: None,
+            });
+        }
+
+        Ok(map.into_iter().map(|(_, v)| v).collect())
     }
 
     async fn delete_repository_permission(
@@ -315,10 +345,10 @@ impl RbacStorage for PostgresRbacStorage {
         )
         .bind(repository_id)
         .bind(user_id)
-        .bind(permission)
+        .bind(permission.to_string())
         .execute(&self.pool)
         .await
-        .map_err(StorageError::OperationFailed)?;
+        .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }

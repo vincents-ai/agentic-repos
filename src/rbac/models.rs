@@ -63,6 +63,58 @@ pub struct RepositoryPermission {
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+impl std::fmt::Display for Permission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Permission::RepositoryCreate => "RepositoryCreate",
+            Permission::RepositoryRead => "RepositoryRead",
+            Permission::RepositoryWrite => "RepositoryWrite",
+            Permission::RepositoryDelete => "RepositoryDelete",
+            Permission::RepositoryAdmin => "RepositoryAdmin",
+            Permission::BranchCreate => "BranchCreate",
+            Permission::BranchDelete => "BranchDelete",
+            Permission::BranchProtect => "BranchProtect",
+            Permission::UserManage => "UserManage",
+            Permission::RoleManage => "RoleManage",
+            Permission::SystemAdmin => "SystemAdmin",
+            Permission::WebhookManage => "WebhookManage",
+            Permission::SettingsManage => "SettingsManage",
+            Permission::LfsLockCreate => "LfsLockCreate",
+            Permission::LfsLockRead => "LfsLockRead",
+            Permission::LfsLockDelete => "LfsLockDelete",
+            Permission::LfsLockForce => "LfsLockForce",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for Permission {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "RepositoryCreate" => Ok(Permission::RepositoryCreate),
+            "RepositoryRead" => Ok(Permission::RepositoryRead),
+            "RepositoryWrite" => Ok(Permission::RepositoryWrite),
+            "RepositoryDelete" => Ok(Permission::RepositoryDelete),
+            "RepositoryAdmin" => Ok(Permission::RepositoryAdmin),
+            "BranchCreate" => Ok(Permission::BranchCreate),
+            "BranchDelete" => Ok(Permission::BranchDelete),
+            "BranchProtect" => Ok(Permission::BranchProtect),
+            "UserManage" => Ok(Permission::UserManage),
+            "RoleManage" => Ok(Permission::RoleManage),
+            "SystemAdmin" => Ok(Permission::SystemAdmin),
+            "WebhookManage" => Ok(Permission::WebhookManage),
+            "SettingsManage" => Ok(Permission::SettingsManage),
+            "LfsLockCreate" => Ok(Permission::LfsLockCreate),
+            "LfsLockRead" => Ok(Permission::LfsLockRead),
+            "LfsLockDelete" => Ok(Permission::LfsLockDelete),
+            "LfsLockForce" => Ok(Permission::LfsLockForce),
+            other => Err(format!("Unknown permission: {}", other)),
+        }
+    }
+}
+
 impl Role {
     pub fn new(name: String, description: String, permissions: HashSet<Permission>) -> Self {
         let now = chrono::Utc::now();

@@ -4,50 +4,13 @@ use repos_mcp::lfs::{
     CreateLockRequest, DeleteLockRequest, GitRef, LfsLockManager, LfsTokenGenerator,
     VerifyLocksRequest,
 };
-use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use repos_mcp::lfs::test_utils::{cleanup_test_db, setup_test_db};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
 async fn setup_test_environment() -> (Arc<sqlx::PgPool>, LfsConfig, FeatureFlags) {
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost/repos_mcp_test".to_string());
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await
-        .expect("Failed to connect to test database");
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS lfs_locks (
-            id UUID PRIMARY KEY,
-            tenant TEXT NOT NULL,
-            repo TEXT NOT NULL,
-            path TEXT NOT NULL,
-            ref_name TEXT,
-            owner_name TEXT NOT NULL,
-            owner_id TEXT,
-            locked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            expires_at TIMESTAMPTZ,
-            UNIQUE(tenant, repo, path)
-        );
-        CREATE INDEX IF NOT EXISTS idx_lfs_locks_tenant_repo ON lfs_locks(tenant, repo);
-        CREATE INDEX IF NOT EXISTS idx_lfs_locks_path ON lfs_locks(tenant, repo, path);
-        CREATE INDEX IF NOT EXISTS idx_lfs_locks_owner ON lfs_locks(tenant, repo, owner_name);
-        CREATE INDEX IF NOT EXISTS idx_lfs_locks_ref ON lfs_locks(tenant, repo, ref_name);
-        CREATE INDEX IF NOT EXISTS idx_lfs_locks_expires ON lfs_locks(expires_at);
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create test table");
-
-    sqlx::query("DELETE FROM lfs_locks")
-        .execute(&pool)
-        .await
-        .expect("Failed to cleanup test data");
+    let pool = setup_test_db().await;
 
     let lfs_config = LfsConfig {
         enabled: true,
@@ -69,14 +32,11 @@ async fn setup_test_environment() -> (Arc<sqlx::PgPool>, LfsConfig, FeatureFlags
     features.git_lfs = true;
     features.lfs_locks = true;
 
-    (Arc::new(pool), lfs_config, features)
+    (pool, lfs_config, features)
 }
 
 async fn cleanup_test_environment(pool: &sqlx::PgPool) {
-    sqlx::query("DELETE FROM lfs_locks")
-        .execute(pool)
-        .await
-        .expect("Failed to cleanup test data");
+    cleanup_test_db(pool).await;
 }
 
 #[tokio::test]

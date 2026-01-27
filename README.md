@@ -408,7 +408,7 @@ make nix-build
 
 ### Testing
 ```bash
-# Run all tests
+# Run all unit tests
 make test
 
 # Run only unit tests (excluding security tests)
@@ -419,6 +419,33 @@ make test-security
 
 # Run with coverage (requires cargo-tarpaulin)
 make test-coverage
+```
+
+#### VM Integration Tests
+
+The project includes 342 NixOS VM integration tests that verify end-to-end functionality in isolated virtual machines.
+
+**Current Status**: ⚠️ **Most VM tests are currently stubs that require full implementation**
+
+- **Infrastructure tests**: ✅ All pass (VM boots, service starts, network connects)
+- **Functional tests**: ⚠️ 238 tests need real implementations to actually test functionality
+
+See **[TESTING.md](TESTING.md)** for:
+- VM test implementation guide with examples
+- String escaping patterns for Nix/Python code
+- Test development workflow and debugging
+- Implementation priority and roadmap
+
+**Running VM tests**:
+```bash
+# Run specific VM test
+nix build .#checks.x86_64-linux.auth-ssh-ed25519-key
+
+# View test output
+nix log .#checks.x86_64-linux.auth-ssh-ed25519-key
+
+# Run all tests in a category (WARNING: most will pass as stubs)
+nix build .#checks.x86_64-linux.auth-*
 ```
 
 ### Code Quality

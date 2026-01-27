@@ -1,6 +1,7 @@
 pub mod handlers;
 pub mod middleware;
 pub mod models;
+pub mod postgres;
 pub mod service;
 pub mod storage;
 

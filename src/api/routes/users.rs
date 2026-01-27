@@ -1,7 +1,10 @@
-use crate::api::models::{ApiError, CreateUserRequest, UpdateUserRequest, User};
+use crate::api::models::{ApiError, CreateUserRequest, UpdateUserRequest, User as ApiUser};
 use crate::git::GitService;
+use crate::storage::users::{CreateUser, UpdateUser as StorageUpdateUser, UserRepository, User};
 use actix_web::{web, HttpResponse, Result as ActixResult};
 use std::sync::Arc;
+use bcrypt::{hash, verify, DEFAULT_COST};
+use uuid::Uuid;
 
 pub fn configure_user_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(list_users))
@@ -15,20 +18,35 @@ pub fn configure_user_routes(cfg: &mut web::ServiceConfig) {
         );
 }
 
-pub async fn list_users(_git_service: web::Data<Arc<GitService>>) -> ActixResult<HttpResponse> {
-    let users = vec![User {
-        username: "admin".to_string(),
-        email: "admin@example.com".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
-        repository_count: 1,
-    }];
-
-    Ok(HttpResponse::Ok().json(users))
+pub async fn list_users(
+    pool: web::Data<sqlx::PgPool>,
+) -> ActixResult<HttpResponse> {
+    let repo = UserRepository::new(pool.get_ref().clone());
+    
+    match repo.list().await {
+        Ok(users) => {
+            let api_users: Vec<ApiUser> = users
+                .into_iter()
+                .map(|u| ApiUser {
+                    username: u.username.clone(),
+                    email: u.email.clone(),
+                    created_at: u.created_at.to_rfc3339(),
+                    updated_at: u.updated_at.to_rfc3339(),
+                    repository_count: 0, // TODO: Implement repository counting
+                })
+                .collect();
+            
+            Ok(HttpResponse::Ok().json(api_users))
+        }
+        Err(e) => {
+            let error = ApiError::internal_error(&format!("Failed to list users: {}", e));
+            Ok(HttpResponse::InternalServerError().json(error))
+        }
+    }
 }
 
 pub async fn create_user(
-    _git_service: web::Data<Arc<GitService>>,
+    pool: web::Data<sqlx::PgPool>,
     payload: web::Json<CreateUserRequest>,
 ) -> ActixResult<HttpResponse> {
     let request = payload.into_inner();
@@ -43,36 +61,64 @@ pub async fn create_user(
         return Ok(HttpResponse::BadRequest().json(error));
     }
 
-    let user = User {
+    let repo = UserRepository::new(pool.get_ref().clone());
+    
+    let create_user = CreateUser {
         username: request.username,
         email: request.email,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-        repository_count: 0,
+        password_hash: None, // SSH key auth users don't need password hash
     };
 
-    Ok(HttpResponse::Created().json(user))
+    match repo.create(create_user).await {
+        Ok(user) => {
+            let api_user = ApiUser {
+                username: user.username.clone(),
+                email: user.email.clone(),
+                created_at: user.created_at.to_rfc3339(),
+                updated_at: user.updated_at.to_rfc3339(),
+                repository_count: 0, // TODO: Count repositories
+            };
+            Ok(HttpResponse::Created().json(api_user))
+        }
+        Err(e) => {
+            let error = ApiError::bad_request(&format!("Failed to create user: {}", e));
+            Ok(HttpResponse::BadRequest().json(error))
+        }
+    }
 }
 
 pub async fn get_user(
-    _git_service: web::Data<Arc<GitService>>,
+    pool: web::Data<sqlx::PgPool>,
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
     let username = path.into_inner();
 
-    let user = User {
-        username,
-        email: "user@example.com".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
-        repository_count: 2,
-    };
-
-    Ok(HttpResponse::Ok().json(user))
+    let repo = UserRepository::new(pool.get_ref().clone());
+    
+    match repo.get_by_username(&username).await {
+        Ok(Some(user)) => {
+            let api_user = ApiUser {
+                username: user.username.clone(),
+                email: user.email.clone(),
+                created_at: user.created_at.to_rfc3339(),
+                updated_at: user.updated_at.to_rfc3339(),
+                repository_count: 0, // TODO: Count repositories
+            };
+            Ok(HttpResponse::Ok().json(api_user))
+        }
+        Ok(None) => {
+            let error = ApiError::not_found(&format!("User '{}' not found", username));
+            Ok(HttpResponse::NotFound().json(error))
+        }
+        Err(e) => {
+            let error = ApiError::internal_error(&format!("Failed to delete user: {}", e));
+            Ok(HttpResponse::InternalServerError().json(error))
+        }
+    }
 }
 
 pub async fn update_user(
-    _git_service: web::Data<Arc<GitService>>,
+    pool: web::Data<sqlx::PgPool>,
     path: web::Path<String>,
     payload: web::Json<UpdateUserRequest>,
 ) -> ActixResult<HttpResponse> {
@@ -86,49 +132,74 @@ pub async fn update_user(
         }
     }
 
-    let user = User {
-        username,
-        email: request
-            .email
-            .unwrap_or_else(|| "user@example.com".to_string()),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-        repository_count: 2,
+    let repo = UserRepository::new(pool.get_ref().clone());
+    
+    let update_user = StorageUpdateUser {
+        username: username.clone(),
+        email: request.email,
+        password_hash: None, // Password updates handled separately
+        is_active: None,
     };
 
-    Ok(HttpResponse::Ok().json(user))
+    match repo.update(&username, update_user).await {
+        Ok(user) => {
+            let api_user = ApiUser {
+                username: user.username.clone(),
+                email: user.email.clone(),
+                created_at: user.created_at.to_rfc3339(),
+                updated_at: user.updated_at.to_rfc3339(),
+                repository_count: 0, // TODO: Count repositories
+            };
+            Ok(HttpResponse::Ok().json(api_user))
+        }
+        Err(e) => {
+            let error = ApiError::internal_error(&format!("Failed to update user: {}", e));
+            Ok(HttpResponse::InternalServerError().json(error))
+        }
+    }
 }
 
 pub async fn delete_user(
-    _git_service: web::Data<Arc<GitService>>,
+    pool: web::Data<sqlx::PgPool>,
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
     let username = path.into_inner();
-    println!("Deleting user: {}", username);
-
-    Ok(HttpResponse::NoContent().finish())
+    let repo = UserRepository::new(pool.get_ref().clone());
+    
+    match repo.delete(&username).await {
+        Ok(_) => {
+            Ok(HttpResponse::NoContent().finish())
+        }
+        Err(e) => {
+            let error = ApiError::not_found(&format!("User '{}' not found", username));
+            Ok(HttpResponse::NotFound().json(error))
+        }
+    }
 }
 
 pub async fn list_user_repositories(
-    _git_service: web::Data<Arc<GitService>>,
+    pool: web::Data<sqlx::PgPool>,
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
     let username = path.into_inner();
-
-    let repositories = vec![crate::api::models::Repository {
-        name: "user-repo".to_string(),
-        owner: username,
-        description: Some("User's repository".to_string()),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
-        size: 1024,
-        clone_url_ssh: "ssh://git@localhost:2222/user/user-repo.git".to_string(),
-        clone_url_http: Some("http://localhost:8080/user/user-repo.git".to_string()),
-        default_branch: "main".to_string(),
-        is_private: false,
-    }];
-
-    Ok(HttpResponse::Ok().json(repositories))
+    
+    let repo = UserRepository::new(pool.get_ref().clone());
+    
+    match repo.get_by_username(&username).await {
+        Ok(Some(_user)) => {
+            // TODO: Implement repository listing when repository storage is added
+            let repositories: Vec<crate::api::models::Repository> = vec![];
+            Ok(HttpResponse::Ok().json(repositories))
+        }
+        Ok(None) => {
+            let error = ApiError::not_found(&format!("User '{}' not found", username));
+            Ok(HttpResponse::NotFound().json(error))
+        }
+        Err(e) => {
+            let error = ApiError::internal_error(&format!("Failed to list user repositories: {}", e));
+            Ok(HttpResponse::InternalServerError().json(error))
+        }
+    }
 }
 
 fn is_valid_username(username: &str) -> bool {

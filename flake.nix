@@ -48,9 +48,39 @@
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
         # Build the actual crate itself, reusing the dependency artifacts
-        repos-mcp = craneLib.buildPackage (commonArgs // {
+        repos-mcp-uncompressed = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
+          doCheck = false;  # Skip tests during Nix build (tests require PostgreSQL)
         });
+
+        # UPX-compressed version of the binary
+        repos-mcp = pkgs.stdenv.mkDerivation {
+          name = "repos-mcp-0.1.0";
+          src = repos-mcp-uncompressed;
+          
+          nativeBuildInputs = [ pkgs.upx ];
+          
+          buildPhase = ''
+            # Copy binary to temporary location and make writable
+            cp ${repos-mcp-uncompressed}/bin/repos-mcp repos-mcp-tmp
+            chmod +w repos-mcp-tmp
+            
+            # Compress with UPX to temporary output
+            upx --best --lzma repos-mcp-tmp -o repos-mcp-compressed
+            
+            # Create output directory and install compressed binary
+            mkdir -p $out/bin
+            cp repos-mcp-compressed $out/bin/repos-mcp
+            chmod +x $out/bin/repos-mcp
+            
+            # Copy other files from uncompressed build (if any)
+            if [ -d ${repos-mcp-uncompressed}/share ]; then
+              cp -r ${repos-mcp-uncompressed}/share $out/
+            fi
+          '';
+          
+          installPhase = "true";  # Already installed in buildPhase
+        };
 
         containerImage = pkgs.dockerTools.buildLayeredImage {
           name = "repos-mcp";

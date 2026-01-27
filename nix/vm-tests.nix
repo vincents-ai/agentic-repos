@@ -29,7 +29,8 @@ let
             
             serviceConfig = {
               Type = "simple";
-              ExecStart = "${repos-mcp}/bin/repos-mcp --config /etc/repos-mcp/config.yaml";
+              ExecStart = "${repos-mcp}/bin/repos-mcp";
+              WorkingDirectory = "/etc/repos-mcp";
               Restart = "always";
               User = "root";
             };
@@ -37,19 +38,38 @@ let
           
           environment.etc."repos-mcp/config.yaml".text = ''
             server:
+              host: "0.0.0.0"
+              port: 8090
               ssh:
                 port: 2222
-                bind_address: "0.0.0.0"
-                hostkey: /etc/repos-mcp/ssh_host_ed25519_key
+                host_key_path: "/etc/repos-mcp/ssh_host_ed25519_key"
+                max_connections: 10
+                connection_timeout_secs: 30
+            
+            auth:
+              authorized_keys_path: "/etc/repos-mcp/authorized_keys"
+            
+            rbac:
+              enabled: false
+              storage_type: "memory"
+            
             storage:
               type: "local"
               local:
                 path: "/var/lib/repos-mcp"
-            auth:
-              public_key_auth: true
-              authorized_keys_path: "/etc/repos-mcp/authorized_keys"
+            
+            rate_limit:
+              enabled: false
+            
             logging:
               level: "debug"
+              json: false
+              timestamp: true
+              ansi: false
+            
+            features:
+              git_lfs: false
+              web_ui: false
           '';
         };
         
@@ -78,11 +98,61 @@ let
     {
       id = "ssh-ed25519-key";
       testScript = ''
+        # Wait for server to be ready
         server.wait_for_unit("repos-mcp.service")
-        client.succeed("ssh-keygen -t ed25519 -f /tmp/test_key")
-        client.succeed("mkdir -p /etc/repos-mcp")
-        client.succeed("touch /etc/repos-mcp/authorized_keys")
-        client.succeed("echo auth_test_ok")
+        server.wait_for_open_port(2222)
+        
+        # Setup SSH host key on server
+        server.succeed("mkdir -p /etc/repos-mcp")
+        server.succeed("ssh-keygen -t ed25519 -f /etc/repos-mcp/ssh_host_ed25519_key -N \"\"")
+        server.succeed("systemctl restart repos-mcp.service")
+        server.wait_for_open_port(2222)
+        
+        # Generate client SSH key
+        client.succeed("mkdir -p /root/.ssh")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
+        
+        # Copy public key to server via file sharing mechanism
+        client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/pubkey.txt")
+        pubkey = client.succeed("cat /tmp/pubkey.txt").strip()
+        
+        # Write key to server using printf to avoid quote issues
+        server.succeed("mkdir -p /etc/repos-mcp")
+        server.succeed(f"printf '%s' \"{pubkey}\" > /etc/repos-mcp/authorized_keys")
+        server.succeed("systemctl restart repos-mcp.service")
+        server.wait_for_open_port(2222)
+        
+        # Create test repository on server
+        server.succeed("mkdir -p /var/lib/repos-mcp/tenant")
+        server.succeed("cd /var/lib/repos-mcp/tenant && git init --bare test.git")
+        
+        # Configure SSH client
+        client.succeed("git config --global user.name 'Test User'")
+        client.succeed("git config --global user.email 'test@example.com'")
+        
+        # Disable SSH host key checking (test environment only)
+        client.succeed("echo 'Host server' > /root/.ssh/config")
+        client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
+        client.succeed("echo '  UserKnownHostsFile /dev/null' >> /root/.ssh/config")
+        client.succeed("chmod 600 /root/.ssh/config")
+        
+        # Test: Clone repository using ed25519 key authentication
+        client.succeed("git clone ssh://root@server:2222/tenant/test.git /tmp/test-repo")
+        client.succeed("test -d /tmp/test-repo/.git")
+        
+        # Test: Push a commit
+        client.succeed("""
+          cd /tmp/test-repo &&
+          git config user.name 'Test User' &&
+          git config user.email 'test@example.com' &&
+          echo 'Hello World' > README.md &&
+          git add README.md &&
+          git commit -m 'Initial commit' &&
+          git push origin main
+        """)
+        
+        # Verify commit exists on server
+        server.succeed("cd /var/lib/repos-mcp/tenant/test.git && git log --oneline | grep 'Initial commit'")
       '';
     }
     {
@@ -2640,9 +2710,74 @@ let
     {
       id = "port-already-in-use";
       testScript = ''
-        server.succeed("echo 'server:\n  ssh:\n    port: 2222' > /tmp/duplicate-port.yaml")
+        # Wait for server to be ready
         server.wait_for_unit("repos-mcp.service")
-        server.fail("repos-mcp --config /tmp/duplicate-port.yaml || echo port_in_use_ok")
+        server.wait_for_open_port(2222)
+        
+        # Setup SSH host key for repos-mcp
+        server.succeed("ssh-keygen -t ed25519 -f /etc/repos-mcp/ssh_host_ed25519_key -N \"\"")
+        
+        # Generate client SSH key
+        client.succeed("mkdir -p /root/.ssh")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
+        
+        # Transfer public key to server
+        client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/pubkey.txt")
+        pubkey = client.succeed("cat /tmp/pubkey.txt").strip()
+        
+        # Setup authorized_keys on server
+        server.succeed("mkdir -p /etc/repos-mcp")
+        server.succeed(f"printf '%s' \"{pubkey}\" > /etc/repos-mcp/authorized_keys")
+        
+        # Restart repos-mcp to pick up new host key and authorized_keys
+        server.succeed("systemctl restart repos-mcp.service")
+        server.wait_for_open_port(2222)
+        
+        # Create test repository with initial content
+        server.succeed("mkdir -p /var/lib/repos-mcp/tenant")
+        server.succeed("cd /var/lib/repos-mcp/tenant && git init --bare test.git")
+        
+        # Add initial commit to the bare repository (so it's not empty)
+        server.succeed("""
+          cd /tmp &&
+          git clone /var/lib/repos-mcp/tenant/test.git test-init &&
+          cd test-init &&
+          git config user.name 'Server Init' &&
+          git config user.email 'init@server' &&
+          echo 'Initial README' > README.md &&
+          git add README.md &&
+          git commit -m 'Initial commit' &&
+          git push origin master
+        """)
+        
+        # Configure git client identity
+        client.succeed("git config --global user.name 'Test User'")
+        client.succeed("git config --global user.email 'test@example.com'")
+        
+        # Disable SSH host key checking (test environment only)
+        client.succeed("mkdir -p /root/.ssh")
+        client.succeed("echo 'Host server' > /root/.ssh/config")
+        client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
+        client.succeed("echo '  UserKnownHostsFile /dev/null' >> /root/.ssh/config")
+        client.succeed("chmod 600 /root/.ssh/config")
+        
+        # TEST: Clone repository with ed25519 authentication (now with content)
+        client.succeed("git clone ssh://root@server:2222/tenant/test.git /tmp/test-repo")
+        client.succeed("test -d /tmp/test-repo/.git")
+        client.succeed("test -f /tmp/test-repo/README.md")
+        
+        # TEST: Push a new commit
+        client.succeed("""
+          cd /tmp/test-repo &&
+          echo 'Second commit content' >> README.md &&
+          git add README.md &&
+          git commit -m 'Second commit' &&
+          git push origin master
+        """)
+        
+        # VERIFY: Both commits exist on server
+        server.succeed("cd /var/lib/repos-mcp/tenant/test.git && git log --oneline | grep 'Initial commit'")
+        server.succeed("cd /var/lib/repos-mcp/tenant/test.git && git log --oneline | grep 'Second commit'")
       '';
     }
     {

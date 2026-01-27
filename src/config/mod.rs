@@ -1,15 +1,15 @@
 use crate::features::FeatureFlags;
 use config::{Config as ConfigBuilder, File};
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AppConfig {
-    pub server: ServerConfig,
-    #[serde(default)]
-    pub features: Option<HashMap<String, bool>>,
-    #[serde(default)]
-    pub lfs: LfsConfig,
+fn generate_secure_jwt_secret() -> String {
+    let mut rng = OsRng;
+    let mut secret = vec![0u8; 64];
+    rng.fill_bytes(&mut secret);
+    format!("{:x}", Sha256::digest(secret.as_slice()))
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -202,7 +202,7 @@ impl Default for LfsConfig {
             enabled: false,
             max_object_size: 5 * 1024 * 1024 * 1024, // 5GB
             token_expiration_secs: 3600,             // 1 hour
-            jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING".to_string(),
+            jwt_secret: generate_secure_jwt_secret(),
             base_url: "http://localhost:8090".to_string(),
             storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
                 .to_string(),

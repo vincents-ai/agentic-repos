@@ -60,6 +60,8 @@ pub trait StorageBackend: Send + Sync {
     fn root(&self) -> &Path;
 }
 
+pub mod users;
+
 pub mod local {
     use super::{StorageBackend, StorageError};
     use async_trait::async_trait;

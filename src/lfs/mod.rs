@@ -10,6 +10,8 @@ pub mod quota;
 pub mod storage;
 pub mod throttle;
 pub mod verify;
+#[cfg(test)]
+pub mod test_utils;
 
 pub use audit::{
     AuditError, AuditEvent, AuditEventType, AuditLogConfig, AuditLogger, AuditStorage,

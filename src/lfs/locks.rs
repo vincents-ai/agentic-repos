@@ -273,6 +273,7 @@ mod tests {
 
     // Reuse shared test DB setup helpers to avoid duplication across tests.
     use crate::lfs::test_utils::{cleanup_test_db, setup_test_db};
+    use sqlx::PgPool;
 
     #[tokio::test]
     async fn test_create_lock_success() {

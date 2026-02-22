@@ -8,9 +8,7 @@ use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
-use crate::storage::users::UserRepository;
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
-use sqlx::PgPool;
 use std::sync::Arc;
 
 async fn metrics_endpoint() -> HttpResponse {

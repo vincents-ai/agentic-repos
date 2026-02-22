@@ -1,10 +1,6 @@
 use crate::api::models::{ApiError, CreateUserRequest, UpdateUserRequest, User as ApiUser};
-use crate::git::GitService;
-use crate::storage::users::{CreateUser, UpdateUser as StorageUpdateUser, UserRepository, User};
+use crate::storage::users::{CreateUser, UpdateUser as StorageUpdateUser, UserRepository};
 use actix_web::{web, HttpResponse, Result as ActixResult};
-use std::sync::Arc;
-use bcrypt::{hash, verify, DEFAULT_COST};
-use uuid::Uuid;
 
 pub fn configure_user_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(list_users))

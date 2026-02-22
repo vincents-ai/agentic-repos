@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod models;
 pub mod rbac;
 pub mod server;
+pub mod skynet;
 pub mod storage;
 pub mod web;
 

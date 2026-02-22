@@ -170,7 +170,7 @@ pub async fn delete_user(
         Ok(_) => {
             Ok(HttpResponse::NoContent().finish())
         }
-        Err(e) => {
+        Err(_e) => {
             let error = ApiError::not_found(&format!("User '{}' not found", username));
             Ok(HttpResponse::NotFound().json(error))
         }

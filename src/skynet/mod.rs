@@ -11,6 +11,7 @@ pub mod api;
 pub mod config;
 pub mod database_models;
 pub mod error;
+pub mod ffi;
 pub mod git_ops;
 pub mod health;
 pub mod interface;

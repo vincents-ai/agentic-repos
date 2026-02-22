@@ -10,7 +10,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Special packet types
 pub const PKT_FLUSH: &[u8] = b"0000";
+#[allow(dead_code)]
 pub const PKT_DELIM: &[u8] = b"0001";
+#[allow(dead_code)]
 pub const PKT_RESPONSE_END: &[u8] = b"0002";
 
 /// Maximum packet size (64KB - 4 bytes for length prefix)
@@ -101,6 +103,7 @@ pub async fn read_packet<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<
 }
 
 /// Read packets until flush packet
+#[allow(dead_code)]
 pub async fn read_until_flush<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<Vec<u8>>> {
     let mut packets = Vec::new();
 

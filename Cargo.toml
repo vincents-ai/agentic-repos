@@ -5,7 +5,12 @@ edition = "2021"
 description = "Multi-tenant Git server with MCP integration (AGPLv3)"
 license = "AGPL-3.0"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
+# Skylet Plugin ABI (for FFI plugin integration)
+skylet-abi = { git = "ssh://git@github.com/vincents-ai/skylet.git", subdir = "abi", default-features = false }
 # Web framework
 actix-web = "4.4"
 actix-cors = "0.7"
@@ -71,6 +76,9 @@ rand_core = "0.6"
 # Metrics
 prometheus = "0.13"
 lazy_static = "1.4"
+
+# Concurrency utilities (for Skynet plugin)
+parking_lot = "0.12"
 
 [dev-dependencies]
 tokio-test = "0.4"

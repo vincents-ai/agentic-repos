@@ -5,11 +5,12 @@ use crate::skynet::error::SkynetPluginResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{debug, error};
-use git2::{Repository, Direction, BranchType};
+use git2::{Repository, BranchType};
 use std::path::Path;
 
 /// Git operation service
 pub struct GitOperationService {
+    #[allow(dead_code)]
     config: AppConfig,
 }
 

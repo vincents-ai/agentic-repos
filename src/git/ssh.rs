@@ -27,6 +27,7 @@ pub struct SshServer {
     rate_limiter: RateLimiter,
     connection_count: Arc<AtomicUsize>,
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
+    #[allow(dead_code)]
     channel_senders: Arc<Mutex<HashMap<ChannelId, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     lfs_config: crate::config::LfsConfig,
 }
@@ -370,17 +371,29 @@ impl russh::server::Handler for SshHandler {
         }
 
         let auth_manager = self.auth_manager.lock().await;
+        let key_fingerprint = public_key
+            .fingerprint(russh_keys::ssh_key::HashAlg::Sha256)
+            .to_string();
+        
         if auth_manager.is_key_authorized(user, public_key) {
             info!(
-                "Authentication successful for user: {} from {}",
-                user, self.peer_ip
+                "Authentication successful for user: {} from {} with key fingerprint: {}",
+                user, self.peer_ip, key_fingerprint
             );
+            // SECURITY: Log successful authentication with audit trail
+            if let Err(e) = self.log_auth_event(user, &self.peer_ip, &key_fingerprint, "success").await {
+                error!("Failed to log authentication event: {}", e);
+            }
             Ok(russh::server::Auth::Accept)
         } else {
             warn!(
-                "Authentication rejected for user: {} from {}",
-                user, self.peer_ip
+                "Authentication rejected for user: {} from {} with key fingerprint: {}",
+                user, self.peer_ip, key_fingerprint
             );
+            // SECURITY: Log failed authentication attempt
+            if let Err(e) = self.log_auth_event(user, &self.peer_ip, &key_fingerprint, "rejected").await {
+                error!("Failed to log authentication event: {}", e);
+            }
             Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
             })
@@ -409,6 +422,28 @@ impl russh::server::Handler for SshHandler {
             "Received SSH command: {} from {}",
             command_str, self.peer_ip
         );
+        
+        // CRITICAL SECURITY: Validate raw command data before processing
+        if command_str.len() > 4096 {
+            warn!("SSH command too long: {} bytes from {}", command_str.len(), self.peer_ip);
+            let error_msg = "ERROR: Command too long\n";
+            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+            let _ = session.exit_status_request(channel, 1);
+            session.close(channel)?;
+            return Ok(());
+        }
+        
+        // Additional input sanitization
+        if command_str.chars().any(|c| c.is_control()) && 
+           !command_str.contains('\n') && !command_str.contains('\r') && 
+           !command_str.contains('\t') {
+            warn!("SSH command contains suspicious control characters from {}", self.peer_ip);
+            let error_msg = "ERROR: Invalid characters in command\n";
+            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+            let _ = session.exit_status_request(channel, 1);
+            session.close(channel)?;
+            return Ok(());
+        }
 
         // Rate limit command executions
         let context = RateLimitContext {
@@ -683,6 +718,55 @@ impl Drop for SshHandler {
 }
 
 impl SshHandler {
+    /// Log authentication events for security audit trail
+    async fn log_auth_event(
+        &self,
+        username: &str,
+        ip_address: &str,
+        key_fingerprint: &str,
+        result: &str,
+    ) -> std::io::Result<()> {
+        let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+        let audit_entry = format!(
+            "{} SSH_AUTH user=\"{}\" ip=\"{}\" fingerprint=\"{}\" result=\"{}\"\n",
+            timestamp, username, ip_address, key_fingerprint, result
+        );
+        
+        // Log to both tracing and audit file
+        info!("SSH Authentication Audit: {}", audit_entry.trim());
+        
+        // Write to audit log file if configured
+        let audit_path = "/var/log/repos-mcp/auth-audit.log";
+        if let Some(parent) = std::path::Path::new(audit_path).parent() {
+            if let Err(_) = tokio::fs::create_dir_all(parent).await {
+                // If we can't create directory, just log to tracing
+                return Ok(());
+            }
+        }
+        
+        match tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(audit_path)
+            .await
+        {
+            Ok(mut file) => {
+                use tokio::io::AsyncWriteExt;
+                if let Err(e) = file.write_all(audit_entry.as_bytes()).await {
+                    error!("Failed to write to audit log: {}", e);
+                }
+                if let Err(e) = file.flush().await {
+                    error!("Failed to flush audit log: {}", e);
+                }
+            }
+            Err(e) => {
+                error!("Failed to open audit log file: {}", e);
+            }
+        }
+        
+        Ok(())
+    }
+
     async fn run_git_upload_pack(
         &self,
         channel: ChannelId,

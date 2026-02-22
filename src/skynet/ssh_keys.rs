@@ -248,7 +248,6 @@ impl SshKeyManager {
 
 /// Base64 encode helper
 fn base64_encode(data: &[u8]) -> String {
-    use std::fmt::Write;
     const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let mut result = String::new();

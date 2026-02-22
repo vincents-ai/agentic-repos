@@ -261,7 +261,7 @@ impl RbacStorage for PostgresRbacStorage {
         &self,
         permission: RepositoryPermission,
     ) -> Result<(), StorageError> {
-        let key = format!("{}:{}", permission.repository_id, permission.user_id);
+        let _key = format!("{}:{}", permission.repository_id, permission.user_id);
         
         for perm in &permission.permissions {
             sqlx::query(

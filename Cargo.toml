@@ -11,6 +11,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # Skylet Plugin ABI (for FFI plugin integration)
 skylet-abi = { git = "ssh://git@github.com/vincents-ai/skylet.git", subdir = "abi", default-features = false }
+# Skylet Plugin Common (v2 ABI helpers)
+skylet-plugin-common = { git = "ssh://git@github.com/vincents-ai/skylet.git", subdir = "plugins/skylet-plugin-common", default-features = false }
 # Web framework
 actix-web = "4.4"
 actix-cors = "0.7"

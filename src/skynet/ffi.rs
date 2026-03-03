@@ -23,11 +23,15 @@ use skylet_abi::v2_spec::{
     PluginInfoV2, PluginResultV2, RequestV2, ResponseV2, ServiceInfo, ServiceRegistryV2,
 };
 use skylet_abi::{PropertySchema, ToolSchema};
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
+use crate::git::ssh::SshServer;
+use crate::git::{GitConfig, GitService};
 use crate::skynet::interface::{PluginRequest, PluginResponse};
 use crate::skynet::storage::{global_registry, S3CompatibleStorageV1};
 use crate::skynet::GitOperationsPlugin;
+use crate::storage::local::LocalStorage;
+use crate::storage::StorageBackend;
 
 const PLUGIN_NAME: &[u8] = b"git-operations\0";
 const PLUGIN_VERSION: &[u8] = b"0.1.0\0";
@@ -58,6 +62,7 @@ const SERVICE_TYPE_STORAGE_V1: &str = "StorageServiceV1";
 
 static PLUGIN_INFO: AtomicPtr<PluginInfoV2> = AtomicPtr::new(ptr::null_mut());
 static RUNTIME: Mutex<Option<tokio::runtime::Runtime>> = Mutex::new(None);
+static SSH_TASK: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::new(None);
 
 static CAPABILITIES_STORAGE: AtomicPtr<[CapabilityInfo; 9]> = AtomicPtr::new(ptr::null_mut());
 static TAGS_STORAGE: AtomicPtr<[*const c_char; 5]> = AtomicPtr::new(ptr::null_mut());
@@ -490,6 +495,66 @@ pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResul
         );
     }
 
+    // Start SSH server for Git protocol
+    let ssh_enabled = std::env::var("REPOS_SSH_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true);
+
+    if ssh_enabled {
+        let ssh_port: u16 = std::env::var("REPOS_SSH_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(2222);
+
+        let storage_path = std::env::var("REPOS_STORAGE_PATH")
+            .unwrap_or_else(|_| "./repositories".to_string());
+
+        let host_key_path = std::env::var("REPOS_HOST_KEY_PATH")
+            .unwrap_or_else(|_| "./host_key".to_string());
+
+        let authorized_keys_path = std::env::var("REPOS_AUTHORIZED_KEYS_PATH")
+            .unwrap_or_else(|_| "./authorized_keys".to_string());
+
+        let git_config = GitConfig {
+            ssh_port,
+            host_key_path: std::path::PathBuf::from(host_key_path),
+            authorized_keys_path: std::path::PathBuf::from(authorized_keys_path),
+            max_connections: 100,
+            connection_timeout_secs: 30,
+            rate_limit: Default::default(),
+        };
+
+        let storage: Arc<dyn StorageBackend> = {
+            let path = std::path::PathBuf::from(storage_path);
+            if !path.exists() {
+                if let Err(e) = std::fs::create_dir_all(&path) {
+                    error!("Failed to create storage directory: {}", e);
+                    return PluginResultV2::Error;
+                }
+            }
+            Arc::new(LocalStorage::new(path))
+        };
+
+        let git_service = Arc::new(GitService::new(storage, Some(git_config.clone())));
+        let ssh_server = SshServer::new(git_service, Some(git_config), None);
+
+        info!("Starting SSH server on port {}...", ssh_port);
+
+        let ssh_task = rt.spawn(async move {
+            if let Err(e) = ssh_server.run().await {
+                error!("SSH server error: {}", e);
+            }
+        });
+
+        if let Ok(mut guard) = SSH_TASK.lock() {
+            *guard = Some(ssh_task);
+        }
+
+        info!("SSH server started on port {}", ssh_port);
+    } else {
+        info!("SSH server disabled via REPOS_SSH_ENABLED=false");
+    }
+
     if let Ok(mut guard) = RUNTIME.lock() {
         *guard = Some(rt);
     }
@@ -499,6 +564,14 @@ pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResul
 
 #[no_mangle]
 pub extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) -> PluginResultV2 {
+    // Stop SSH server
+    if let Ok(mut guard) = SSH_TASK.lock() {
+        if let Some(task) = guard.take() {
+            task.abort();
+            info!("SSH server task aborted");
+        }
+    }
+
     if let Ok(guard) = GIT_OPS_SERVICE.lock() {
         if let Some(ref service) = *guard {
             let _ = (service.stop_service)();

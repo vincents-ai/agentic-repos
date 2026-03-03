@@ -172,7 +172,7 @@ fn init_plugin_info() -> *const PluginInfoV2 {
             tags: init_tags() as *const *const c_char,
             num_tags: 5,
             category: PluginCategory::Integration,
-            supports_hot_reload: false,
+            supports_hot_reload: true,
             supports_async: true,
             supports_streaming: false,
             max_concurrency: 64,
@@ -523,6 +523,12 @@ pub extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) -> Plugin
 
     global_registry().clear();
 
+    // Reset static pointers for hot-reload support
+    PLUGIN_INFO.store(ptr::null_mut(), Ordering::SeqCst);
+    CAPABILITIES_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
+    TAGS_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
+    SERVICE_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
+
     PluginResultV2::Success
 }
 
@@ -796,6 +802,141 @@ pub extern "C" fn plugin_free_tools(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             let _ = CString::from_raw(ptr);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn plugin_execute_v2(
+    _context: *const PluginContextV2,
+    action: *const c_char,
+    args: *const c_char,
+) -> *mut c_char {
+    let action_str = if action.is_null() {
+        "health".to_string()
+    } else {
+        unsafe { CStr::from_ptr(action) }
+            .to_string_lossy()
+            .into_owned()
+    };
+
+    let args_value = if args.is_null() {
+        serde_json::Value::Object(serde_json::Map::new())
+    } else {
+        let args_str = unsafe { CStr::from_ptr(args) }
+            .to_string_lossy()
+            .into_owned();
+        serde_json::from_str(&args_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+    };
+
+    let result = match action_str.as_str() {
+        "health" | "health_check" => {
+            let status = plugin_health_check_v2(_context);
+            serde_json::json!({
+                "success": true,
+                "status": format!("{:?}", status),
+                "action": action_str
+            })
+        }
+        "info" | "get_info" => {
+            let info_ptr = plugin_get_info_v2();
+            if info_ptr.is_null() {
+                serde_json::json!({
+                    "success": false,
+                    "error": "Failed to get plugin info"
+                })
+            } else {
+                unsafe {
+                    let info = &*info_ptr;
+                    serde_json::json!({
+                        "success": true,
+                        "name": CStr::from_ptr(info.name).to_string_lossy(),
+                        "version": CStr::from_ptr(info.version).to_string_lossy(),
+                        "description": CStr::from_ptr(info.description).to_string_lossy(),
+                        "category": format!("{:?}", info.category),
+                        "num_capabilities": info.num_capabilities
+                    })
+                }
+            }
+        }
+        "tools" | "get_tools" => {
+            let tools_ptr = plugin_get_tools();
+            if tools_ptr.is_null() {
+                serde_json::json!({
+                    "success": false,
+                    "error": "Failed to get tools"
+                })
+            } else {
+                unsafe {
+                    let tools_str = CStr::from_ptr(tools_ptr).to_string_lossy();
+                    plugin_free_tools(tools_ptr as *mut c_char);
+                    serde_json::json!({
+                        "success": true,
+                        "tools": tools_str
+                    })
+                }
+            }
+        }
+        "storage_list_backends"
+        | "storage_list_buckets"
+        | "repo_list"
+        | "repo_create"
+        | "repo_delete"
+        | "repo_info" => {
+            let plugin: Option<Arc<GitOperationsPlugin>> =
+                PLUGIN.lock().ok().and_then(|g| g.clone());
+
+            if let Some(plugin) = plugin {
+                let runtime_guard = RUNTIME.lock().ok();
+                let rt_opt = runtime_guard.as_ref().and_then(|g| g.as_ref());
+
+                if let Some(rt) = rt_opt {
+                    let request = PluginRequest {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        method: action_str.clone(),
+                        params: args_value,
+                        tenant_id: None,
+                        user_id: None,
+                        token: None,
+                    };
+                    let response = rt.block_on(plugin.handle_request(request));
+                    serde_json::json!({
+                        "success": response.error.is_none(),
+                        "result": response.result,
+                        "error": response.error
+                    })
+                } else {
+                    serde_json::json!({
+                        "success": false,
+                        "error": "Runtime not initialized"
+                    })
+                }
+            } else {
+                serde_json::json!({
+                    "success": false,
+                    "error": "Plugin not initialized"
+                })
+            }
+        }
+        _ => {
+            serde_json::json!({
+                "success": false,
+                "error": format!("Unknown action: {}", action_str),
+                "available_actions": [
+                    "health", "health_check", "info", "get_info", "tools", "get_tools",
+                    "storage_list_backends", "storage_list_buckets",
+                    "repo_list", "repo_create", "repo_delete", "repo_info"
+                ]
+            })
+        }
+    };
+
+    match CString::new(result.to_string()) {
+        Ok(cstr) => cstr.into_raw(),
+        Err(_) => {
+            let error = CString::new("{\"success\":false,\"error\":\"Failed to encode response\"}")
+                .unwrap();
+            error.into_raw()
         }
     }
 }

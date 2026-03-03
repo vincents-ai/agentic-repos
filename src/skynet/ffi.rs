@@ -19,10 +19,10 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Arc, Mutex};
 
 use skylet_abi::v2_spec::{
-    CapabilityInfo, HealthStatus, MaturityLevel, PluginCategory, PluginContextV2, PluginInfoV2,
-    PluginResultV2, ServiceInfo, ServiceRegistryV2,
+    CapabilityInfo, HeaderV2, HealthStatus, MaturityLevel, PluginCategory, PluginContextV2,
+    PluginInfoV2, PluginResultV2, RequestV2, ResponseV2, ServiceInfo, ServiceRegistryV2,
 };
-use skylet_abi::{HttpHeader, HttpRequest, HttpResponse, PropertySchema, ToolSchema};
+use skylet_abi::{PropertySchema, ToolSchema};
 use tracing::{debug, info};
 
 use crate::skynet::interface::{PluginRequest, PluginResponse};
@@ -527,11 +527,11 @@ pub extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) -> Plugin
 }
 
 #[no_mangle]
-pub extern "C" fn plugin_health_check_v2() -> HealthStatus {
+pub extern "C" fn plugin_health_check_v2(_context: *const PluginContextV2) -> HealthStatus {
     HealthStatus::Healthy
 }
 
-fn http_request_to_plugin_request(req: *const HttpRequest) -> Option<PluginRequest> {
+fn request_v2_to_plugin_request(req: *const RequestV2) -> Option<PluginRequest> {
     if req.is_null() {
         return None;
     }
@@ -590,41 +590,48 @@ fn http_request_to_plugin_request(req: *const HttpRequest) -> Option<PluginReque
     })
 }
 
-fn plugin_response_to_http_response(resp: &PluginResponse) -> *mut HttpResponse {
+/// Write a `PluginResponse` into a caller-provided `ResponseV2`.
+///
+/// # Safety
+/// The caller must provide a valid, writable `*mut ResponseV2`.
+/// The caller is responsible for freeing the allocated `headers`, `body`,
+/// and `content_type` memory after use.
+unsafe fn write_plugin_response_to_v2(resp: &PluginResponse, out: *mut ResponseV2) {
     let status_code = if resp.error.is_some() { 500 } else { 200 };
 
     let body_json = serde_json::to_vec(resp).unwrap_or_default();
 
-    let ct_name = CString::new("Content-Type").unwrap().into_raw();
-    let ct_value = CString::new("application/json").unwrap().into_raw();
+    let ct_name = CString::new("Content-Type").unwrap();
+    let ct_value = CString::new("application/json").unwrap();
 
-    let headers = vec![HttpHeader {
-        name: ct_name,
-        value: ct_value,
-    }];
+    let header = HeaderV2 {
+        name: ct_name.into_raw() as *const c_char,
+        value: ct_value.into_raw() as *const c_char,
+    };
+
+    let headers = vec![header];
     let headers_boxed = headers.into_boxed_slice();
-    let headers_ptr = Box::into_raw(headers_boxed) as *mut HttpHeader;
+    let headers_ptr = Box::into_raw(headers_boxed) as *mut HeaderV2;
+
+    let content_type = CString::new("application/json").unwrap();
 
     let body_len = body_json.len();
     let body_boxed = body_json.into_boxed_slice();
     let body_ptr = Box::into_raw(body_boxed) as *mut u8;
 
-    let http_resp = Box::new(HttpResponse {
-        status_code,
-        headers: headers_ptr,
-        num_headers: 1,
-        body: body_ptr,
-        body_len,
-    });
-
-    Box::into_raw(http_resp)
+    (*out).status_code = status_code;
+    (*out).headers = headers_ptr;
+    (*out).num_headers = 1;
+    (*out).body = body_ptr;
+    (*out).body_len = body_len;
+    (*out).content_type = content_type.into_raw() as *const c_char;
 }
 
 #[no_mangle]
 pub extern "C" fn plugin_handle_request_v2(
     _context: *const PluginContextV2,
-    request: *const HttpRequest,
-    response: *mut *mut HttpResponse,
+    request: *const RequestV2,
+    response: *mut ResponseV2,
 ) -> PluginResultV2 {
     if response.is_null() {
         return PluginResultV2::InvalidRequest;
@@ -642,7 +649,7 @@ pub extern "C" fn plugin_handle_request_v2(
         }
     };
 
-    let plugin_req: PluginRequest = match http_request_to_plugin_request(request) {
+    let plugin_req: PluginRequest = match request_v2_to_plugin_request(request) {
         Some(r) => r,
         None => return PluginResultV2::InvalidRequest,
     };
@@ -658,10 +665,8 @@ pub extern "C" fn plugin_handle_request_v2(
         }
     };
 
-    let http_resp = plugin_response_to_http_response(&plugin_resp);
-
     unsafe {
-        *response = http_resp;
+        write_plugin_response_to_v2(&plugin_resp, response);
     }
 
     if plugin_resp.error.is_some() {
@@ -862,18 +867,14 @@ mod tests {
 
     #[test]
     fn test_plugin_health_check_v2() {
-        let status = plugin_health_check_v2();
+        let status = plugin_health_check_v2(ptr::null());
         assert_eq!(status, HealthStatus::Healthy);
     }
 
     #[test]
     fn test_handle_request_v2_no_plugin_initialized() {
-        let mut resp_ptr: *mut HttpResponse = ptr::null_mut();
-        let result = plugin_handle_request_v2(
-            ptr::null(),
-            ptr::null(),
-            &mut resp_ptr as *mut *mut HttpResponse,
-        );
+        let mut resp = std::mem::MaybeUninit::<ResponseV2>::zeroed();
+        let result = plugin_handle_request_v2(ptr::null(), ptr::null(), resp.as_mut_ptr());
         assert_eq!(result, PluginResultV2::ServiceUnavailable);
     }
 }

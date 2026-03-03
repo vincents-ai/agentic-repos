@@ -275,7 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_lock_success() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -298,7 +298,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_lock_with_expiration() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -320,7 +320,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_lock_duplicate_fails() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -350,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_locks_all() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -378,7 +378,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_locks_by_path() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -422,7 +422,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_locks_with_limit() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -451,7 +451,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_lock_as_owner() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -479,7 +479,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_lock_as_non_owner_without_force_fails() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -506,7 +506,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_lock_with_force_succeeds() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -534,7 +534,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_lock_not_found() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -551,7 +551,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_locks_partitions_correctly() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -597,7 +597,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_expired_locks() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());
@@ -642,7 +642,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_locks_excludes_expired() {
-        let pool = setup_test_db().await;
+        let Some(pool) = setup_test_db().await else { return };
         cleanup_test_db(&pool).await;
 
         let manager = LfsLockManager::new(pool.clone());

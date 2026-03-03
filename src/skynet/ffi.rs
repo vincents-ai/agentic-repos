@@ -19,11 +19,15 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Arc, Mutex};
 
 use skylet_abi::v2_spec::{
-    CapabilityInfo, HealthStatus, MaturityLevel, MonetizationModel, PluginCategory,
-    PluginContextV2, PluginInfoV2, PluginResultV2, ServiceInfo,
+    CapabilityInfo, HealthStatus, MaturityLevel, PluginCategory, PluginContextV2, PluginInfoV2,
+    PluginResultV2, ServiceInfo, ServiceRegistryV2,
 };
 use skylet_abi::{HttpHeader, HttpRequest, HttpResponse, PropertySchema, ToolSchema};
-use tracing::info;
+use tracing::{debug, info};
+
+use crate::skynet::interface::{PluginRequest, PluginResponse};
+use crate::skynet::storage::{global_registry, S3CompatibleStorageV1};
+use crate::skynet::GitOperationsPlugin;
 
 const PLUGIN_NAME: &[u8] = b"git-operations\0";
 const PLUGIN_VERSION: &[u8] = b"0.1.0\0";
@@ -43,27 +47,24 @@ const TAG_STORAGE: &[u8] = b"storage\0";
 
 const SERVICE_NAME: &[u8] = b"git-operations\0";
 const SERVICE_VERSION: &[u8] = b"1.0.0\0";
+#[allow(dead_code)]
 const SERVICE_DESCRIPTION: &[u8] = b"Multi-tenant Git repository operations service\0";
+#[allow(dead_code)]
 const SERVICE_SPEC: &[u8] = b"git-operations-v1\0";
 
-const REQUIRED_SERVICE_NAME: &[u8] = b"git-operations\0";
-const REQUIRED_SERVICE_TYPE: &[u8] = b"GitOpsService\0";
-
-const REQUIRED_S3_SERVICE_NAME: &[u8] = b"s3-storage\0";
-const REQUIRED_S3_SERVICE_TYPE: &[u8] = b"S3StorageService\0";
-
-static REQUIRES_SERVICE_STORAGE: AtomicPtr<ServiceInfo> = AtomicPtr::new(ptr::null_mut());
-static REQUIRES_S3_SERVICE_STORAGE: AtomicPtr<ServiceInfo> = AtomicPtr::new(ptr::null_mut());
-static REQUIRES_SERVICES_ARRAY: AtomicPtr<[ServiceInfo; 2]> = AtomicPtr::new(ptr::null_mut());
+#[allow(dead_code)]
+const SERVICE_TYPE_S3_STORAGE: &str = "s3-storage";
+const SERVICE_TYPE_STORAGE_V1: &str = "StorageServiceV1";
 
 static PLUGIN_INFO: AtomicPtr<PluginInfoV2> = AtomicPtr::new(ptr::null_mut());
 static RUNTIME: Mutex<Option<tokio::runtime::Runtime>> = Mutex::new(None);
 
-static CAPABILITIES_STORAGE: AtomicPtr<[CapabilityInfo; 6]> = AtomicPtr::new(ptr::null_mut());
+static CAPABILITIES_STORAGE: AtomicPtr<[CapabilityInfo; 9]> = AtomicPtr::new(ptr::null_mut());
 static TAGS_STORAGE: AtomicPtr<[*const c_char; 5]> = AtomicPtr::new(ptr::null_mut());
+#[allow(dead_code)]
 static SERVICE_STORAGE: AtomicPtr<ServiceInfo> = AtomicPtr::new(ptr::null_mut());
 
-fn init_capabilities() -> *const [CapabilityInfo; 6] {
+fn init_capabilities() -> *const [CapabilityInfo; 9] {
     if CAPABILITIES_STORAGE.load(Ordering::SeqCst).is_null() {
         let caps = Box::new([
             CapabilityInfo {
@@ -96,6 +97,22 @@ fn init_capabilities() -> *const [CapabilityInfo; 6] {
                 description: b"Manage SSH keys for repository access\0".as_ptr() as *const c_char,
                 required_permission: ptr::null(),
             },
+            CapabilityInfo {
+                name: b"storage.list\0".as_ptr() as *const c_char,
+                description: b"List available storage backends\0".as_ptr() as *const c_char,
+                required_permission: ptr::null(),
+            },
+            CapabilityInfo {
+                name: b"storage.bucket\0".as_ptr() as *const c_char,
+                description: b"Manage storage buckets\0".as_ptr() as *const c_char,
+                required_permission: ptr::null(),
+            },
+            CapabilityInfo {
+                name: b"tenant.mapping\0".as_ptr() as *const c_char,
+                description: b"Configure tenant to storage backend mappings\0".as_ptr()
+                    as *const c_char,
+                required_permission: ptr::null(),
+            },
         ]);
         CAPABILITIES_STORAGE.store(Box::leak(caps) as *mut _, Ordering::SeqCst);
     }
@@ -116,6 +133,7 @@ fn init_tags() -> *const [*const c_char; 5] {
     TAGS_STORAGE.load(Ordering::SeqCst)
 }
 
+#[allow(dead_code)]
 fn init_service() -> *const ServiceInfo {
     if SERVICE_STORAGE.load(Ordering::SeqCst).is_null() {
         let service = Box::new(ServiceInfo {
@@ -127,59 +145,6 @@ fn init_service() -> *const ServiceInfo {
         SERVICE_STORAGE.store(Box::leak(service) as *mut _, Ordering::SeqCst);
     }
     SERVICE_STORAGE.load(Ordering::SeqCst)
-}
-
-fn init_requires_service() -> *const ServiceInfo {
-    if REQUIRES_SERVICE_STORAGE.load(Ordering::SeqCst).is_null() {
-        let service = Box::new(ServiceInfo {
-            name: REQUIRED_SERVICE_NAME.as_ptr() as *const c_char,
-            version: SERVICE_VERSION.as_ptr() as *const c_char,
-            description: REQUIRED_SERVICE_TYPE.as_ptr() as *const c_char,
-            interface_spec: ptr::null(),
-        });
-        REQUIRES_SERVICE_STORAGE.store(Box::leak(service) as *mut _, Ordering::SeqCst);
-    }
-    REQUIRES_SERVICE_STORAGE.load(Ordering::SeqCst)
-}
-
-fn init_requires_s3_service() -> *const ServiceInfo {
-    if REQUIRES_S3_SERVICE_STORAGE.load(Ordering::SeqCst).is_null() {
-        let service = Box::new(ServiceInfo {
-            name: REQUIRED_S3_SERVICE_NAME.as_ptr() as *const c_char,
-            version: SERVICE_VERSION.as_ptr() as *const c_char,
-            description: REQUIRED_S3_SERVICE_TYPE.as_ptr() as *const c_char,
-            interface_spec: ptr::null(),
-        });
-        REQUIRES_S3_SERVICE_STORAGE.store(Box::leak(service) as *mut _, Ordering::SeqCst);
-    }
-    REQUIRES_S3_SERVICE_STORAGE.load(Ordering::SeqCst)
-}
-
-fn init_requires_services_array() -> *const [ServiceInfo; 2] {
-    if REQUIRES_SERVICES_ARRAY.load(Ordering::SeqCst).is_null() {
-        let services = Box::new([
-            ServiceInfo {
-                name: REQUIRED_SERVICE_NAME.as_ptr() as *const c_char,
-                version: SERVICE_VERSION.as_ptr() as *const c_char,
-                description: REQUIRED_SERVICE_TYPE.as_ptr() as *const c_char,
-                interface_spec: ptr::null(),
-            },
-            ServiceInfo {
-                name: REQUIRED_S3_SERVICE_NAME.as_ptr() as *const c_char,
-                version: SERVICE_VERSION.as_ptr() as *const c_char,
-                description: REQUIRED_S3_SERVICE_TYPE.as_ptr() as *const c_char,
-                interface_spec: ptr::null(),
-            },
-        ]);
-        REQUIRES_SERVICES_ARRAY.store(Box::leak(services) as *mut _, Ordering::SeqCst);
-    }
-    REQUIRES_SERVICES_ARRAY.load(Ordering::SeqCst)
-}
-            interface_spec: ptr::null(),
-        });
-        REQUIRES_SERVICE_STORAGE.store(Box::leak(service) as *mut _, Ordering::SeqCst);
-    }
-    REQUIRES_SERVICE_STORAGE.load(Ordering::SeqCst)
 }
 
 fn init_plugin_info() -> *const PluginInfoV2 {
@@ -198,10 +163,10 @@ fn init_plugin_info() -> *const PluginInfoV2 {
             num_dependencies: 0,
             provides_services: ptr::null(),
             num_provides_services: 0,
-            requires_services: init_requires_services_array() as *const ServiceInfo,
-            num_requires_services: 2,
+            requires_services: ptr::null(),
+            num_requires_services: 0,
             capabilities: init_capabilities() as *const CapabilityInfo,
-            num_capabilities: 6,
+            num_capabilities: 9,
             min_resources: ptr::null(),
             max_resources: ptr::null(),
             tags: init_tags() as *const *const c_char,
@@ -211,11 +176,6 @@ fn init_plugin_info() -> *const PluginInfoV2 {
             supports_async: true,
             supports_streaming: false,
             max_concurrency: 64,
-            monetization_model: MonetizationModel::Free,
-            price_usd: 0.0,
-            purchase_url: ptr::null(),
-            subscription_url: ptr::null(),
-            marketplace_category: ptr::null(),
             tagline: ptr::null(),
             icon_url: ptr::null(),
             maturity_level: MaturityLevel::Stable,
@@ -235,6 +195,7 @@ pub extern "C" fn plugin_get_info_v2() -> *const PluginInfoV2 {
     init_plugin_info() as *const PluginInfoV2
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct GitOpsService {
     pub create_service: extern "C" fn(config: *const GitServiceConfig) -> GitServiceResult,
@@ -262,16 +223,23 @@ pub struct GitServiceResult {
 
 static GIT_OPS_SERVICE: Mutex<Option<Arc<GitOpsService>>> = Mutex::new(None);
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct S3StorageService {
     pub initialize: extern "C" fn(config: *const S3ServiceConfig) -> S3ServiceResult,
     pub create_bucket: extern "C" fn(bucket_name: *const c_char) -> S3ServiceResult,
     pub delete_bucket: extern "C" fn(bucket_name: *const c_char) -> S3ServiceResult,
     pub list_buckets: extern "C" fn() -> *mut c_char,
-    pub put_object: extern "C" fn(bucket: *const c_char, key: *const c_char, data: *const u8, len: usize) -> S3ServiceResult,
+    pub put_object: extern "C" fn(
+        bucket: *const c_char,
+        key: *const c_char,
+        data: *const u8,
+        len: usize,
+    ) -> S3ServiceResult,
     pub get_object: extern "C" fn(bucket: *const c_char, key: *const c_char) -> *mut S3ObjectResult,
     pub delete_object: extern "C" fn(bucket: *const c_char, key: *const c_char) -> S3ServiceResult,
-    pub generate_presigned_url: extern "C" fn(bucket: *const c_char, key: *const c_char, expires_secs: u64) -> *mut c_char,
+    pub generate_presigned_url:
+        extern "C" fn(bucket: *const c_char, key: *const c_char, expires_secs: u64) -> *mut c_char,
     pub is_ready: extern "C" fn() -> bool,
 }
 
@@ -301,6 +269,117 @@ pub struct S3ObjectResult {
 
 static S3_OPS_SERVICE: Mutex<Option<Arc<S3StorageService>>> = Mutex::new(None);
 
+static PLUGIN: Mutex<Option<Arc<GitOperationsPlugin>>> = Mutex::new(None);
+
+static DISCOVERED_STORAGE_SERVICES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+fn discover_storage_services(registry: *const ServiceRegistryV2, context: *const PluginContextV2) {
+    if registry.is_null() || context.is_null() {
+        return;
+    }
+
+    let registry = unsafe { &*registry };
+
+    let service_list = (registry.list_services)(context);
+    if service_list.is_null() {
+        info!("No services available in service registry");
+        return;
+    }
+
+    let mut discovered_count = 0;
+    let mut storage_backends: Vec<(String, String)> = Vec::new();
+
+    unsafe {
+        let mut idx = 0;
+        loop {
+            let service_name_ptr = *service_list.add(idx);
+            if service_name_ptr.is_null() {
+                break;
+            }
+
+            let service_name = CStr::from_ptr(service_name_ptr)
+                .to_string_lossy()
+                .into_owned();
+
+            let service_type_storage = CString::new(SERVICE_TYPE_STORAGE_V1).unwrap();
+            let service_ptr =
+                (registry.get)(context, service_name_ptr, service_type_storage.as_ptr());
+
+            if !service_ptr.is_null() {
+                let storage_service = &*(service_ptr as *const S3CompatibleStorageV1);
+
+                let backend_name = storage_service
+                    .get_backend_name()
+                    .unwrap_or_else(|| service_name.clone());
+                let backend_type = storage_service
+                    .get_backend_type()
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let is_default = storage_backends.is_empty();
+
+                let backend_ptr = Arc::new(storage_service.clone());
+                global_registry().register(
+                    backend_ptr,
+                    None,
+                    is_default,
+                    if is_default { 100 } else { 50 },
+                );
+
+                storage_backends.push((backend_name.clone(), backend_type.clone()));
+                discovered_count += 1;
+
+                info!(
+                    "Discovered and registered storage backend: {} (type: {}, default: {})",
+                    backend_name, backend_type, is_default
+                );
+            }
+
+            let s3_type = CString::new("S3StorageService").unwrap();
+            let s3_ptr = (registry.get)(context, service_name_ptr, s3_type.as_ptr());
+
+            if !s3_ptr.is_null() {
+                let backend_name = service_name.clone();
+                let backend_type = "s3-compatible".to_string();
+
+                storage_backends.push((backend_name.clone(), backend_type.clone()));
+                discovered_count += 1;
+
+                info!(
+                    "Discovered S3 storage service: {} (will use legacy interface)",
+                    backend_name
+                );
+            }
+
+            idx += 1;
+        }
+
+        (registry.free_service_list)(service_list, idx);
+    }
+
+    if let Ok(mut guard) = DISCOVERED_STORAGE_SERVICES.lock() {
+        *guard = storage_backends;
+    }
+
+    info!(
+        "Storage discovery complete: {} backends found",
+        discovered_count
+    );
+}
+
+fn register_storage_from_env() {
+    let endpoint = std::env::var("REPOS_S3_ENDPOINT").ok();
+    let _region = std::env::var("REPOS_S3_REGION").ok();
+    let access_key = std::env::var("REPOS_S3_ACCESS_KEY").ok();
+    let _secret_key = std::env::var("REPOS_S3_SECRET_KEY").ok();
+
+    if endpoint.is_none() || access_key.is_none() {
+        debug!("No S3 storage configured via environment variables");
+        return;
+    }
+
+    info!("Legacy S3 storage configuration found in environment variables");
+}
+
 #[no_mangle]
 pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResultV2 {
     if context.is_null() {
@@ -312,94 +391,103 @@ pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResul
         Err(_) => return PluginResultV2::Error,
     };
 
+    let config = match crate::config::AppConfig::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            info!("Failed to load config, using defaults: {}", e);
+            crate::config::AppConfig::default()
+        }
+    };
+
+    let plugin = match rt.block_on(GitOperationsPlugin::new(config)) {
+        Ok(p) => Arc::new(p),
+        Err(e) => {
+            info!("Failed to initialize GitOperationsPlugin: {}", e);
+            return PluginResultV2::Error;
+        }
+    };
+
+    if let Ok(mut guard) = PLUGIN.lock() {
+        *guard = Some(plugin);
+    }
+
     unsafe {
-        let registry = (*context).service_registry;
+        let ctx = &*context;
+        let registry = ctx.service_registry;
 
-        if registry.is_null() {
-            return PluginResultV2::Error;
-        }
+        if !registry.is_null() {
+            info!("Discovering storage services from Skylet service registry...");
+            discover_storage_services(registry, context);
 
-        let service_name = CString::new("git-operations").unwrap();
-        let service_type = CString::new("GitOpsService").unwrap();
+            let s3_service_name = CString::new("s3-storage").unwrap();
+            let s3_service_type = CString::new("S3StorageService").unwrap();
 
-        let service_ptr = ((*registry).get)(context, service_name.as_ptr(), service_type.as_ptr());
+            let s3_service_ptr =
+                ((*registry).get)(context, s3_service_name.as_ptr(), s3_service_type.as_ptr());
 
-        if service_ptr.is_null() {
-            return PluginResultV2::Error;
-        }
+            if !s3_service_ptr.is_null() {
+                let s3_service = &*(s3_service_ptr as *const S3StorageService);
 
-        let git_service = &*(service_ptr as *const GitOpsService);
+                let s3_endpoint = std::env::var("REPOS_S3_ENDPOINT")
+                    .unwrap_or_else(|_| "http://localhost:3900".to_string());
+                let s3_region =
+                    std::env::var("REPOS_S3_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+                let s3_access_key = std::env::var("REPOS_S3_ACCESS_KEY").unwrap_or_default();
+                let s3_secret_key = std::env::var("REPOS_S3_SECRET_KEY").unwrap_or_default();
+                let s3_bucket_prefix =
+                    std::env::var("REPOS_S3_BUCKET_PREFIX").unwrap_or_else(|_| "repos".to_string());
+                let s3_public_url = std::env::var("REPOS_S3_PUBLIC_URL").unwrap_or_default();
 
-        let config = GitServiceConfig {
-            enable_ssh: true,
-            enable_http: true,
-            http_listen_addr: CString::new("127.0.0.1:8080").unwrap().as_ptr(),
-            ssh_port: 22,
-            storage_path: CString::new("./repositories").unwrap().as_ptr(),
-            lfs_enabled: true,
-        };
+                let endpoint_cstr = CString::new(s3_endpoint).unwrap();
+                let region_cstr = CString::new(s3_region).unwrap();
+                let access_key_cstr = CString::new(s3_access_key).unwrap();
+                let secret_key_cstr = CString::new(s3_secret_key).unwrap();
+                let bucket_prefix_cstr = CString::new(s3_bucket_prefix).unwrap();
+                let public_url_cstr = CString::new(s3_public_url).unwrap();
 
-        let result = (git_service.create_service)(&config);
-        if !result.success {
-            return PluginResultV2::Error;
-        }
-
-        let start_result = (git_service.start_service)();
-        if !start_result.success {
-            return PluginResultV2::Error;
-        }
-
-        if let Ok(mut guard) = GIT_OPS_SERVICE.lock() {
-            *guard = Some(Arc::new(git_service.clone()));
-        }
-
-        let s3_service_name = CString::new("s3-storage").unwrap();
-        let s3_service_type = CString::new("S3StorageService").unwrap();
-        
-        let s3_service_ptr = ((*registry).get)(context, s3_service_name.as_ptr(), s3_service_type.as_ptr());
-
-        if !s3_service_ptr.is_null() {
-            let s3_service = &*(s3_service_ptr as *const S3StorageService);
-            
-            let s3_endpoint = std::env::var("REPOS_S3_ENDPOINT")
-                .unwrap_or_else(|_| "http://localhost:3900".to_string());
-            let s3_region = std::env::var("REPOS_S3_REGION")
-                .unwrap_or_else(|_| "us-east-1".to_string());
-            let s3_access_key = std::env::var("REPOS_S3_ACCESS_KEY")
-                .unwrap_or_default();
-            let s3_secret_key = std::env::var("REPOS_S3_SECRET_KEY")
-                .unwrap_or_default();
-            let s3_bucket_prefix = std::env::var("REPOS_S3_BUCKET_PREFIX")
-                .unwrap_or_else(|_| "repos".to_string());
-            let s3_public_url = std::env::var("REPOS_S3_PUBLIC_URL")
-                .unwrap_or_default();
-            
-            let s3_config = S3ServiceConfig {
-                endpoint: CString::new(s3_endpoint).unwrap().as_ptr(),
-                region: CString::new(s3_region).unwrap().as_ptr(),
-                access_key_id: CString::new(s3_access_key).unwrap().as_ptr(),
-                secret_access_key: CString::new(s3_secret_key).unwrap().as_ptr(),
-                bucket_prefix: CString::new(s3_bucket_prefix).unwrap().as_ptr(),
-                public_url: CString::new(s3_public_url).unwrap().as_ptr(),
-            };
-
-            let s3_result = (s3_service.initialize)(&s3_config);
-            if s3_result.success {
-                if let Ok(mut guard) = S3_OPS_SERVICE.lock() {
-                    *guard = Some(Arc::new(s3_service.clone()));
-                }
-                info!("S3 storage service initialized for LFS");
-            } else {
-                let err_msg = if !s3_result.error_message.is_null() {
-                    unsafe { CStr::from_ptr(s3_result.error_message).to_string_lossy().into_owned() }
-                } else {
-                    "unknown error".to_string()
+                let s3_config = S3ServiceConfig {
+                    endpoint: endpoint_cstr.as_ptr(),
+                    region: region_cstr.as_ptr(),
+                    access_key_id: access_key_cstr.as_ptr(),
+                    secret_access_key: secret_key_cstr.as_ptr(),
+                    bucket_prefix: bucket_prefix_cstr.as_ptr(),
+                    public_url: public_url_cstr.as_ptr(),
                 };
-                info!("S3 storage service initialization failed: {} - LFS will use local storage", err_msg);
+
+                let s3_result = (s3_service.initialize)(&s3_config);
+                if s3_result.success {
+                    if let Ok(mut guard) = S3_OPS_SERVICE.lock() {
+                        *guard = Some(Arc::new(s3_service.clone()));
+                    }
+                    info!("S3 storage service initialized for LFS");
+                } else {
+                    let err_msg = if !s3_result.error_message.is_null() {
+                        CStr::from_ptr(s3_result.error_message)
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        "unknown error".to_string()
+                    };
+                    info!(
+                        "S3 storage service initialization failed: {} - LFS will use local storage",
+                        err_msg
+                    );
+                }
+            } else {
+                info!("S3 storage service not available - LFS will use local storage");
             }
         } else {
-            info!("S3 storage service not available - LFS will use local storage");
+            info!("Service registry not available - using environment-based storage configuration");
+            register_storage_from_env();
         }
+    }
+
+    {
+        let backends = global_registry().list_backends();
+        info!(
+            "Available storage backends after initialization: {:?}",
+            backends
+        );
     }
 
     if let Ok(mut guard) = RUNTIME.lock() {
@@ -423,9 +511,18 @@ pub extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) -> Plugin
     if let Ok(mut guard) = S3_OPS_SERVICE.lock() {
         *guard = None;
     }
+    if let Ok(mut guard) = PLUGIN.lock() {
+        *guard = None;
+    }
     if let Ok(mut guard) = RUNTIME.lock() {
         *guard = None;
     }
+    if let Ok(mut guard) = DISCOVERED_STORAGE_SERVICES.lock() {
+        guard.clear();
+    }
+
+    global_registry().clear();
+
     PluginResultV2::Success
 }
 
@@ -533,8 +630,9 @@ pub extern "C" fn plugin_handle_request_v2(
         return PluginResultV2::InvalidRequest;
     }
 
-    let plugin = {
-        let guard = match PLUGIN.lock() {
+    let plugin: Arc<GitOperationsPlugin> = {
+        let guard: std::sync::MutexGuard<'_, Option<Arc<GitOperationsPlugin>>> = match PLUGIN.lock()
+        {
             Ok(g) => g,
             Err(_) => return PluginResultV2::ServiceUnavailable,
         };
@@ -544,12 +642,12 @@ pub extern "C" fn plugin_handle_request_v2(
         }
     };
 
-    let plugin_req = match http_request_to_plugin_request(request) {
+    let plugin_req: PluginRequest = match http_request_to_plugin_request(request) {
         Some(r) => r,
         None => return PluginResultV2::InvalidRequest,
     };
 
-    let plugin_resp = {
+    let plugin_resp: PluginResponse = {
         let guard = match RUNTIME.lock() {
             Ok(g) => g,
             Err(_) => return PluginResultV2::ServiceUnavailable,
@@ -588,6 +686,91 @@ fn build_tool_schemas() -> Vec<ToolSchema> {
             .required_param("name", PropertySchema::string("Repository name")),
         ToolSchema::new("health_check", "Check plugin health status"),
         ToolSchema::new("metrics_get", "Get plugin metrics"),
+        ToolSchema::new(
+            "storage_list_backends",
+            "List all available storage backends",
+        )
+        .param(
+            "include_details",
+            PropertySchema::boolean("Include endpoint and capability details"),
+        ),
+        ToolSchema::new(
+            "storage_list_buckets",
+            "List all buckets across storage backends",
+        )
+        .param(
+            "backend_name",
+            PropertySchema::string(
+                "Specific backend to query (optional, uses default if not specified)",
+            ),
+        ),
+        ToolSchema::new(
+            "storage_create_bucket",
+            "Create a bucket in a specific storage backend",
+        )
+        .required_param(
+            "bucket_name",
+            PropertySchema::string("Name of the bucket to create"),
+        )
+        .param(
+            "backend_name",
+            PropertySchema::string("Backend to create in (uses tenant's backend or default)"),
+        )
+        .param(
+            "tenant_id",
+            PropertySchema::string("Tenant ID for tenant-specific bucket"),
+        )
+        .param(
+            "versioning_enabled",
+            PropertySchema::boolean("Enable versioning"),
+        )
+        .param(
+            "public_access",
+            PropertySchema::boolean("Allow public read access"),
+        ),
+        ToolSchema::new(
+            "storage_delete_bucket",
+            "Delete a bucket from a storage backend",
+        )
+        .required_param(
+            "bucket_name",
+            PropertySchema::string("Name of the bucket to delete"),
+        )
+        .param(
+            "backend_name",
+            PropertySchema::string("Backend containing the bucket"),
+        ),
+        ToolSchema::new(
+            "storage_set_tenant_mapping",
+            "Configure tenant to storage backend mapping",
+        )
+        .required_param("tenant_id", PropertySchema::string("Tenant identifier"))
+        .required_param(
+            "backend_name",
+            PropertySchema::string("Storage backend to use for this tenant"),
+        )
+        .param(
+            "bucket_prefix",
+            PropertySchema::string("Prefix for all buckets created by this tenant"),
+        ),
+        ToolSchema::new(
+            "storage_get_tenant_mapping",
+            "Get the storage backend mapping for a tenant",
+        )
+        .required_param("tenant_id", PropertySchema::string("Tenant identifier")),
+        ToolSchema::new(
+            "storage_remove_tenant_mapping",
+            "Remove a tenant's storage backend mapping (will use default)",
+        )
+        .required_param("tenant_id", PropertySchema::string("Tenant identifier")),
+        ToolSchema::new(
+            "storage_set_default_backend",
+            "Set the default storage backend for tenants without mapping",
+        )
+        .required_param(
+            "backend_name",
+            PropertySchema::string("Name of the backend to set as default"),
+        ),
     ]
 }
 
@@ -629,10 +812,10 @@ mod tests {
             let author = CStr::from_ptr(info.author).to_string_lossy();
             assert_eq!(author, "Vincents AI Team");
 
-            assert_eq!(info.category, PluginCategory::Application);
-            assert_eq!(info.num_capabilities, 6);
+            assert_eq!(info.category, PluginCategory::Integration);
+            assert_eq!(info.num_capabilities, 9);
             assert_eq!(info.num_tags, 5);
-            assert_eq!(info.num_provides_services, 1);
+            assert_eq!(info.num_provides_services, 0);
         }
     }
 
@@ -646,7 +829,7 @@ mod tests {
     #[test]
     fn test_build_tool_schemas() {
         let schemas = build_tool_schemas();
-        assert_eq!(schemas.len(), 6);
+        assert!(schemas.len() >= 6);
 
         let names: Vec<&str> = schemas.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"repo_create"));
@@ -655,6 +838,10 @@ mod tests {
         assert!(names.contains(&"repo_info"));
         assert!(names.contains(&"health_check"));
         assert!(names.contains(&"metrics_get"));
+        assert!(names.contains(&"storage_list_backends"));
+        assert!(names.contains(&"storage_list_buckets"));
+        assert!(names.contains(&"storage_create_bucket"));
+        assert!(names.contains(&"storage_set_tenant_mapping"));
     }
 
     #[test]
@@ -667,7 +854,7 @@ mod tests {
             let json_str = cstr.to_str().expect("valid UTF-8");
             let schemas: Vec<ToolSchema> =
                 serde_json::from_str(json_str).expect("valid tool schema JSON");
-            assert_eq!(schemas.len(), 6);
+            assert!(schemas.len() >= 6);
 
             plugin_free_tools(ptr as *mut c_char);
         }

@@ -1,7 +1,6 @@
 use git2::{Repository, Signature};
 use repos_mcp::git::protocol::{ReceivePackHandler, UploadPackHandler};
 use tempfile::TempDir;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn create_test_repo_with_commit(dir: &TempDir) -> Repository {
     let repo = Repository::init(dir.path()).unwrap();
@@ -66,7 +65,7 @@ async fn test_upload_pack_with_multiple_refs() {
     let dir = TempDir::new().unwrap();
     let repo = create_test_repo_with_commit(&dir);
 
-    let sig = Signature::now("Test User", "test@example.com").unwrap();
+    let _sig = Signature::now("Test User", "test@example.com").unwrap();
     let head = repo.head().unwrap();
     let commit = repo.find_commit(head.target().unwrap()).unwrap();
 
@@ -143,7 +142,7 @@ async fn test_multi_tenant_isolation() {
     let repo1 = create_test_repo_with_commit(&tenant1_dir);
     let repo2 = create_test_repo_with_commit(&tenant2_dir);
 
-    let sig = Signature::now("Test", "test@example.com").unwrap();
+    let _sig = Signature::now("Test", "test@example.com").unwrap();
     let head1 = repo1.head().unwrap();
     let commit1 = repo1.find_commit(head1.target().unwrap()).unwrap();
     repo1.branch("tenant1-feature", &commit1, false).unwrap();
@@ -189,7 +188,7 @@ async fn test_protocol_reference_advertisement_format() {
     let dir = TempDir::new().unwrap();
     let repo = create_test_repo_with_commit(&dir);
 
-    let sig = Signature::now("Test", "test@example.com").unwrap();
+    let _sig = Signature::now("Test", "test@example.com").unwrap();
     let head = repo.head().unwrap();
     let commit = repo.find_commit(head.target().unwrap()).unwrap();
     repo.branch("test-branch", &commit, false).unwrap();

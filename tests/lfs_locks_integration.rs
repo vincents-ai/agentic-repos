@@ -2,12 +2,10 @@ use repos_mcp::config::LfsConfig;
 use repos_mcp::features::FeatureFlags;
 use repos_mcp::lfs::{
     CreateLockRequest, DeleteLockRequest, GitRef, LfsLockManager, LfsTokenGenerator,
-    VerifyLocksRequest,
 };
 use std::sync::Arc;
 use repos_mcp::lfs::test_utils::{cleanup_test_db, setup_test_db};
 use tokio::time::{sleep, Duration};
-use uuid::Uuid;
 
 async fn setup_test_environment() -> (Arc<sqlx::PgPool>, LfsConfig, FeatureFlags) {
     let pool = setup_test_db().await;
@@ -41,7 +39,7 @@ async fn cleanup_test_environment(pool: &sqlx::PgPool) {
 
 #[tokio::test]
 async fn test_complete_lock_unlock_workflow() {
-    let (pool, lfs_config, _features) = setup_test_environment().await;
+    let (pool, _lfs_config, _features) = setup_test_environment().await;
     let manager = LfsLockManager::new(pool.clone());
 
     let create_request = CreateLockRequest {

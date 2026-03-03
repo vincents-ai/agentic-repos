@@ -10,9 +10,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Skylet Plugin ABI (for FFI plugin integration)
-skylet-abi = { git = "ssh://git@github.com/vincents-ai/skylet.git", subdir = "abi", default-features = false }
+skylet-abi = { git = "ssh://git@github.com/vincents-ai/skylet.git", default-features = false }
 # Skylet Plugin Common (v2 ABI helpers)
-skylet-plugin-common = { git = "ssh://git@github.com/vincents-ai/skylet.git", subdir = "plugins/skylet-plugin-common", default-features = false }
+skylet-plugin-common = { git = "ssh://git@github.com/vincents-ai/skylet.git", default-features = false }
 # Web framework
 actix-web = "4.4"
 actix-cors = "0.7"
@@ -26,7 +26,7 @@ mime_guess = "2.0"
 tokio = { version = "1.35", features = ["full"] }
 
 # Git operations
-git2 = "0.20"
+git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
 
 # SSH Server (for Git over SSH)
 russh = "0.49"
@@ -37,7 +37,7 @@ gix-protocol = "0.55"
 gix-transport = "0.52"
 
 # S3 Storage
-aws-config = "1.1"
+aws-config = { version = "1.1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.14"
 
 # Serialization
@@ -64,7 +64,7 @@ futures-util = "0.3"
 async-trait = "0.1"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid", "chrono"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Utilities

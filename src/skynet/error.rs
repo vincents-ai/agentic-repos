@@ -14,9 +14,17 @@ pub enum SkynetPluginError {
     #[error("Configuration error: {0}")]
     Configuration(String),
 
+    /// Configuration error (alias)
+    #[error("Configuration error: {0}")]
+    ConfigurationError(String),
+
     /// Storage backend error
     #[error("Storage error: {0}")]
     Storage(String),
+
+    /// Storage backend error (alias)
+    #[error("Storage error: {0}")]
+    StorageError(String),
 
     /// Multi-tenant isolation or permission error
     #[error("Tenant error: {0}")]
@@ -93,9 +101,19 @@ impl SkynetPluginError {
         Self::Configuration(msg.into())
     }
 
+    /// Create a configuration error (alias)
+    pub fn configuration_error(msg: impl Into<String>) -> Self {
+        Self::ConfigurationError(msg.into())
+    }
+
     /// Create a storage error
     pub fn storage(msg: impl Into<String>) -> Self {
         Self::Storage(msg.into())
+    }
+
+    /// Create a storage error (alias)
+    pub fn storage_error(msg: impl Into<String>) -> Self {
+        Self::StorageError(msg.into())
     }
 
     /// Create a tenant error
@@ -161,8 +179,8 @@ impl SkynetPluginError {
     /// Get the error code for Skynet v2 protocol
     pub fn error_code(&self) -> String {
         match self {
-            Self::Configuration(_) => "PLUGIN_CONFIG_ERROR",
-            Self::Storage(_) => "STORAGE_ERROR",
+            Self::Configuration(_) | Self::ConfigurationError(_) => "PLUGIN_CONFIG_ERROR",
+            Self::Storage(_) | Self::StorageError(_) => "STORAGE_ERROR",
             Self::Tenant(_) => "TENANT_ERROR",
             Self::PermissionDenied(_) => "PERMISSION_DENIED",
             Self::RateLimitExceeded(_) => "RATE_LIMIT_EXCEEDED",
@@ -187,7 +205,10 @@ impl SkynetPluginError {
     /// Get HTTP status code for this error
     pub fn http_status(&self) -> u16 {
         match self {
-            Self::Configuration(_) | Self::InvalidRequest(_) | Self::InvalidSshKey(_) => 400,
+            Self::Configuration(_)
+            | Self::ConfigurationError(_)
+            | Self::InvalidRequest(_)
+            | Self::InvalidSshKey(_) => 400,
             Self::Authentication(_) => 401,
             Self::PermissionDenied(_) => 403,
             Self::RepositoryNotFound(_) => 404,
@@ -197,7 +218,11 @@ impl SkynetPluginError {
             Self::Timeout(_) => 504,
             Self::Io(_) | Self::Json(_) | Self::Internal(_) | Self::GitOperation(_) => 500,
             Self::Monitoring(_) => 500,
-            Self::Storage(_) | Self::Tenant(_) | Self::Git(_) | Self::Lfs(_) => 500,
+            Self::Storage(_)
+            | Self::StorageError(_)
+            | Self::Tenant(_)
+            | Self::Git(_)
+            | Self::Lfs(_) => 500,
         }
     }
 

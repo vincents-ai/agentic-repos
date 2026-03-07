@@ -162,6 +162,10 @@ impl CommandValidator {
         if parts.len() >= 2 {
             let tenant = parts[0].to_string();
             let repo_name = parts[1..].join("/");
+            let repo_name = repo_name
+                .strip_suffix(".git")
+                .unwrap_or(&repo_name)
+                .to_string();
             Some((tenant, repo_name))
         } else {
             None
@@ -255,12 +259,12 @@ mod tests {
     fn test_repository_path_parsing() {
         assert_eq!(
             CommandValidator::parse_repository_path("tenant/repo.git"),
-            Some(("tenant".to_string(), "repo.git".to_string()))
+            Some(("tenant".to_string(), "repo".to_string()))
         );
 
         assert_eq!(
             CommandValidator::parse_repository_path("/tenant/project/repo.git"),
-            Some(("tenant".to_string(), "project/repo.git".to_string()))
+            Some(("tenant".to_string(), "project/repo".to_string()))
         );
 
         assert_eq!(CommandValidator::parse_repository_path("single"), None);

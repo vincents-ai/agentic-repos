@@ -956,6 +956,13 @@ pub extern "C" fn plugin_execute_v2(
         | "repo_create"
         | "repo_delete"
         | "repo_info" => {
+            // Convert action name (with underscores) to method name (with dots)
+            let method_name = action_str
+                .replace("repo_", "repo.")
+                .replace("storage_", "storage.")
+                .replace("health_", "health.")
+                .replace("metrics_", "metrics.");
+            
             let plugin: Option<Arc<GitOperationsPlugin>> =
                 PLUGIN.lock().ok().and_then(|g| g.clone());
 
@@ -966,7 +973,7 @@ pub extern "C" fn plugin_execute_v2(
                 if let Some(rt) = rt_opt {
                     let request = PluginRequest {
                         id: uuid::Uuid::new_v4().to_string(),
-                        method: action_str.clone(),
+                        method: method_name,
                         params: args_value,
                         tenant_id: None,
                         user_id: None,

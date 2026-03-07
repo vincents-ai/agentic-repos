@@ -35,8 +35,12 @@ pub async fn write_data_packet<W: AsyncWrite + Unpin>(writer: &mut W, data: &[u8
     let len = data.len() + 4; // Include the 4-byte length prefix
     let len_hex = format!("{:04x}", len);
 
-    writer.write_all(len_hex.as_bytes()).await?;
-    writer.write_all(data).await?;
+    // Combine prefix and data into a single buffer to avoid multiple SSH packets
+    let mut packet = Vec::with_capacity(len);
+    packet.extend_from_slice(len_hex.as_bytes());
+    packet.extend_from_slice(data);
+
+    writer.write_all(&packet).await?;
 
     Ok(())
 }
@@ -56,28 +60,43 @@ pub async fn write_text_packet<W: AsyncWrite + Unpin>(writer: &mut W, text: &str
 
 /// Read a single packet
 pub async fn read_packet<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<Vec<u8>>> {
+    eprintln!("[PKTLINE] Reading packet header...");
     let mut len_buf = [0u8; 4];
 
     match reader.read_exact(&mut len_buf).await {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            eprintln!("[PKTLINE] Got UnexpectedEof reading header");
             return Ok(None);
         }
-        Err(e) => return Err(GitError::IoError(e)),
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            eprintln!("[PKTLINE] Got WouldBlock reading header");
+            return Err(GitError::IoError(e));
+        }
+        Err(e) => {
+            eprintln!("[PKTLINE] Got error reading header: {:?}", e);
+            return Err(GitError::IoError(e));
+        }
     }
 
     let len_str = std::str::from_utf8(&len_buf)
         .map_err(|e| GitError::ProtocolError(format!("Invalid packet length prefix: {}", e)))?;
+    
+    eprintln!("[PKTLINE] Got length prefix: {:?}", len_str);
 
     let len = u16::from_str_radix(len_str, 16)
         .map_err(|e| GitError::ProtocolError(format!("Invalid packet length hex: {}", e)))?
         as usize;
 
+    eprintln!("[PKTLINE] Parsed length: {}", len);
+
     // Special packets
     if len == 0 {
+        eprintln!("[PKTLINE] Flush packet");
         return Ok(Some(Vec::new())); // Flush packet
     }
     if len == 1 || len == 2 {
+        eprintln!("[PKTLINE] Special packet: {}", len);
         return Ok(Some(vec![len as u8])); // Delim or response-end
     }
 
@@ -89,6 +108,8 @@ pub async fn read_packet<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<
     }
 
     let data_len = len - 4;
+    eprintln!("[PKTLINE] Reading {} bytes of data...", data_len);
+    
     if data_len > MAX_PACKET_SIZE {
         return Err(GitError::ProtocolError(format!(
             "Packet too large: {} bytes",

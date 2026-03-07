@@ -39,8 +39,8 @@ impl UploadPackHandler {
         Self::advertise_refs_impl(&repo_path, &mut writer).await?;
         eprintln!("[UPLOAD-PACK] Advertised refs");
 
-        let (wants, haves) = Self::read_negotiation_impl(&mut reader).await?;
-        eprintln!("[UPLOAD-PACK] Read negotiation: {} wants", wants.len());
+        let (wants, haves, capabilities) = Self::read_negotiation_impl(&mut reader).await?;
+        eprintln!("[UPLOAD-PACK] Read negotiation: {} wants, capabilities: {:?}", wants.len(), capabilities);
 
         if wants.is_empty() {
             info!("Client wants nothing, ending connection");
@@ -48,7 +48,7 @@ impl UploadPackHandler {
             return Ok(());
         }
 
-        Self::send_packfile_impl(&repo_path, &mut writer, &wants, &haves).await?;
+        Self::send_packfile_impl(&repo_path, &mut writer, &wants, &haves, &capabilities).await?;
 
         info!("Upload-pack completed successfully");
         eprintln!("[UPLOAD-PACK] Completed successfully");
@@ -128,9 +128,10 @@ impl UploadPackHandler {
 
     async fn read_negotiation_impl<R: AsyncRead + Unpin>(
         reader: &mut R,
-    ) -> Result<(Vec<Oid>, Vec<Oid>)> {
+    ) -> Result<(Vec<Oid>, Vec<Oid>, HashSet<String>)> {
         let mut wants = Vec::new();
         let mut haves = Vec::new();
+        let mut capabilities = HashSet::new();
 
         eprintln!("[UPLOAD-PACK] Starting negotiation read");
         loop {
@@ -160,6 +161,15 @@ impl UploadPackHandler {
                         Ok(oid) => {
                             eprintln!("[UPLOAD-PACK] Client wants: {}", oid);
                             wants.push(oid);
+                            
+                            // Parse capabilities from the first want line
+                            // Format: "want <sha> cap1 cap2 cap3"
+                            if capabilities.is_empty() && parts.len() > 2 {
+                                for cap in &parts[2..] {
+                                    eprintln!("[UPLOAD-PACK] Client capability: {}", cap);
+                                    capabilities.insert(cap.to_string());
+                                }
+                            }
                         }
                         Err(e) => {
                             eprintln!("[UPLOAD-PACK] Invalid want OID {}: {}", oid_str, e);
@@ -186,8 +196,9 @@ impl UploadPackHandler {
             }
         }
 
-        eprintln!("[UPLOAD-PACK] Negotiation complete: {} wants, {} haves", wants.len(), haves.len());
-        Ok((wants, haves))
+        eprintln!("[UPLOAD-PACK] Negotiation complete: {} wants, {} haves, {} capabilities", 
+                  wants.len(), haves.len(), capabilities.len());
+        Ok((wants, haves, capabilities))
     }
 
     async fn send_packfile_impl<W: AsyncWrite + Unpin>(
@@ -195,6 +206,7 @@ impl UploadPackHandler {
         writer: &mut W,
         wants: &[Oid],
         haves: &[Oid],
+        capabilities: &HashSet<String>,
     ) -> Result<()> {
         debug!("Generating packfile for {} wants", wants.len());
 
@@ -270,12 +282,24 @@ impl UploadPackHandler {
 
         debug!("Generated packfile: {} bytes", packfile_data.len());
 
+        // Check if client requested side-band-64k capability
+        let use_sideband = capabilities.contains("side-band-64k");
+        eprintln!("[UPLOAD-PACK] Using side-band: {}", use_sideband);
+
         const CHUNK_SIZE: usize = 65000;
 
-        for chunk in packfile_data.chunks(CHUNK_SIZE) {
-            let mut packet_data = vec![1u8];
-            packet_data.extend_from_slice(chunk);
-            write_data_packet(writer, &packet_data).await?;
+        if use_sideband {
+            // Use side-band protocol with channel marker
+            for chunk in packfile_data.chunks(CHUNK_SIZE) {
+                let mut packet_data = vec![1u8]; // Channel 1 = packfile data
+                packet_data.extend_from_slice(chunk);
+                write_data_packet(writer, &packet_data).await?;
+            }
+        } else {
+            // Send packfile directly without side-band
+            for chunk in packfile_data.chunks(CHUNK_SIZE) {
+                write_data_packet(writer, chunk).await?;
+            }
         }
 
         write_flush_packet(writer).await?;

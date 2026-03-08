@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Arc, Mutex};
 
 use skylet_abi::v2_spec::{
-    CapabilityInfo, HeaderV2, HealthStatus, MaturityLevel, PluginCategory, PluginContextV2,
+    CapabilityInfo, HeaderV2, HealthStatus, MaturityLevel, MonetizationModel, PluginCategory, PluginContextV2,
     PluginInfoV2, PluginResultV2, RequestV2, ResponseV2, ServiceInfo, ServiceRegistryV2,
 };
 use skylet_abi::{PropertySchema, ToolSchema};
@@ -181,6 +181,12 @@ fn init_plugin_info() -> *const PluginInfoV2 {
             supports_async: true,
             supports_streaming: false,
             max_concurrency: 64,
+            // Marketplace and monetization fields
+            monetization_model: MonetizationModel::Free,
+            price_usd: 0.0,
+            purchase_url: ptr::null(),
+            subscription_url: ptr::null(),
+            marketplace_category: ptr::null(),
             tagline: ptr::null(),
             icon_url: ptr::null(),
             maturity_level: MaturityLevel::Stable,

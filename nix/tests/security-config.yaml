@@ -1,0 +1,47 @@
+# Security Configuration
+#
+# repos-mcp Security Configuration
+#
+# Enable security features in `config.yaml`:
+#
+# ## Authentication Configuration
+# Authentication methods supported:
+# - SSH key-based authentication
+    - OAuth2/OIDC authentication (mock)
+    - Session token validation
+#
+# ## Secret Scanning configuration
+# Secret scanner patterns detected:
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - GitHub Personal Access Token
+    - GitLab Personal Access Token
+    - JWT Token
+    - Private Key (RSA, Ed25519, etc.)
+    - Password patterns
+    - API Key patterns
+    - Generic secrets
+#
+# ## Rate Limiting configuration
+  rate_limit:
+    enabled: true
+    requests_per_minute: 60
+    requests_per_hour: 1000
+    burst_size: 10
+    per_ip_limit: 5
+    per_user_limit: 30
+#
+# ## Security hardening configuration
+  command_validation:
+    enabled: true
+    max_command_length: 4096
+  path_validation:
+    enabled: true
+    allow_absolute_paths: false
+#
+# ## Audit logging
+  logs all security-relevant events for analysis
+    - secret detection events
+    - Failed authentication attempts
+    - Access revocation events
+    - Rate limit events

@@ -22,7 +22,7 @@ pub use cluster::{ClusterManager, ClusterStatus, InstanceInfo};
 pub use config::ScalingConfig;
 pub use health::{HealthChecker, LivenessStatus, ReadinessStatus};
 pub use leader::{LeaderElection, LeaderInfo};
-pub use lock::{DistributedLock, LockError, LockResult};
+pub use lock::{DistributedLock, LockError, LockHandle, LockOptions, LockResult};
 pub use session::{SessionAffinity, SessionConfig};
 pub use shutdown::{GracefulShutdown, ShutdownSignal};
 pub use stateless::StatelessHelper;

@@ -1,10 +1,9 @@
-use crate::cache::{CacheKey, CachePool, CacheResult};
-use serde::{de::DeserializeOwned, Serialize};
-use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, instrument};
-
-#[derive(Debug, Clone, Serialize)]
+use serde::{Deserialize, Serialize};
+de::serde::de::DeserializeOwned;
+use crate::cache::{CacheKey, CachePool, CacheResult};
+use std::sync::Arc;
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryMetadata {
     pub id: String,
     pub tenant_id: String,
@@ -19,7 +18,7 @@ pub struct RepositoryMetadata {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchInfo {
     pub name: String,
     pub is_default: bool,
@@ -29,7 +28,7 @@ pub struct BranchInfo {
     pub last_commit_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryListEntry {
     pub name: String,
     pub tenant_id: String,
@@ -53,7 +52,7 @@ impl RepositoryCache {
         &self.pool.config().key_prefix
     }
 
-    #[instrument(skip(self, metadata), fields(tenant_id = %tenant_id, repo_name = %name))]
+    #[instrument(skip(self), fields(tenant_id = %tenant_id, repo_name = %name))]
     pub async fn get_metadata(&self, tenant_id: &str, name: &str) -> CacheResult<Option<RepositoryMetadata>> {
         let key = CacheKey::repository(self.key_prefix(), tenant_id, name).with("metadata");
         self.get_json(&key.to_redis_key()).await

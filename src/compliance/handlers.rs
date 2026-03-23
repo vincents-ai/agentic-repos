@@ -1,16 +1,16 @@
 use actix_web::{web, HttpResponse};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::audit::{ComplianceAuditStorage, InMemoryComplianceAuditStorage};
-use super::privacy::{DataDeletionRequest, PrivacyControls, UserDataExport};
+use super::privacy::PrivacyControls;
 use super::reports::{
-    ComplianceReport, ComplianceReportGenerator, ComplianceReportStorage,
-    InMemoryReportStorage, ReportFormat, ReportType,
+    ComplianceReportGenerator, ComplianceReportStorage,
+    InMemoryReportStorage, ReportType,
 };
-use super::retention::{DataRetentionPolicy, DataRetentionService, RetentionExecution};
-use super::{ComplianceConfig, ComplianceError};
+use super::retention::{DataRetentionPolicy, DataRetentionService};
+use super::ComplianceConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct GenerateReportRequest {

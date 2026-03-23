@@ -128,7 +128,7 @@ impl GracefulShutdown {
         );
 
         let signal = self.signal.clone();
-        let drain_signal = signal.clone();
+        let _drain_signal = signal.clone();
 
         tokio::select! {
             _ = self.drain_connections() => {

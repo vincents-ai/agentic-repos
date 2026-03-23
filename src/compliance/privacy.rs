@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
-use super::audit::{ComplianceAuditEvent, ComplianceAuditStorage, ComplianceEventType, EventOutcome};
+use super::audit::{ComplianceAuditEvent, ComplianceAuditStorage, ComplianceEventType};
 
 #[derive(Debug, Error)]
 pub enum PrivacyError {
@@ -71,7 +71,7 @@ pub struct DataDeletionRequest {
     pub completed_at: Option<DateTime<Utc>>,
     pub categories_deleted: Vec<String>,
     pub records_deleted: u64,
-    pub anonymized_instead: bool,
+    pub anonymize_instead: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -360,7 +360,7 @@ impl<S: ComplianceAuditStorage> GdprDataExporter<S> {
             completed_at: None,
             categories_deleted: Vec::new(),
             records_deleted: 0,
-            anonymized_instead,
+            anonymize_instead,
         };
 
         Ok(request)

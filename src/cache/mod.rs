@@ -9,6 +9,7 @@ pub mod permission;
 pub mod invalidation;
 
 pub use config::CacheConfig;
+use crate::cache::invalidation::CacheInvalidator;
 pub use keys::CacheKey;
 pub use pool::{CachePool, CacheConnection};
 pub use repository::RepositoryCache;
@@ -16,7 +17,7 @@ pub use session::RedisSessionStore;
 pub use api::ApiCache;
 pub use lfs::LfsObjectCache;
 pub use permission::PermissionCache;
-pub use invalidation::{CacheInvalidator, InvalidationPattern};
+pub use keys::hash_params;
 
 use std::sync::Arc;
 use thiserror::Error;

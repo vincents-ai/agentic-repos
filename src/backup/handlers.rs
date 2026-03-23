@@ -1,8 +1,7 @@
 use crate::backup::models::{
-    Backup, BackupConfig, BackupStatus, BackupType, RestoreRequest, RestoreResult,
+    Backup, BackupStatus, BackupType, RestoreRequest, RestoreResult,
 };
 use crate::backup::service::{BackupError, BackupService};
-use crate::backup::storage::BackupStorage;
 use crate::features::FeatureFlags;
 use actix_web::{web, HttpResponse, Result};
 use serde::{Deserialize, Serialize};

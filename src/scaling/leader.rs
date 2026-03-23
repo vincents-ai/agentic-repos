@@ -3,14 +3,13 @@
 //! Provides leader election mechanism to ensure only one instance
 //! in the cluster runs scheduled tasks (GC, cleanup, etc.).
 
-use crate::scaling::cluster::ClusterManager;
 use crate::scaling::config::ScalingConfig;
 use crate::scaling::lock::{DistributedLock, LockError, LockHandle, LockOptions};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeaderInfo {
@@ -154,33 +153,6 @@ impl LeaderElection {
         }
     }
 
-    pub fn start_renewal_task(&self) {
-        let distributed_lock = Arc::clone(&self.distributed_lock);
-        let current_leader = Arc::clone(&self.current_leader);
-        let instance_id = self.config.instance_id.clone();
-        let interval_secs = self.config.leader_election_timeout_secs;
-
-        let handle = tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(Duration::from_secs(interval_secs / 2));
-            loop {
-                interval.tick().await;
-
-                let mut leader = current_leader.write().await;
-                if let Some(ref mut info) = *leader {
-                    if info.instance_id == instance_id {
-                        let new_expires = chrono::Utc::now()
-                            + chrono::Duration::seconds((interval_secs * 3) as i64);
-                        info.expires_at = new_expires;
-                        debug!("Renewed leadership for instance {}", instance_id);
-                    }
-                }
-            }
-        });
-
-        let mut task = self.renew_task.write().await;
-        *task = Some(handle);
-    }
 
     pub async fn stop_renewal_task(&self) {
         let mut task = self.renew_task.write().await;

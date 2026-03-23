@@ -1,13 +1,12 @@
 use crate::cache::{CacheConfig, CacheError, CacheResult};
 use deadpool_redis::redis::AsyncCommands;
-use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
-use std::sync::Arc;
+use deadpool_redis::{Config as DeadpoolConfig, Pool, PoolConfig};
 use std::time::Duration;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 pub type RedisConnection = deadpool_redis::Connection;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CachePool {
     pool: Pool,
     config: CacheConfig,
@@ -17,12 +16,14 @@ impl CachePool {
     pub async fn new(config: CacheConfig) -> CacheResult<Self> {
         let mut cfg = DeadpoolConfig::from_url(&config.url);
         
-        cfg.pool = Some(deadpool::managed::PoolConfig::new(
+        cfg.pool = Some(PoolConfig::new(
             config.max_connections as usize,
         ));
 
         let pool = cfg
-            .create_pool(Some(Runtime::Tokio1), deadpool_redis::Protocol::Resp3)
+            .builder()
+            .map_err(|e| CacheError::Pool(format!("Failed to create pool builder: {}", e)))?
+            .build()
             .map_err(|e| CacheError::Pool(format!("Failed to create pool: {}", e)))?;
 
         let pool_instance = Self { pool, config };
@@ -107,12 +108,12 @@ impl CacheConnection {
     ) -> CacheResult<()> {
         let key = key.as_ref();
         let value = value.as_ref();
-        let ttl_secs = ttl.as_secs() as i64;
+        let ttl_secs = ttl.as_secs();
 
-        self.conn
-            .set_options(key, value, deadpool_redis::redis::SetOptions::default().with_expiration(
-                deadpool_redis::redis::SetExpiry::EX(ttl_secs)
-            ))
+        // Use SETEX for setting with TTL
+        let _: () = self
+            .conn
+            .set_ex(key, value, ttl_secs)
             .await
             .map_err(|e| CacheError::Operation(format!("SET failed: {}", e)))?;
 
@@ -127,12 +128,12 @@ impl CacheConnection {
         ttl: Duration,
     ) -> CacheResult<()> {
         let key = key.as_ref();
-        let ttl_secs = ttl.as_secs() as i64;
+        let ttl_secs = ttl.as_secs();
 
-        self.conn
-            .set_options(key, value, deadpool_redis::redis::SetOptions::default().with_expiration(
-                deadpool_redis::redis::SetExpiry::EX(ttl_secs)
-            ))
+        // Use SETEX for setting with TTL
+        let _: () = self
+            .conn
+            .set_ex(key, value, ttl_secs)
             .await
             .map_err(|e| CacheError::Operation(format!("SET failed: {}", e)))?;
 
@@ -160,14 +161,14 @@ impl CacheConnection {
             return Ok(0);
         }
 
-        let count: u64 = self
+        let count: i32 = self
             .conn
             .del(&keys)
             .await
             .map_err(|e| CacheError::Operation(format!("DEL failed: {}", e)))?;
         
         debug!(pattern = pattern, count = count, "Cache delete by pattern");
-        Ok(count)
+        Ok(count as u64)
     }
 
     pub async fn exists<K: AsRef<str>>(&mut self, key: K) -> CacheResult<bool> {
@@ -178,7 +179,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("EXISTS failed: {}", e)))?;
         Ok(result == 1)
     }
-
     pub async fn ttl<K: AsRef<str>>(&mut self, key: K) -> CacheResult<i64> {
         let result: i64 = self
             .conn
@@ -187,7 +187,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("TTL failed: {}", e)))?;
         Ok(result)
     }
-
     pub async fn expire<K: AsRef<str>>(&mut self, key: K, ttl: Duration) -> CacheResult<bool> {
         let result: i32 = self
             .conn
@@ -196,25 +195,23 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("EXPIRE failed: {}", e)))?;
         Ok(result == 1)
     }
-
     pub async fn incr<K: AsRef<str>>(&mut self, key: K) -> CacheResult<i64> {
         let result: i64 = self
             .conn
-            .incr(key.as_ref())
+            .incr(key.as_ref(), 1)
             .await
             .map_err(|e| CacheError::Operation(format!("INCR failed: {}", e)))?;
         Ok(result)
     }
-
     pub async fn incr_by<K: AsRef<str>>(&mut self, key: K, amount: i64) -> CacheResult<i64> {
+        // Use INCR command with amount
         let result: i64 = self
             .conn
-            .incr_by(key.as_ref(), amount)
+            .incr(key.as_ref(), amount)
             .await
             .map_err(|e| CacheError::Operation(format!("INCRBY failed: {}", e)))?;
         Ok(result)
     }
-
     pub async fn sadd<K: AsRef<str>, V: AsRef<str>>(&mut self, key: K, member: V) -> CacheResult<bool> {
         let result: i32 = self
             .conn
@@ -223,7 +220,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("SADD failed: {}", e)))?;
         Ok(result > 0)
     }
-
     pub async fn sismember<K: AsRef<str>, V: AsRef<str>>(&mut self, key: K, member: V) -> CacheResult<bool> {
         let result: bool = self
             .conn
@@ -232,7 +228,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("SISMEMBER failed: {}", e)))?;
         Ok(result)
     }
-
     pub async fn srem<K: AsRef<str>, V: AsRef<str>>(&mut self, key: K, member: V) -> CacheResult<bool> {
         let result: i32 = self
             .conn
@@ -241,7 +236,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("SREM failed: {}", e)))?;
         Ok(result > 0)
     }
-
     pub async fn smembers<K: AsRef<str>>(&mut self, key: K) -> CacheResult<Vec<String>> {
         let result: Vec<String> = self
             .conn
@@ -250,7 +244,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("SMEMBERS failed: {}", e)))?;
         Ok(result)
     }
-
     pub async fn hset<K: AsRef<str>, F: AsRef<str>, V: AsRef<str>>(
         &mut self,
         key: K,
@@ -264,7 +257,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("HSET failed: {}", e)))?;
         Ok(result > 0)
     }
-
     pub async fn hget<K: AsRef<str>, F: AsRef<str>>(
         &mut self,
         key: K,
@@ -277,7 +269,14 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("HGET failed: {}", e)))?;
         Ok(result)
     }
-
+    pub async fn keys<K: AsRef<str>>(&mut self, pattern: K) -> CacheResult<Vec<String>> {
+        let result: Vec<String> = self
+            .conn
+            .keys(pattern.as_ref())
+            .await
+            .map_err(|e| CacheError::Operation(format!("KEYS failed: {}", e)))?;
+        Ok(result)
+    }
     pub async fn hdel<K: AsRef<str>, F: AsRef<str>>(&mut self, key: K, field: F) -> CacheResult<bool> {
         let result: i32 = self
             .conn
@@ -286,7 +285,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("HDEL failed: {}", e)))?;
         Ok(result > 0)
     }
-
     pub async fn hgetall<K: AsRef<str>>(&mut self, key: K) -> CacheResult<std::collections::HashMap<String, String>> {
         let result: std::collections::HashMap<String, String> = self
             .conn
@@ -295,7 +293,6 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("HGETALL failed: {}", e)))?;
         Ok(result)
     }
-
     async fn redis_cmd<T: deadpool_redis::redis::FromRedisValue>(&mut self, cmd: &str) -> CacheResult<T> {
         let result = deadpool_redis::redis::cmd(cmd)
             .query_async(&mut self.conn)
@@ -304,36 +301,29 @@ impl CacheConnection {
         Ok(result)
     }
 }
-
 pub struct CachePoolBuilder {
     config: CacheConfig,
 }
-
 impl CachePoolBuilder {
     pub fn new(config: CacheConfig) -> Self {
         Self { config }
     }
-
     pub fn url(mut self, url: String) -> Self {
         self.config.url = url;
         self
     }
-
     pub fn prefix(mut self, prefix: String) -> Self {
         self.config.key_prefix = prefix;
         self
     }
-
     pub fn max_connections(mut self, max: u32) -> Self {
         self.config.max_connections = max;
         self
     }
-
     pub fn default_ttl(mut self, ttl: Duration) -> Self {
         self.config.default_ttl_secs = ttl.as_secs();
         self
     }
-
     pub async fn build(self) -> CacheResult<CachePool> {
         CachePool::new(self.config).await
     }

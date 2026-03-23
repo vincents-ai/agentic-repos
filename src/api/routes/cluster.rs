@@ -1,6 +1,5 @@
 //! Cluster API routes for horizontal scaling
 
-use crate::api::models::ApiError;
 use crate::scaling::{
     ClusterManager, HealthChecker, LeaderElection, ScalingConfig,
 };

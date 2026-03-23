@@ -183,28 +183,31 @@ impl BackupStorage for InMemoryBackupStorage {
         Ok(backups.contains_key(id))
     }
 
- async fn store_backup_data(
+    async fn store_backup_data(
         &self,
         backup_id: &Uuid,
         data: &[u8],
         path: &str,
     ) -> Result<String, BackupStorageError> {
-        let backup = self
-            .backups
-            .read()
-            .map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?
-            .ok_or_else(|| BackupStorageError::NotFound(backup_id.to_string()))        
-        let full_path = self.get_backup_path(backup);
-        let parent = full_path.parent().ok_or_else(|| {
-            return Err(BackupStorageError::OperationFailed("Invalid backup path".to_string())
-        })?;
+        // Verify backup exists
+        {
+            let backups = self
+                .backups
+                .read()
+                .map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
+            
+            if !backups.contains_key(backup_id) {
+                return Err(BackupStorageError::NotFound(backup_id.to_string()));
+            }
+        }
         
-        drop(backup backup);
+        // Store data in memory
+        let mut backup_data = self
+            .backup_data
+            .write()
+            .map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
         
-        fs::create_dir_all(parent).await?;
-        let mut file = fs::File::create(&full_path).await?;
-        file.write_all(data).await?;
-        file.sync_all().await?;
+        backup_data.insert(path.to_string(), data.to_vec());
         
         Ok(path.to_string())
     }
@@ -379,8 +382,7 @@ impl BackupStorage for LocalBackupStorage {
     }
 
     async fn delete(&self, id: &Uuid) -> Result<(), BackupStorageError> {
-        let backup_to_delete: Option<(String, String)>;
-        let path_to_delete: Option<String>;
+        let mut backup_to_delete: Option<(String, Option<String>)> = None;
         
         {
             let backups = self.backups.read().map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
@@ -390,24 +392,24 @@ impl BackupStorage for LocalBackupStorage {
         }
         
         if let Some((tenant_id, storage_path)) = backup_to_delete {
-            let mut backups = self.backups.write().map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
-            let mut by_tenant = self.backups_by_tenant.write().map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
-            
-            backups.remove(id);
-            
-            if let Some(ids) = by_tenant.get_mut(&tenant_id) {
-                ids.retain(|i| i != id);
-                if ids.is_empty() {
-                    by_tenant.remove(&tenant_id);
+            {
+                let mut backups = self.backups.write().map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
+                let mut by_tenant = self.backups_by_tenant.write().map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
+                
+                backups.remove(id);
+                
+                if let Some(ids) = by_tenant.get_mut(&tenant_id) {
+                    ids.retain(|i| i != id);
+                    if ids.is_empty() {
+                        by_tenant.remove(&tenant_id);
+                    }
                 }
             }
-        }
-        
-        if let Some(path) = storage_path {
-            let full_path = self.base_path.join(path);
-            drop(backups);
-            drop(by_tenant);
-            let _ = fs::remove_file(full_path).await;
+            
+            if let Some(path) = storage_path {
+                let full_path = self.base_path.join(path);
+                let _ = fs::remove_file(full_path).await;
+            }
         }
 
         Ok(())
@@ -427,16 +429,19 @@ impl BackupStorage for LocalBackupStorage {
         data: &[u8],
         path: &str,
     ) -> Result<String, BackupStorageError> {
-        let backups = self
-            .backups
-            .read()
-            .map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
+        let full_path = {
+            let backups = self
+                .backups
+                .read()
+                .map_err(|e| BackupStorageError::OperationFailed(e.to_string()))?;
+            
+            let backup = backups
+                .get(backup_id)
+                .ok_or_else(|| BackupStorageError::NotFound(backup_id.to_string()))?;
+            
+            self.get_backup_path(backup)
+        };
         
-        let backup = backups
-            .get(backup_id)
-            .ok_or_else(|| BackupStorageError::NotFound(backup_id.to_string()))?;
-        
-        let full_path = self.get_backup_path(backup);
         let parent = full_path.parent().ok_or_else(|| {
             BackupStorageError::OperationFailed("Invalid backup path".to_string())
         })?;

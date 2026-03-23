@@ -183,7 +183,7 @@ impl BackupScheduler {
                                     job.last_run = Some(chrono::Utc::now());
                                     
                                     if let Ok(next) = BackupScheduler::calculate_next_run_static(&job.cron_expression) {
-                                        job.next_run = Some(next);
+                                        job.next_run = next;
                                     }
 
                                     let mut jobs_guard = jobs.write().await;

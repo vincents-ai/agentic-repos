@@ -189,9 +189,9 @@ impl<S: SessionStore> SessionManager<S> {
 
 impl InMemorySessionStore {
     pub fn session_count(&self) -> usize {
-        futures::executor::block_on(async {
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async {
             let sessions = self.sessions.read().await;
             sessions.len()
-        })
-    }
+        }))
+}
 }

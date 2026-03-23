@@ -3,7 +3,7 @@
 //! Provides sticky session support for WebSocket connections
 //! and stateful operations that need to route to the same instance.
 
-use crate::scaling::config::{ScalingConfig, SessionAffinityConfig};
+use crate::scaling::config::SessionAffinityConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

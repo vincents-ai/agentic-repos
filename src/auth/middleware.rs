@@ -3,7 +3,7 @@ use actix_web::{
     error::ErrorUnauthorized,
     Error, HttpMessage,
 };
-use futures::future::LocalBoxFuture;
+use futures_util::future::LocalBoxFuture;
 use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Arc;

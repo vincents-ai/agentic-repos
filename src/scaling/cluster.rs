@@ -218,10 +218,10 @@ impl ClusterManager {
     }
 
     pub async fn update_local_metrics(&mut self, metrics: InstanceMetrics) {
-        self.local_instance.metrics = metrics;
+        self.local_instance.metrics = metrics.clone();
         let mut instances = self.instances.write().await;
         if let Some(instance) = instances.get_mut(&self.config.instance_id) {
-            instance.metrics = metrics.clone();
+            instance.metrics = metrics;
         }
     }
 

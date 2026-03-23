@@ -1,12 +1,27 @@
-use crate::error::AuthError;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum AuthError {
+    #[error("HTTP client error: {0}")]
+    HttpClient(String),
+    #[error("Token exchange failed: {0}")]
+    TokenExchange(String),
+    #[error("Token refresh failed: {0}")]
+    TokenRefresh(String),
+    #[error("User info failed: {0}")]
+    UserInfo(String),
+    #[error("Configuration error: {0}")]
+    Configuration(String),
+}
+
 use chrono::{DateTime, Utc};
 use oauth2::{
     basic::BasicClient, reqwest::async_http_client, AuthorizationCode, AuthUrl, ClientId,
     ClientSecret, CsrfToken, RedirectUrl, RefreshToken, Scope, StandardTokenResponse, TokenUrl,
     basic::BasicTokenType, TokenResponse,
 };
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use reqwest::Client;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

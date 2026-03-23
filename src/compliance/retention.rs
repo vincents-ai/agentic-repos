@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use super::audit::ComplianceAuditStorage;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Serialize, Deserialize)]
 pub enum RetentionError {
     #[error("Retention policy error: {0}")]
     Policy(String),
@@ -182,20 +182,27 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
         policy_id: &str,
         dry_run: bool,
     ) -> RetentionResult<RetentionExecution> {
-        let policies = self.policies.read().await;
-        let policy = policies
-            .iter()
-            .find(|p| p.policy_id == policy_id)
-            .ok_or_else(|| {
-                RetentionError::Policy(format!("Policy {} not found", policy_id))
-            })?;
+        // Get policy info and clone what we need before releasing the lock
+        let retention_period_days = {
+            let policies = self.policies.read().await;
+            let policy = policies
+                .iter()
+                .find(|p| p.policy_id == policy_id)
+                .ok_or_else(|| {
+                    RetentionError::Policy(format!("Policy {} not found", policy_id))
+                })?;
 
-        if !policy.enabled {
-            return Err(RetentionError::Enforcement(format!(
-                "Policy {} is disabled",
-                policy_id
-            )));
-        }
+            if !policy.enabled {
+                return Err(RetentionError::Enforcement(format!(
+                    "Policy {} is disabled",
+                    policy_id
+                )));
+            }
+
+            // Clone the value we need
+            policy.retention_period_days
+        };
+        // policies lock is now released
 
         let execution_id = uuid::Uuid::new_v4().to_string();
         let execution = RetentionExecution {
@@ -211,10 +218,9 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
             details: HashMap::new(),
         };
 
-        drop(policies);
         self.executions.write().await.push(execution.clone());
 
-        let cutoff = Utc::now() - chrono::Duration::days(policy.retention_period_days as i64);
+        let cutoff = Utc::now() - chrono::Duration::days(retention_period_days as i64);
 
         let deleted_count = if dry_run {
             self.audit_storage

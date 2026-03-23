@@ -806,7 +806,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
             .await
             .map_err(|e| ReportError::Generation(e.to_string()))?;
 
-        let data_export_events = self
+        let _data_export_events = self
             .audit_storage
             .query(
                 Some(tenant_id),
@@ -821,7 +821,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
             .await
             .map_err(|e| ReportError::Generation(e.to_string()))?;
 
-        let data_deletion_events = self
+        let _data_deletion_events = self
             .audit_storage
             .query(
                 Some(tenant_id),

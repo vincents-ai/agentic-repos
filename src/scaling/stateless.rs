@@ -109,7 +109,9 @@ impl DistributedCounter {
 }
 
 pub struct DistributedSet<T: Clone + Send + Sync + 'static> {
+    #[allow(dead_code)]
     name: String,
+    #[allow(dead_code)]
     shared: bool,
     local: Arc<RwLock<Vec<T>>>,
 }
@@ -175,7 +177,9 @@ where
     K: std::hash::Hash + Eq + Clone + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
 {
+    #[allow(dead_code)]
     name: String,
+    #[allow(dead_code)]
     shared: bool,
     local: Arc<RwLock<HashMap<K, V>>>,
 }

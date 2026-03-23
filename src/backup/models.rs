@@ -65,6 +65,23 @@ impl std::fmt::Display for BackupStatus {
     }
 }
 
+impl std::str::FromStr for BackupStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pending" => Ok(BackupStatus::Pending),
+            "in_progress" => Ok(BackupStatus::InProgress),
+            "completed" => Ok(BackupStatus::Completed),
+            "failed" => Ok(BackupStatus::Failed),
+            "cancelled" => Ok(BackupStatus::Cancelled),
+            "verifying" => Ok(BackupStatus::Verifying),
+            "verified" => Ok(BackupStatus::Verified),
+            other => Err(format!("Unknown backup status: {}", other)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Backup {
     pub id: Uuid,

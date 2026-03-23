@@ -52,7 +52,8 @@ impl RedisSessionStore {
     async fn remove_from_user_sessions(&self, user_id: &str, session_id: &Uuid) -> CacheResult<()> {
         let key = self.user_sessions_key(user_id);
         let mut conn = self.pool.get_connection().await?;
-        conn.srem(&key, &session_id.to_string()).await
+        conn.srem(&key, &session_id.to_string()).await?;
+        Ok(())
     }
 }
 
@@ -259,11 +260,11 @@ impl RedisSessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::oauth::OAuthUser;
+    use crate::auth::oauth::{OAuthUser, OAuthProvider};
 
-    fn test_user() -> OAuthUser {
+    fn _test_user() -> OAuthUser {
         OAuthUser {
-            provider: "test".to_string(),
+            provider: OAuthProvider::GitHub,
             provider_user_id: "user-123".to_string(),
             email: Some("test@example.com".to_string()),
             name: Some("Test User".to_string()),
@@ -272,14 +273,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_session_key_format() {
+    #[tokio::test]
+    async fn test_session_key_format() {
         let config = crate::cache::CacheConfig::default();
-        // Note: This test would require a running Redis instance to work properly
-        // The key format logic is straightforward enough to not need extensive testing
-        let _store = RedisSessionStore::new(Arc::new(
-            crate::cache::CachePool::new(config)
-        ));
-        // Just verify construction works
+        let pool = match crate::cache::CachePool::new(config).await {
+            Ok(p) => p,
+            Err(_) => {
+                return;
+            }
+        };
+        let _store = RedisSessionStore::new(Arc::new(pool));
     }
 }

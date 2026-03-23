@@ -6,7 +6,7 @@ use crate::git::{
     GitConfig, GitService,
 };
 use crate::storage::local::LocalStorage;
-use russh_keys::{Algorithm, PrivateKey};
+use russh::keys::{Algorithm, PrivateKey};
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::fs;
@@ -67,16 +67,16 @@ mod integration_tests {
         auth_manager.load_authorized_keys().await.unwrap();
 
         // Test 1: Valid key should be authorized
-        assert!(auth_manager.is_key_authorized("testuser", &valid_public_key));
+        assert!(auth_manager.is_key_authorized("testuser", valid_public_key));
 
         // Test 2: Invalid key should be rejected
-        assert!(!auth_manager.is_key_authorized("testuser", &invalid_public_key));
+        assert!(!auth_manager.is_key_authorized("testuser", invalid_public_key));
 
         // Test 3: Valid key with wrong user should be rejected
-        assert!(!auth_manager.is_key_authorized("wronguser", &valid_public_key));
+        assert!(!auth_manager.is_key_authorized("wronguser", valid_public_key));
 
         // Test 4: Empty username should be rejected
-        assert!(!auth_manager.is_key_authorized("", &valid_public_key));
+        assert!(!auth_manager.is_key_authorized("", valid_public_key));
     }
 
     #[tokio::test]
@@ -289,7 +289,7 @@ mod integration_tests {
 
         // Should fail when no authorized keys file exists
         assert!(!auth_manager.has_authorized_users());
-        assert!(!auth_manager.is_key_authorized("user", &unauthorized_public));
+        assert!(!auth_manager.is_key_authorized("user", unauthorized_public));
 
         // 2. Test malformed authorized keys handling
         let malformed_content = "invalid line\nno-colon-line\ntoo:many:colons:here\n";

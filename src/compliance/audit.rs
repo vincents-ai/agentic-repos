@@ -76,7 +76,7 @@ pub struct ResourceInfo {
     pub parent_resource: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EventOutcome {
     Success,

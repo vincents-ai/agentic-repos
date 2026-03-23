@@ -1032,14 +1032,14 @@ mod tests {
             lfs_config: server.lfs_config.clone(),
         };
 
-        use russh_keys::{Algorithm, PrivateKey};
+        use russh::keys::PrivateKey;
         let private_key = PrivateKey::random(&mut rand_core::OsRng, Algorithm::Ed25519).unwrap();
         let public_key = private_key.public_key();
 
-        let _result1 = handler.auth_publickey("testuser", &public_key).await;
+        let _result1 = handler.auth_publickey("testuser", public_key).await;
 
         for _ in 0..5 {
-            let _result = handler.auth_publickey("testuser", &public_key).await;
+            let _result = handler.auth_publickey("testuser", public_key).await;
         }
 
         assert!(true);

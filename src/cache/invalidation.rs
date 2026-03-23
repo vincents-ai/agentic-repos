@@ -251,8 +251,8 @@ impl Default for InvalidationBuilder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_invalidation_pattern_tenant() {
+    #[tokio::test]
+    async fn test_invalidation_pattern_tenant() {
         let pattern = InvalidationPattern::Tenant("tenant-1".to_string());
         let pool = Arc::new(CachePool::new(crate::cache::CacheConfig::default()).await.unwrap());
         let invalidator = CacheInvalidator::new(pool);

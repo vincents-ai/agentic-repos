@@ -213,7 +213,7 @@ mod tests {
         let config = SessionAffinityConfig::default();
         let affinity = SessionAffinity::new(config, "instance-1".to_string());
 
-        let session = affinity.create_session(Some("test-session".to_string())).await;
+        let _session = affinity.create_session(Some("test-session".to_string())).await;
 
         let validated = affinity.validate_session("test-session").await;
         assert!(validated.is_some());
@@ -225,7 +225,7 @@ mod tests {
         let affinity1 = SessionAffinity::new(config.clone(), "instance-1".to_string());
         let affinity2 = SessionAffinity::new(config, "instance-2".to_string());
 
-        let session = affinity1.create_session(Some("test-session".to_string())).await;
+        let _session = affinity1.create_session(Some("test-session".to_string())).await;
 
         let validated = affinity2.validate_session("test-session").await;
         assert!(validated.is_none());

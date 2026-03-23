@@ -268,6 +268,7 @@ impl BackupStorage for InMemoryBackupStorage {
 
 pub struct LocalBackupStorage {
     base_path: PathBuf,
+    #[allow(dead_code)]
     config: BackupConfig,
     backups: RwLock<HashMap<Uuid, Backup>>,
     backups_by_tenant: RwLock<HashMap<String, Vec<Uuid>>>,
@@ -499,6 +500,7 @@ impl BackupStorage for LocalBackupStorage {
 }
 
 pub struct S3BackupStorage {
+    #[allow(dead_code)]
     config: BackupConfig,
     s3_config: crate::backup::models::S3BackupConfig,
     backups: RwLock<HashMap<Uuid, Backup>>,

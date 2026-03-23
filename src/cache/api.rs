@@ -62,7 +62,7 @@ impl ApiCache {
         conn.delete_pattern(&pattern).await
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, compute))]
     pub async fn get_or_compute<T, F, Fut>(
         &self,
         endpoint: &str,
@@ -71,7 +71,7 @@ impl ApiCache {
     ) -> crate::cache::CacheResult<T>
     where
         T: Serialize + DeserializeOwned,
-        F: FnOnce() -> Fut,
+        F: FnOnce() -> Fut + std::fmt::Debug,
         Fut: std::future::Future<Output = crate::cache::CacheResult<T>>,
     {
         if let Some(cached) = self.get_response(endpoint, params).await? {

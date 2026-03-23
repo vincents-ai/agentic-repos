@@ -12,5 +12,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(web::scope("/repositories").configure(repositories::configure_repository_routes))
         .service(web::scope("/users").configure(users::configure_user_routes))
         .service(web::scope("/auth").configure(auth::configure_auth_routes))
+        .service(web::scope("/backups").configure(crate::backup::handlers::configure_backup_routes))
+        .service(web::scope("/webhooks").configure(crate::webhooks::handlers::configure_webhook_routes))
         .default_service(web::route().to(handlers::not_found));
 }

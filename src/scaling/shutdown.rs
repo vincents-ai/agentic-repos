@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(signal.current_phase().await, ShutdownPhase::Draining);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_graceful_shutdown_creation() {
         let shutdown = GracefulShutdown::new(30);
         assert!(!shutdown.is_shutting_down());

@@ -612,7 +612,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
             .filter(|e| e.outcome == EventOutcome::Failure)
             .count() as u64;
 
-        let access_events = self
+        let _access_events = self
             .audit_storage
             .query(
                 Some(tenant_id),
@@ -957,7 +957,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
             .await
             .map_err(|e| ReportError::Generation(e.to_string()))?;
 
-        let mut user_access_reviews = Vec::new();
+        let user_access_reviews = Vec::new();
         let mut role_assignments = Vec::new();
         let mut permission_changes = Vec::new();
 
@@ -1176,7 +1176,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
 
     pub async fn generate_data_retention_report(
         &self,
-        tenant_id: &str,
+        _tenant_id: &str,
         period_start: DateTime<Utc>,
         period_end: DateTime<Utc>,
     ) -> Result<DataRetentionReport, ReportError> {

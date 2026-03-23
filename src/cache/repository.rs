@@ -1,6 +1,7 @@
+use std::time::Duration;
 use tracing::{debug, instrument};
 use serde::{Deserialize, Serialize};
-de::serde::de::DeserializeOwned;
+use serde::de::DeserializeOwned;
 use crate::cache::{CacheKey, CachePool, CacheResult};
 use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,7 +135,7 @@ impl RepositoryCache {
         }
     }
 
-    async fn set_json<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> CacheResult<()> {
+    async fn set_json<T: Serialize + ?Sized>(&self, key: &str, value: &T, ttl: Duration) -> CacheResult<()> {
         let json = serde_json::to_string(value)?;
         let mut conn = self.pool.get_connection().await?;
         conn.set(key, &json, ttl).await

@@ -1,10 +1,9 @@
-use russh::server::Handle;
-use russh::{ChannelId, CryptoVec};
-use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::future::Future;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use russh::{ChannelId, server::Handle};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, Mutex};
 
@@ -52,7 +51,7 @@ impl AsyncWrite for SshChannelWriter {
         } else {
             let channel = self.channel;
             let session_handle = self.session_handle.clone();
-            let data: CryptoVec = buf.to_vec().into();
+            let data = bytes::Bytes::copy_from_slice(buf);
             let len = buf.len();
             let waker = cx.waker().clone();
 

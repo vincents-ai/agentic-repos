@@ -1,5 +1,5 @@
 use crate::git::GitConfig;
-use russh_keys::ssh_key::PublicKey;
+use russh::keys::ssh_key::PublicKey;
 use std::collections::HashMap;
 use std::fs;
 use tracing::{debug, error, warn};

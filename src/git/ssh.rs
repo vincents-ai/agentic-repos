@@ -8,8 +8,8 @@ use crate::git::{
 use rand_core::OsRng;
 use russh::server::{Msg, Server as _, Session};
 use russh::*;
-use russh_keys::ssh_key::{LineEnding, PublicKey};
-use russh_keys::{Algorithm, PrivateKey};
+use russh::keys::ssh_key::{LineEnding, PublicKey};
+use russh::keys::{Algorithm, PrivateKey};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -163,6 +163,14 @@ impl SshServer {
             auth_rejection_time: std::time::Duration::from_secs(3),
             auth_rejection_time_initial: Some(std::time::Duration::from_secs(0)),
             keys,
+            preferred: russh::Preferred {
+                kex: std::borrow::Cow::Borrowed(&[
+                    russh::kex::MLKEM768X25519_SHA256,
+                    russh::kex::CURVE25519,
+                    russh::kex::CURVE25519_PRE_RFC_8731,
+                ]),
+                ..Default::default()
+            },
             ..Default::default()
         });
 
@@ -317,7 +325,6 @@ struct SshHandler {
     lfs_config: crate::config::LfsConfig,
 }
 
-#[async_trait::async_trait]
 impl russh::server::Handler for SshHandler {
     type Error = russh::Error;
 
@@ -334,9 +341,10 @@ impl russh::server::Handler for SshHandler {
                 "Rejecting auth for user {} from {}: connection rejected due to limits",
                 user, self.peer_ip
             );
-            return Ok(russh::server::Auth::Reject {
-                proceed_with_methods: None,
-            });
+                    return Ok(russh::server::Auth::Reject {
+                        proceed_with_methods: None,
+                        partial_success: false,
+                    });
         }
 
         // Check rate limits for authentication attempts
@@ -362,6 +370,7 @@ impl russh::server::Handler for SshHandler {
                     );
                     return Ok(russh::server::Auth::Reject {
                         proceed_with_methods: None,
+                        partial_success: false,
                     });
                 }
                 _ => {
@@ -372,7 +381,7 @@ impl russh::server::Handler for SshHandler {
 
         let auth_manager = self.auth_manager.lock().await;
         let key_fingerprint = public_key
-            .fingerprint(russh_keys::ssh_key::HashAlg::Sha256)
+            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256)
             .to_string();
         
         if auth_manager.is_key_authorized(user, public_key) {
@@ -396,6 +405,7 @@ impl russh::server::Handler for SshHandler {
             }
             Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
+                partial_success: false,
             })
         }
     }
@@ -427,7 +437,7 @@ impl russh::server::Handler for SshHandler {
         if command_str.len() > 4096 {
             warn!("SSH command too long: {} bytes from {}", command_str.len(), self.peer_ip);
             let error_msg = "ERROR: Command too long\n";
-            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
             let _ = session.exit_status_request(channel, 1);
             session.close(channel)?;
             return Ok(());
@@ -439,7 +449,7 @@ impl russh::server::Handler for SshHandler {
            !command_str.contains('\t') {
             warn!("SSH command contains suspicious control characters from {}", self.peer_ip);
             let error_msg = "ERROR: Invalid characters in command\n";
-            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
             let _ = session.exit_status_request(channel, 1);
             session.close(channel)?;
             return Ok(());
@@ -470,7 +480,7 @@ impl russh::server::Handler for SshHandler {
                         "ERROR: Rate limit exceeded. Try again in {}s.\n",
                         retry_after
                     );
-                    session.data(channel, error_msg.into_bytes().into())?;
+                    session.data(channel, bytes::Bytes::from(error_msg.into_bytes()))?;
                     let _ = session.exit_status_request(channel, 1);
                     session.close(channel)?;
                     return Ok(());
@@ -492,7 +502,7 @@ impl russh::server::Handler for SshHandler {
                                 Some((t, r)) => (t, r),
                                 None => {
                                     let error_msg = "Error: Invalid repository path format\n";
-                                    session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                    session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                                     session.exit_status_request(channel, 1)?;
                                     session.eof(channel)?;
                                     return Ok(());
@@ -508,28 +518,65 @@ impl russh::server::Handler for SshHandler {
                         if !full_path.exists() {
                             let error_msg =
                                 format!("Error: Repository '{}' not found\n", repository);
-                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 128)?;
                             session.eof(channel)?;
                             return Ok(());
                         }
 
-                        match self.run_git_upload_pack(channel, session, &full_path).await {
-                            Ok(()) => {
-                                info!(
-                                    "git-upload-pack completed for {} from {}",
-                                    repository, self.peer_ip
-                                );
+                        session.channel_success(channel)?;
+                        eprintln!("[SSH] Channel success sent, spawning upload-pack handler");
+                        
+                        // Spawn git protocol handler in separate task so russh can process incoming data
+                        let handle = session.handle();
+                        let channel_senders = self.channel_senders.clone();
+                        let repo_path = full_path.clone();
+                        let repository_name = repository.clone();
+                        let peer_ip = self.peer_ip.clone();
+                        
+                        tokio::spawn(async move {
+                            eprintln!("[SSH-SPAWN] Upload-pack task started for channel {}", channel);
+                            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                            {
+                                let mut senders = channel_senders.lock().await;
+                                senders.insert(channel, tx);
+                                eprintln!("[SSH-SPAWN] Registered sender for channel {}, {} channels total", channel, senders.len());
                             }
-                            Err(e) => {
-                                error!("git-upload-pack failed for {}: {}", repository, e);
-                                let error_msg = format!("Error: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
-                                session.exit_status_request(channel, 1)?;
-                                session.eof(channel)?;
-                                return Ok(());
+                            
+                            let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
+                            let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, handle.clone());
+                            let handler = crate::git::protocol::GitProtocolHandler::new();
+                            
+                            eprintln!("[SSH-SPAWN] Starting upload-pack handler");
+                            let result: crate::git::error::Result<()> = handler.handle_upload_pack(reader, writer, &repo_path).await;
+                            eprintln!("[SSH-SPAWN] Upload-pack handler completed: {:?}", result.is_ok());
+                            
+                            {
+                                let mut senders = channel_senders.lock().await;
+                                senders.remove(&channel);
+                                eprintln!("[SSH-SPAWN] Removed sender for channel {}", channel);
                             }
-                        }
+                            
+                            match result {
+                                Ok(()) => {
+                                    info!("git-upload-pack completed for {} from {}", repository_name, peer_ip);
+                                    eprintln!("[SSH-SPAWN] Upload-pack success, sending exit status");
+                                    let _ = handle.exit_status_request(channel, 0);
+                                    let _ = handle.eof(channel);
+                                    let _ = handle.close(channel);
+                                }
+                                Err(e) => {
+                                    error!("git-upload-pack failed for {}: {}", repository_name, e);
+                                    eprintln!("[SSH-SPAWN] Upload-pack failed: {}", e);
+                                    let _ = handle.exit_status_request(channel, 1);
+                                    let _ = handle.eof(channel);
+                                    let _ = handle.close(channel);
+                                }
+                            }
+                        });
+                        
+                        eprintln!("[SSH] Spawned upload-pack task, returning from exec_request");
+                        return Ok(());
                     }
                     crate::git::command::GitCommand::ReceivePack { repository } => {
                         let (tenant, repo_name) =
@@ -537,7 +584,7 @@ impl russh::server::Handler for SshHandler {
                                 Some((t, r)) => (t, r),
                                 None => {
                                     let error_msg = "Error: Invalid repository path format\n";
-                                    session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                    session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                                     session.exit_status_request(channel, 1)?;
                                     session.eof(channel)?;
                                     return Ok(());
@@ -553,31 +600,65 @@ impl russh::server::Handler for SshHandler {
                         if !full_path.exists() {
                             let error_msg =
                                 format!("Error: Repository '{}' not found\n", repository);
-                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 128)?;
                             session.eof(channel)?;
                             return Ok(());
                         }
 
-                        match self
-                            .run_git_receive_pack(channel, session, &full_path)
-                            .await
-                        {
-                            Ok(()) => {
-                                info!(
-                                    "git-receive-pack completed for {} from {}",
-                                    repository, self.peer_ip
-                                );
+                        session.channel_success(channel)?;
+                        eprintln!("[SSH] Channel success sent, spawning receive-pack handler");
+                        
+                        // Spawn git protocol handler in separate task so russh can process incoming data
+                        let handle = session.handle();
+                        let channel_senders = self.channel_senders.clone();
+                        let repo_path = full_path.clone();
+                        let repository_name = repository.clone();
+                        let peer_ip = self.peer_ip.clone();
+                        
+                        tokio::spawn(async move {
+                            eprintln!("[SSH-SPAWN] Receive-pack task started for channel {}", channel);
+                            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                            {
+                                let mut senders = channel_senders.lock().await;
+                                senders.insert(channel, tx);
+                                eprintln!("[SSH-SPAWN] Registered sender for channel {}, {} channels total", channel, senders.len());
                             }
-                            Err(e) => {
-                                error!("git-receive-pack failed for {}: {}", repository, e);
-                                let error_msg = format!("Error: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
-                                session.exit_status_request(channel, 1)?;
-                                session.eof(channel)?;
-                                return Ok(());
+                            
+                            let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
+                            let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, handle.clone());
+                            let handler = crate::git::protocol::GitProtocolHandler::new();
+                            
+                            eprintln!("[SSH-SPAWN] Starting receive-pack handler");
+                            let result: crate::git::error::Result<()> = handler.handle_receive_pack(reader, writer, &repo_path).await;
+                            eprintln!("[SSH-SPAWN] Receive-pack handler completed: {:?}", result.is_ok());
+                            
+                            {
+                                let mut senders = channel_senders.lock().await;
+                                senders.remove(&channel);
+                                eprintln!("[SSH-SPAWN] Removed sender for channel {}", channel);
                             }
-                        }
+                            
+                            match result {
+                                Ok(()) => {
+                                    info!("git-receive-pack completed for {} from {}", repository_name, peer_ip);
+                                    eprintln!("[SSH-SPAWN] Receive-pack success, sending exit status");
+                                    let _ = handle.exit_status_request(channel, 0);
+                                    let _ = handle.eof(channel);
+                                    let _ = handle.close(channel);
+                                }
+                                Err(e) => {
+                                    error!("git-receive-pack failed for {}: {}", repository_name, e);
+                                    eprintln!("[SSH-SPAWN] Receive-pack failed: {}", e);
+                                    let _ = handle.exit_status_request(channel, 1);
+                                    let _ = handle.eof(channel);
+                                    let _ = handle.close(channel);
+                                }
+                            }
+                        });
+                        
+                        eprintln!("[SSH] Spawned receive-pack task, returning from exec_request");
+                        return Ok(());
                     }
                     crate::git::command::GitCommand::LfsAuthenticate {
                         repository,
@@ -587,7 +668,7 @@ impl russh::server::Handler for SshHandler {
                         let parts: Vec<&str> = repository.split('/').collect();
                         if parts.len() < 2 {
                             let error_msg = "Error: Invalid repository path format (expected: tenant/repo.git)\n";
-                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 1)?;
                             session.eof(channel)?;
                             return Ok(());
@@ -613,7 +694,7 @@ impl russh::server::Handler for SshHandler {
                             Ok(t) => t,
                             Err(e) => {
                                 let error_msg = format!("Error: Token generation failed: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                                 session.exit_status_request(channel, 1)?;
                                 session.eof(channel)?;
                                 return Ok(());
@@ -631,7 +712,7 @@ impl russh::server::Handler for SshHandler {
                             Err(e) => {
                                 let error_msg =
                                     format!("Error: JSON serialization failed: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                                 session.exit_status_request(channel, 1)?;
                                 session.eof(channel)?;
                                 return Ok(());
@@ -642,7 +723,7 @@ impl russh::server::Handler for SshHandler {
                             "LFS authenticate successful for {}/{} ({})",
                             tenant, repo, operation
                         );
-                        session.data(channel, json.as_bytes().to_vec().into())?;
+                        session.data(channel, bytes::Bytes::from(json.as_bytes().to_vec()))?;
                         session.exit_status_request(channel, 0)?;
                         session.eof(channel)?;
                     }
@@ -655,7 +736,7 @@ impl russh::server::Handler for SshHandler {
                 );
 
                 let error_msg = format!("ERROR: {}\n", validation_error);
-                session.data(channel, error_msg.into_bytes().into())?;
+                session.data(channel, bytes::Bytes::from(error_msg.into_bytes()))?;
                 session.exit_status_request(channel, 1)?;
                 session.eof(channel)?;
             }
@@ -671,6 +752,8 @@ impl russh::server::Handler for SshHandler {
         data: &[u8],
         _session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
+        eprintln!("[SSH-DATA] === CALLBACK INVOKED ===");
+        eprintln!("[SSH-DATA] Received {} bytes on channel {} from {}", data.len(), channel, self.peer_ip);
         debug!(
             "Received data on channel {}: {} bytes from {}",
             channel,
@@ -679,8 +762,12 @@ impl russh::server::Handler for SshHandler {
         );
 
         let senders = self.channel_senders.lock().await;
+        eprintln!("[SSH-DATA] Locked senders, {} channels registered", senders.len());
         if let Some(tx) = senders.get(&channel) {
+            eprintln!("[SSH-DATA] Found sender for channel {}, forwarding data", channel);
             let _ = tx.send(data.to_vec());
+        } else {
+            eprintln!("[SSH-DATA] No sender for channel {}! Available channels: {:?}", channel, senders.keys().collect::<Vec<_>>());
         }
 
         Ok(())
@@ -765,92 +852,6 @@ impl SshHandler {
         }
         
         Ok(())
-    }
-
-    async fn run_git_upload_pack(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        repo_path: &Path,
-    ) -> std::result::Result<(), russh::Error> {
-        debug!("Starting native git-upload-pack for {:?}", repo_path);
-
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        {
-            let mut senders = self.channel_senders.lock().await;
-            senders.insert(channel, tx);
-        }
-
-        let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
-        let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, session.handle());
-
-        let handler = crate::git::protocol::GitProtocolHandler::new();
-
-        let result = handler.handle_upload_pack(reader, writer, repo_path).await;
-
-        let mut senders = self.channel_senders.lock().await;
-        senders.remove(&channel);
-
-        match result {
-            Ok(()) => {
-                session.exit_status_request(channel, 0)?;
-                session.eof(channel)?;
-                Ok(())
-            }
-            Err(e) => {
-                error!("git-upload-pack error: {}", e);
-                session.exit_status_request(channel, 1)?;
-                session.eof(channel)?;
-                Err(russh::Error::IO(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )))
-            }
-        }
-    }
-
-    async fn run_git_receive_pack(
-        &self,
-        channel: ChannelId,
-        session: &mut Session,
-        repo_path: &Path,
-    ) -> std::result::Result<(), russh::Error> {
-        debug!("Starting native git-receive-pack for {:?}", repo_path);
-
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        {
-            let mut senders = self.channel_senders.lock().await;
-            senders.insert(channel, tx);
-        }
-
-        let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
-        let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, session.handle());
-        
-        let handler = crate::git::protocol::GitProtocolHandler::new();
-        
-        let result = handler.handle_receive_pack(reader, writer, repo_path).await;
-
-        let mut senders = self.channel_senders.lock().await;
-        senders.remove(&channel);
-
-        match result {
-            Ok(()) => {
-                session.exit_status_request(channel, 0)?;
-                session.eof(channel)?;
-                Ok(())
-            }
-            Err(e) => {
-                error!("git-receive-pack error: {}", e);
-                session.exit_status_request(channel, 1)?;
-                session.eof(channel)?;
-                Err(russh::Error::IO(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )))
-            }
-        }
     }
 }
 

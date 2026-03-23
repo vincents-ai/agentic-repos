@@ -27,7 +27,7 @@ tokio = { version = "1.35", features = ["full"] }
 git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
 
 # SSH Server (for Git over SSH)
-russh = "0.49"
+russh = "0.58"
 russh-keys = "0.49"
 
 # Git protocol implementation (pure Rust)

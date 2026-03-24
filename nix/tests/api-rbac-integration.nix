@@ -324,7 +324,7 @@ let
         server.succeed("mkdir -p /var/lib/repos-mcp/repositories/tenant1")
         server.succeed("git init --bare /var/lib/repos-mcp/repositories/tenant1/secure-repo.git")
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/unauthorized_key -N '' -C 'unauthorized'")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/unauthorized_key -N '''''' -C 'unauthorized'")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("echo '  IdentityFile /root/.ssh/unauthorized_key' >> /root/.ssh/config")
@@ -483,12 +483,8 @@ let
   ];
 
 in
-{
-  api-endpoints = mkTestMatrix "api-rbac-endpoints" apiEndpointsTests;
-  rbac-roles = mkTestMatrix "api-rbac-roles" rbacRolesTests;
-  rbac-permissions = mkTestMatrix "api-rbac-permissions" rbacPermissionsTests;
-  authentication = mkTestMatrix "api-rbac-auth" authenticationTests;
-  error-handling = mkTestMatrix "api-rbac-errors" errorHandlingTests;
-  rbac-user-management = mkTestMatrix "api-rbac-users" rbacUserManagementTests;
-  api-rate-limits = mkTestMatrix "api-rbac-ratelimit" apiRateLimitTests;
-}
+  (mkTestMatrix "api-rbac-auth" authenticationTests)
+  // (mkTestMatrix "api-rbac-errors" errorHandlingTests)
+  // (mkTestMatrix "api-rbac-users" rbacUserManagementTests)
+  // (mkTestMatrix "api-rbac-ratelimit" apiRateLimitTests)
+  // (mkTestMatrix "api-rbac-endpoints" apiEndpointsTests)

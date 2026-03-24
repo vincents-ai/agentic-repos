@@ -34,7 +34,7 @@ let
           assert "auth_success" in result, "SSH authentication should succeed"
         
         with subtest("SSH connection with invalid key is rejected"):
-          client.succeed("ssh-keygen -t ed25519 -f /tmp/invalid_key -N '''' -C 'invalid'")
+          client.succeed("ssh-keygen -t ed25519 -f /tmp/invalid_key -N '''''' -C 'invalid'")
           client.fail("""
             ssh -o BatchMode=yes \
                 -o IdentityFile=/tmp/invalid_key \

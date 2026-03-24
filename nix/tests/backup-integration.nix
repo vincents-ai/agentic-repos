@@ -14,7 +14,7 @@
 { pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
-  inherit (lib) // pkgs;
+  inherit (lib);
 
   backupConfig = ''
     backup:

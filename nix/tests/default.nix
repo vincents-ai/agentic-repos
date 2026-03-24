@@ -29,7 +29,7 @@ let
   };
 
   complianceIntegrationTests = import ./compliance-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs system repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   securityIntegrationTests = import ./security-integration.nix {

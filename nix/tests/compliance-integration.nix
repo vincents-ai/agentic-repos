@@ -1,4 +1,4 @@
-{ pkgs, system, repos-mcp }:
+{ pkgs, system, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
 
 let
   mkVMTest = { name, testScript, nodes ? {}, ... }@args:
@@ -138,7 +138,8 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
         pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-        server.succeed(f"printf '%s' \"{pubkey}\" > /etc/repos-mcp/authorized_keys")
+        cmd = "printf '%s' \"%s\" > /etc/repos-mcp/authorized_keys" % (pubkey,)
+        server.succeed(cmd)
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
 
@@ -264,7 +265,7 @@ let
           -H 'Content-Type: application/json' \
           -d '{\"event_type\":\"data_access\",\"tenant_id\":\"tenant1\",\"action\":\"read\"}'")
 
-        result = server.succeed(f"curl -s 'http://localhost:8090/api/v1/compliance/audit/events?tenant_id=tenant1&start_time={one_hour_ago}&end_time={now}' | jq -r '.total'")
+        result = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/audit/events?tenant_id=tenant1&start_time=%s&end_time=%s' | jq -r '.total'" % (one_hour_ago, now))
         assert int(result.strip()) >= 1, "Should find events in time range"
       '';
     }
@@ -293,9 +294,9 @@ let
         server.wait_for_open_port(8090)
 
         for i in range(10):
-            server.succeed(f"curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
-              -H 'Content-Type: application/json' \
-              -d '{{\"event_type\":\"data_access\",\"tenant_id\":\"tenant1\",\"action\":\"bulk_test_{i}\"}}'")
+            server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events "
+              "-H 'Content-Type: application/json' "
+              "-d '{\"event_type\":\"data_access\",\"tenant_id\":\"tenant1\",\"action\":\"bulk_test_%s\"}'" % (i,))
 
         result = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/audit/events?tenant_id=tenant1&limit=100' | jq -r '.total'")
         assert int(result.strip()) >= 10, "Should handle bulk event inserts"
@@ -309,9 +310,9 @@ let
         server.wait_for_open_port(8090)
 
         for i in range(15):
-            server.succeed(f"curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
-              -H 'Content-Type: application/json' \
-              -d '{{\"event_type\":\"data_access\",\"tenant_id\":\"tenant1\",\"action\":\"page_test_{i}\"}}'")
+            server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events "
+              "-H 'Content-Type: application/json' "
+              "-d '{\"event_type\":\"data_access\",\"tenant_id\":\"tenant1\",\"action\":\"page_test_%s\"}'" % (i,))
 
         page1 = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/audit/events?tenant_id=tenant1&limit=5&offset=0' | jq -r '.events | length'")
         page2 = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/audit/events?tenant_id=tenant1&limit=5&offset=5' | jq -r '.events | length'")
@@ -467,7 +468,7 @@ let
             data = json.loads(create_result)
             request_id = data.get("request_id", "")
             if request_id:
-                status_result = server.succeed(f"curl -s 'http://localhost:8090/api/v1/compliance/gdpr/deletion/{request_id}'")
+                status_result = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/gdpr/deletion/%s'" % (request_id,))
                 assert "status" in status_result.lower() or request_id in status_result, "Should be able to check deletion status"
         except:
             pass
@@ -481,9 +482,9 @@ let
         server.wait_for_open_port(8090)
 
         for event_type in ["user_authentication", "data_access", "data_modification"]:
-            server.succeed(f"curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
-              -H 'Content-Type: application/json' \
-              -d '{{\"event_type\":\"{event_type}\",\"tenant_id\":\"tenant1\",\"user_id\":\"user-categories\",\"action\":\"test\"}}'")
+            server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events "
+              "-H 'Content-Type: application/json' "
+              "-d '{\"event_type\":\"%s\",\"tenant_id\":\"tenant1\",\"user_id\":\"user-categories\",\"action\":\"test\"}'" % (event_type,))
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/gdpr/export' \
           -H 'Content-Type: application/json' \
@@ -541,7 +542,7 @@ let
             data = json.loads(create_result)
             policy_id = data.get("policy_id", data.get("id", ""))
             if policy_id:
-                get_result = server.succeed(f"curl -s 'http://localhost:8090/api/v1/compliance/retention/policies/{policy_id}'")
+                get_result = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/retention/policies/%s'" % (policy_id,))
                 assert policy_id in get_result or "policy" in get_result.lower(), "Should retrieve policy by ID"
         except:
             pass
@@ -587,7 +588,7 @@ let
             data = json.loads(create_result)
             policy_id = data.get("policy_id", data.get("id", ""))
             if policy_id:
-                delete_result = server.succeed(f"curl -s -X DELETE 'http://localhost:8090/api/v1/compliance/retention/policies/{policy_id}'")
+                delete_result = server.succeed("curl -s -X DELETE 'http://localhost:8090/api/v1/compliance/retention/policies/%s'" % (policy_id,))
                 assert "success" in delete_result.lower() or "true" in delete_result.lower() or "deleted" in delete_result.lower(), "Policy should be deleted"
         except:
             pass
@@ -821,7 +822,7 @@ let
             data = json.loads(create_result)
             report_id = data.get("report_id", data.get("id", ""))
             if report_id:
-                csv_result = server.succeed(f"curl -s 'http://localhost:8090/api/v1/compliance/reports/{report_id}?format=csv'")
+                csv_result = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/reports/%s?format=csv'" % (report_id,))
                 assert "," in csv_result or "Field,Value" in csv_result, "CSV format should contain commas"
         except:
             pass
@@ -859,7 +860,7 @@ let
             data = json.loads(create_result)
             report_id = data.get("report_id", data.get("id", ""))
             if report_id:
-                get_result = server.succeed(f"curl -s 'http://localhost:8090/api/v1/compliance/reports/{report_id}'")
+                get_result = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/reports/%s'" % (report_id,))
                 assert report_id in get_result or "report" in get_result.lower(), "Should retrieve report by ID"
         except:
             pass
@@ -881,7 +882,7 @@ let
             data = json.loads(create_result)
             report_id = data.get("report_id", data.get("id", ""))
             if report_id:
-                delete_result = server.succeed(f"curl -s -X DELETE 'http://localhost:8090/api/v1/compliance/reports/{report_id}'")
+                delete_result = server.succeed("curl -s -X DELETE 'http://localhost:8090/api/v1/compliance/reports/%s'" % (report_id,))
                 assert "success" in delete_result.lower() or "true" in delete_result.lower() or "deleted" in delete_result.lower(), "Report should be deleted"
         except:
             pass

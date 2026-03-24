@@ -1,4 +1,4 @@
-{ pkgs, system, repos-mcp }:
+{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
 
 let
   webhookReceiverScript = pkgs.writeShellScriptBin "webhook-receiver" ''
@@ -115,8 +115,9 @@ let
   '';
 
 in
-pkgs.testers.runNixOSTest {
-  name = "repos-mcp-webhooks-integration";
+{
+  webhooks-integration = pkgs.testers.runNixOSTest {
+    name = "repos-mcp-webhooks-integration";
 
   nodes = {
     server = { config, pkgs, ... }: {
@@ -264,16 +265,16 @@ pkgs.testers.runNixOSTest {
 
     def wait_for_service(node, service_name, timeout=30):
         """Wait for a systemd service to be active."""
-        node.wait_for_unit(f"{service_name}.service", timeout)
+        node.wait_for_unit("%s.service" % (service_name,), timeout)
 
     def api_call(node, method, endpoint, data=None, headers=None):
         """Make an API call to repos-mcp."""
-        cmd = f"curl -s -X {method} http://server:8090{endpoint}"
+        cmd = "curl -s -X %s http://server:8090%s" % (method, endpoint,)
         if data:
-            cmd += f" -H 'Content-Type: application/json' -d '{json.dumps(data)}'"
+            cmd += " -H 'Content-Type: application/json' -d '%s'" % (json.dumps(data),)
         if headers:
             for k, v in headers.items():
-                cmd += f" -H '{k}: {v}'"
+                cmd += " -H '%s: %s'" % (k, v,)
         return node.succeed(cmd)
 
     # ============================================================
@@ -305,20 +306,20 @@ pkgs.testers.runNixOSTest {
         response = json.loads(result)
         
         # Verify webhook was created
-        assert "id" in response, f"Webhook creation failed: {result}"
+        assert "id" in response, "Webhook creation failed: %s" % (result,)
         webhook_id = response["id"]
         
         assert response["url"] == webhook_data["url"]
         assert response["tenant_id"] == webhook_data["tenant_id"]
         assert response["active"] == True
         
-        server.succeed(f"echo 'Created webhook: {webhook_id}' > /tmp/webhook-id.txt")
+        server.succeed("echo 'Created webhook: %s' > /tmp/webhook-id.txt" % (webhook_id,))
 
     with subtest("1.3 - List webhooks"):
         result = api_call(server, "GET", "/webhooks")
         webhooks = json.loads(result)
         
-        assert isinstance(webhooks, list), f"Expected list, got: {result}"
+        assert isinstance(webhooks, list), "Expected list, got: %s" % (result,)
         assert len(webhooks) >= 1, "No webhooks found"
         
         # Verify our webhook is in the list
@@ -337,7 +338,7 @@ pkgs.testers.runNixOSTest {
     with subtest("1.5 - Get webhook by ID"):
         webhook_id = server.succeed("cat /tmp/webhook-id.txt").strip()
         
-        result = api_call(server, "GET", f"/webhooks/{webhook_id}")
+        result = api_call(server, "GET", "/webhooks/%s" % (webhook_id,))
         webhook = json.loads(result)
         
         assert webhook["id"] == webhook_id
@@ -352,16 +353,16 @@ pkgs.testers.runNixOSTest {
             "active": True
         }
         
-        result = api_call(server, "PUT", f"/webhooks/{webhook_id}", update_data)
+        result = api_call(server, "PUT", "/webhooks/%s" % (webhook_id,), update_data)
         updated = json.loads(result)
         
-        assert len(updated["events"]) == 4, f"Expected 4 events, got: {updated['events']}"
+        assert len(updated["events"]) == 4, "Expected 4 events, got: {updated['events']}"
 
     with subtest("1.7 - Deactivate webhook"):
         webhook_id = server.succeed("cat /tmp/webhook-id.txt").strip()
         
         deactivate_data = {"active": False}
-        result = api_call(server, "PUT", f"/webhooks/{webhook_id}", deactivate_data)
+        result = api_call(server, "PUT", "/webhooks/%s" % (webhook_id,), deactivate_data)
         updated = json.loads(result)
         
         assert updated["active"] == False
@@ -370,7 +371,7 @@ pkgs.testers.runNixOSTest {
         webhook_id = server.succeed("cat /tmp/webhook-id.txt").strip()
         
         activate_data = {"active": True}
-        result = api_call(server, "PUT", f"/webhooks/{webhook_id}", activate_data)
+        result = api_call(server, "PUT", "/webhooks/%s" % (webhook_id,), activate_data)
         updated = json.loads(result)
         
         assert updated["active"] == True
@@ -382,7 +383,7 @@ pkgs.testers.runNixOSTest {
             "tenant_id": "test-tenant-001"
         }
         
-        result = server.succeed(f"curl -s -X POST http://localhost:8090/webhooks -H 'Content-Type: application/json' -d '{json.dumps(invalid_data)}'")
+        result = server.succeed("curl -s -X POST http://localhost:8090/webhooks -H 'Content-Type: application/json' -d '%s'" % (json.dumps(invalid_data),))
         
         # Should return error
         assert "error" in result.lower() or "invalid" in result.lower()
@@ -390,10 +391,10 @@ pkgs.testers.runNixOSTest {
     with subtest("1.10 - Delete webhook"):
         webhook_id = server.succeed("cat /tmp/webhook-id.txt").strip()
         
-        result = api_call(server, "DELETE", f"/webhooks/{webhook_id}")
+        result = api_call(server, "DELETE", "/webhooks/%s" % (webhook_id,))
         
         # Verify deletion
-        verify = server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:8090/webhooks/{webhook_id}")
+        verify = server.succeed("curl -s -o /dev/null -w '%{http_code}' http://localhost:8090/webhooks/%s" % (webhook_id,))
         # Should return 404 or error after deletion
         # Note: API may return 404 for deleted webhook
 
@@ -413,7 +414,7 @@ pkgs.testers.runNixOSTest {
         result = api_call(server, "POST", "/webhooks", webhook_data)
         response = json.loads(result)
         delivery_webhook_id = response["id"]
-        server.succeed(f"echo '{delivery_webhook_id}' > /tmp/delivery-webhook-id.txt")
+        server.succeed("echo '%s' > /tmp/delivery-webhook-id.txt" % (delivery_webhook_id,))
         
         # Clear receiver log
         receiver.succeed("> /tmp/webhook-receiver.log || true")
@@ -431,7 +432,7 @@ pkgs.testers.runNixOSTest {
         
         # Check if webhook was delivered (may require actual git push)
         # For now, verify webhook is active and ready
-        result = api_call(server, "GET", f"/webhooks/{webhook_id}")
+        result = api_call(server, "GET", "/webhooks/%s" % (webhook_id,))
         webhook = json.loads(result)
         assert webhook["active"] == True
 
@@ -466,8 +467,8 @@ pkgs.testers.runNixOSTest {
         # Create multiple webhooks that subscribe to the same event
         for i in range(3):
             multi_webhook = {
-                "url": f"http://receiver:8888/multi-{i}",
-                "secret": f"multi-secret-{i}",
+                "url": "http://receiver:8888/multi-%s" % (i,),
+                "secret": "multi-secret-%s" % (i,),
                 "events": ["push"],
                 "tenant_id": "multi-tenant"
             }
@@ -504,13 +505,13 @@ pkgs.testers.runNixOSTest {
         assert "id" in response
         
         # Store for verification
-        server.succeed(f"echo '{response['id']}' > /tmp/secure-webhook-id.txt")
-        server.succeed(f"echo '{test_secret}' > /tmp/secure-secret.txt")
+        server.succeed("echo '{response['id']}' > /tmp/secure-webhook-id.txt")
+        server.succeed("echo '%s' > /tmp/secure-secret.txt" % (test_secret,))
 
     with subtest("3.2 - Signature verification on receiver"):
         # Set up secret on receiver
         test_secret = "verify-secret-123"
-        receiver.succeed(f"echo '{test_secret}' > /tmp/webhook-secret.txt")
+        receiver.succeed("echo '%s' > /tmp/webhook-secret.txt" % (test_secret,))
         
         # Create webhook
         verify_webhook = {
@@ -538,13 +539,13 @@ pkgs.testers.runNixOSTest {
 
     with subtest("3.4 - Secret key management"):
         # Test updating webhook secret
-        webhook_id = server.succeed("cat /tmp/secure-webhook-id.txt 2>/dev/null || echo ''").strip()
+        webhook_id = server.succeed("cat /tmp/secure-webhook-id.txt 2>/dev/null || echo ''''''").strip()
         
         if webhook_id:
             update_data = {
                 "secret": "new-updated-secret-456"
             }
-            result = api_call(server, "PUT", f"/webhooks/{webhook_id}", update_data)
+            result = api_call(server, "PUT", "/webhooks/%s" % (webhook_id,), update_data)
             # Update should succeed
 
     with subtest("3.5 - Payload validation"):
@@ -556,7 +557,7 @@ pkgs.testers.runNixOSTest {
         ]
         
         for payload in invalid_payloads:
-            result = server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' -X POST http://localhost:8090/webhooks -H 'Content-Type: application/json' -d '{json.dumps(payload)}'")
+            result = server.succeed("curl -s -o /dev/null -w '%%{http_code}' -X POST http://localhost:8090/webhooks -H 'Content-Type: application/json' -d '%s'" % (json.dumps(payload),))
             # Should return 400 or error
 
     # ============================================================
@@ -577,15 +578,15 @@ pkgs.testers.runNixOSTest {
         webhook_id = response["id"]
         
         # Get deliveries (should be empty initially)
-        deliveries_result = api_call(server, "GET", f"/webhooks/{webhook_id}/deliveries")
+        deliveries_result = api_call(server, "GET", "/webhooks/%s/deliveries" % (webhook_id,))
         # Endpoint should respond, may be empty list
 
     with subtest("4.2 - Delivery history"):
-        webhook_id = server.succeed("cat /tmp/delivery-webhook-id.txt 2>/dev/null || cat /tmp/webhook-id.txt 2>/dev/null || echo ''").strip()
+        webhook_id = server.succeed("cat /tmp/delivery-webhook-id.txt 2>/dev/null || cat /tmp/webhook-id.txt 2>/dev/null || echo ''''''").strip()
         
         if webhook_id:
             # Get delivery history with limit
-            result = api_call(server, "GET", f"/webhooks/{webhook_id}/deliveries?limit=10")
+            result = api_call(server, "GET", "/webhooks/%s/deliveries?limit=10" % (webhook_id,))
             # Should return list of deliveries (may be empty if no events triggered)
 
     with subtest("4.3 - Failed delivery handling"):
@@ -605,15 +606,15 @@ pkgs.testers.runNixOSTest {
         # Check deliveries after some time
         server.succeed("sleep 2")
         
-        deliveries_result = server.succeed(f"curl -s http://localhost:8090/webhooks/{fail_webhook_id}/deliveries || echo '[]'")
+        deliveries_result = server.succeed("curl -s http://localhost:8090/webhooks/%s/deliveries || echo '[]'" % (fail_webhook_id,))
 
     with subtest("4.4 - Delivery with custom limit"):
-        webhook_id = server.succeed("cat /tmp/delivery-webhook-id.txt 2>/dev/null || echo ''").strip()
+        webhook_id = server.succeed("cat /tmp/delivery-webhook-id.txt 2>/dev/null || echo ''''''").strip()
         
         if webhook_id:
             # Test limit parameter
             for limit in [1, 5, 50, 100]:
-                result = server.succeed(f"curl -s 'http://localhost:8090/webhooks/{webhook_id}/deliveries?limit={limit}'")
+                result = server.succeed("curl -s 'http://localhost:8090/webhooks/%s/deliveries?limit=%s'" % (webhook_id, limit,))
 
     # ============================================================
     # TEST SUITE 5: Delivery Retry and Timeout
@@ -736,10 +737,10 @@ pkgs.testers.runNixOSTest {
         webhook_id = response["id"]
         
         # Deactivate
-        api_call(server, "PUT", f"/webhooks/{webhook_id}", {"active": False})
+        api_call(server, "PUT", "/webhooks/%s" % (webhook_id,), {"active": False})
         
         # Verify inactive
-        result = api_call(server, "GET", f"/webhooks/{webhook_id}")
+        result = api_call(server, "GET", "/webhooks/%s" % (webhook_id,))
         webhook = json.loads(result)
         assert webhook["active"] == False
 
@@ -753,7 +754,7 @@ pkgs.testers.runNixOSTest {
         
         for tenant in tenants:
             webhook = {
-                "url": f"http://receiver:8888/{tenant}",
+                "url": "http://receiver:8888/%s" % (tenant,),
                 "events": ["push"],
                 "tenant_id": tenant
             }
@@ -763,11 +764,11 @@ pkgs.testers.runNixOSTest {
     with subtest("7.2 - List webhooks per tenant"):
         # Each tenant should only see their own webhooks
         for tenant in ["tenant-a", "tenant-b", "tenant-c"]:
-            result = api_call(server, "GET", f"/webhooks?tenant_id={tenant}")
+            result = api_call(server, "GET", "/webhooks?tenant_id=%s" % (tenant,))
             webhooks = json.loads(result)
             
             for w in webhooks:
-                assert w["tenant_id"] == tenant, f"Found webhook from different tenant: {w}"
+                assert w["tenant_id"] == tenant, "Found webhook from different tenant: %s" % (w,)
 
     # ============================================================
     # TEST SUITE 8: Error Handling
@@ -801,9 +802,9 @@ pkgs.testers.runNixOSTest {
         # Create multiple webhooks concurrently
         for i in range(10):
             webhook = {
-                "url": f"http://receiver:8888/concurrent-{i}",
+                "url": "http://receiver:8888/concurrent-%s" % (i,),
                 "events": ["push"],
-                "tenant_id": f"concurrent-tenant-{i % 3}"  # 3 different tenants
+                "tenant_id": "concurrent-tenant-{i % 3}"  # 3 different tenants
             }
             result = api_call(server, "POST", "/webhooks", webhook)
             assert "id" in json.loads(result)
@@ -829,11 +830,12 @@ pkgs.testers.runNixOSTest {
                "delivery" in webhook.get("tenant_id", "").lower() or \
                "tenant" in webhook.get("tenant_id", "").lower():
                 try:
-                    api_call(server, "DELETE", f"/webhooks/{webhook['id']}")
+                    api_call(server, "DELETE", "/webhooks/{webhook['id']}")
                 except:
                     pass  # Ignore deletion errors
 
     # All tests completed
     server.succeed("echo 'All webhook integration tests passed!'")
   '';
+  };
 }

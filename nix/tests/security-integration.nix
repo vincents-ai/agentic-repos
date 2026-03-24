@@ -15,9 +15,9 @@ let
       testScript = ''
         ${waitForReposMCP}
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N '' -C 'test-client'")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N '''''' -C 'test-client'")
         pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-        server.succeed(f"echo 'root:{pubkey}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
         server.succeed("chmod 600 /etc/repos-mcp/authorized_keys")
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
@@ -37,7 +37,7 @@ let
         server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
         server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/secure-repo.git")
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/unauthorized_key -N '' -C 'unauthorized'")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/unauthorized_key -N '''''' -C 'unauthorized'")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("echo '  IdentityFile /root/.ssh/unauthorized_key' >> /root/.ssh/config")
@@ -50,8 +50,8 @@ let
       testScript = ''
         ${waitForReposMCP}
         mock_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJ0ZW5hbnRfaWQiOiJ0ZXN0LXRlbmFudCIsImlhdCI6MTUxNjIzOTAyMn0.test"
-        result = server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' -H 'Authorization: Bearer {mock_token}' http://localhost:8090/api/v1/repos")
-        server.succeed(f"[ '{result}' = '401' ] || [ '{result}' = '403' ] || [ '{result}' = '200' ] || [ '{result}' = '404' ]")
+        result = server.succeed("curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer %s' http://localhost:8090/api/v1/repos" % (mock_token,))
+        server.succeed("[ '%s' = '401' ] || [ '%s' = '403' ] || [ '%s' = '200' ] || [ '%s' = '404' ]" % (result, result, result, result,))
       '';
     }
     {
@@ -59,8 +59,8 @@ let
       testScript = ''
         ${waitForReposMCP}
         invalid_token = "invalid-session-token-12345"
-        result = server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' -H 'X-Session-Token: {invalid_token}' http://localhost:8090/api/v1/repos")
-        server.succeed(f"[ '{result}' = '401' ] || [ '{result}' = '403' ] || [ '{result}' = '200' ] || [ '{result}' = '404' ]")
+        result = server.succeed("curl -s -o /dev/null -w '%{http_code}' -H 'X-Session-Token: %s' http://localhost:8090/api/v1/repos" % (invalid_token,))
+        server.succeed("[ '%s' = '401' ] || [ '%s' = '403' ] || [ '%s' = '200' ] || [ '%s' = '404' ]" % (result, result, result, result,))
       '';
     }
     {
@@ -70,13 +70,13 @@ let
         server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
         server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/rate-limit-test.git")
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/wrong_key -N '' -C 'wrong'")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/wrong_key -N '''''' -C 'wrong'")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("echo '  IdentityFile /root/.ssh/wrong_key' >> /root/.ssh/config")
         client.succeed("chmod 600 /root/.ssh/config")
         for i in range(5):
-            client.fail(f"git clone ssh://root@server:2222/test-tenant/rate-limit-test.git /tmp/attempt-{{i}} 2>&1 || true")
+            client.fail("git clone ssh://root@server:2222/test-tenant/rate-limit-test.git /tmp/attempt-{{i}} 2>&1 || true")
       '';
     }
     {
@@ -84,9 +84,9 @@ let
       testScript = ''
         ${waitForReposMCP}
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519_v1 -N '' -C 'v1'")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519_v1 -N '''''' -C 'v1'")
         pubkey_v1 = client.succeed("cat /root/.ssh/id_ed25519_v1.pub").strip()
-        server.succeed(f"echo 'root:{pubkey_v1}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey_v1,))
         server.succeed("chmod 600 /etc/repos-mcp/authorized_keys")
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
@@ -97,9 +97,9 @@ let
         client.succeed("echo '  IdentityFile /root/.ssh/id_ed25519_v1' >> /root/.ssh/config")
         client.succeed("chmod 600 /root/.ssh/config")
         client.succeed("git clone ssh://root@server:2222/test-tenant/rotation-test.git /tmp/v1-clone")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519_v2 -N '' -C 'v2'")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519_v2 -N '''''' -C 'v2'")
         pubkey_v2 = client.succeed("cat /root/.ssh/id_ed25519_v2.pub").strip()
-        server.succeed(f"echo 'root:{pubkey_v2}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey_v2,))
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'IdentityFile /root/.ssh/id_ed25519_v1' > /root/.ssh/config_for_v1")
@@ -110,13 +110,13 @@ let
       id = "empty-authorized-keys-rejection";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("echo '' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo '''''' > /etc/repos-mcp/authorized_keys")
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
         server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/empty-auth.git")
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N '' -C 'client'")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N '''''' -C 'client'")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("chmod 600 /root/.ssh/config")
@@ -217,16 +217,16 @@ let
         server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
         server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/rate-conn.git")
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N ''")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-        server.succeed(f"echo 'root:{pubkey}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("chmod 600 /root/.ssh/config")
         for i in range(10):
-            result = client.succeed(f"nc -zv server 2222 2>&1 || echo 'connection-{{i}}'")
+            result = client.succeed("nc -zv server 2222 2>&1 || echo 'connection-{{i}}'")
       '';
     }
     {
@@ -235,11 +235,11 @@ let
         ${waitForReposMCP}
         responses = []
         for i in range(70):
-            result = server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:8090/api/v1/health")
+            result = server.succeed("curl -s -o /dev/null -w '%{{http_code}}' http://localhost:8090/api/v1/health")
             responses.append(result)
         rate_limited = len([r for r in responses if r == '429'])
         success = len([r for r in responses if r == '200'])
-        server.succeed(f"[ {{rate_limited}} -ge 0 ]")
+        server.succeed("[ {rate_limited}} -ge 0 ]")
       '';
     }
     {
@@ -248,7 +248,7 @@ let
         ${waitForReposMCP}
         responses = []
         for i in range(20):
-            result = server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' -H 'X-Forwarded-For: 192.168.1.100' http://localhost:8090/api/v1/health")
+            result = server.succeed("curl -s -o /dev/null -w '%{{http_code}}' -H 'X-Forwarded-For: 192.168.1.100' http://localhost:8090/api/v1/health")
             responses.append(result)
         server.succeed("echo 'Per-IP rate limit test completed'")
       '';
@@ -259,7 +259,7 @@ let
         ${waitForReposMCP}
         responses = []
         for i in range(15):
-            result = server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:8090/api/v1/health")
+            result = server.succeed("curl -s -o /dev/null -w '%{{http_code}}' http://localhost:8090/api/v1/health")
             responses.append(result)
         server.succeed("echo 'Burst handling test completed'")
       '';
@@ -272,9 +272,9 @@ let
       testScript = ''
         ${waitForReposMCP}
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/inject_key -N ''")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/inject_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/inject_key.pub").strip()
-        server.succeed(f"echo 'root:{pubkey}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
@@ -292,9 +292,9 @@ let
       testScript = ''
         ${waitForReposMCP}
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/pipe_key -N ''")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/pipe_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/pipe_key.pub").strip()
-        server.succeed(f"echo 'root:{pubkey}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
@@ -310,9 +310,9 @@ let
       testScript = ''
         ${waitForReposMCP}
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/traversal_key -N ''")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/traversal_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/traversal_key.pub").strip()
-        server.succeed(f"echo 'root:{pubkey}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
@@ -329,9 +329,9 @@ let
       testScript = ''
         ${waitForReposMCP}
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/abs_key -N ''")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/abs_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/abs_key.pub").strip()
-        server.succeed(f"echo 'root:{pubkey}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
@@ -347,9 +347,9 @@ let
       testScript = ''
         ${waitForReposMCP}
         client.succeed("mkdir -p /root/.ssh")
-        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/special_key -N ''")
+        client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/special_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/special_key.pub").strip()
-        server.succeed(f"echo 'root:{pubkey}' > /etc/repos-mcp/authorized_keys")
+        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
         server.succeed("systemctl restart repos-mcp.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
@@ -365,7 +365,7 @@ let
       testScript = ''
         ${waitForReposMCP}
         large_cmd = "A" * 10000
-        server.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' -X POST -d '{large_cmd}' http://localhost:8090/api/v1/repos")
+        server.succeed("curl -s -o /dev/null -w '%{http_code}' -X POST -d '%s' http://localhost:8090/api/v1/repos" % (large_cmd,))
         server.succeed("curl -s http://localhost:8090/api/v1/health")
       '';
     }
@@ -392,8 +392,8 @@ let
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("chmod 600 /root/.ssh/config")
         for i in range(10):
-            client.succeed(f"ssh-keygen -t ed25519 -f /tmp/key_{{i}} -N '' -C 'attempt_{{i}}' 2>/dev/null || true")
-            client.fail(f"ssh -i /tmp/key_{{i}} -o BatchMode=yes root@server 'echo connected' 2>&1 || true")
+            client.succeed("ssh-keygen -t ed25519 -f /tmp/key_{{i}} -N '''''' -C 'attempt_{{i}}' 2>/dev/null || true")
+            client.fail("ssh -i /tmp/key_{{i}} -o BatchMode=yes root@server 'echo connected' 2>&1 || true")
         server.succeed("systemctl is-active repos-mcp.service")
       '';
     }

@@ -3,9 +3,9 @@
 let
   inherit (pkgs) lib;
 
-  mkVMTest = { name, testScript, nodes ? {}, timeout ? 600, ... }@args:
+  mkVMTest = { name, testScript, nodes ? {}, ... }@args:
     pkgs.testers.runNixOSTest {
-      inherit name testScript timeout;
+      inherit name testScript;
 
       nodes = {
         server = { config, pkgs, ... }: {
@@ -51,7 +51,6 @@ let
         name = "repos-mcp-${category}-${test.id}";
         inherit (test) testScript;
         nodes = test.nodes or {};
-        timeout = test.timeout or 600;
       };
     }) tests);
 

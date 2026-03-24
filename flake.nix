@@ -19,10 +19,8 @@
           extensions = [ "rust-src" "rust-analyzer" ];
         };
 
-        # Configure crane to use our custom rust toolchain
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        # Common arguments for crane derivations
         commonArgs = {
           src = craneLib.cleanCargoSource ./.;
           strictDeps = true;
@@ -36,24 +34,19 @@
             git
           ];
 
-          # Environment variables for OpenSSL
           PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
           OPENSSL_DIR = "${pkgs.openssl.dev}";
           OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
           OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
         };
 
-        # Build *just* the cargo dependencies, so we can reuse
-        # all of that work (e.g. via cachix or CI) when running in CI
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        # Build the actual crate itself, reusing the dependency artifacts
         repos-mcp-uncompressed = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
-          doCheck = false;  # Skip tests during Nix build (tests require PostgreSQL)
+          doCheck = false;
         });
 
-        # UPX-compressed version of the binary
         repos-mcp = pkgs.stdenv.mkDerivation {
           name = "repos-mcp-0.1.0";
           src = repos-mcp-uncompressed;
@@ -61,25 +54,18 @@
           nativeBuildInputs = [ pkgs.upx ];
           
           buildPhase = ''
-            # Copy binary to temporary location and make writable
             cp ${repos-mcp-uncompressed}/bin/repos-mcp repos-mcp-tmp
             chmod +w repos-mcp-tmp
-            
-            # Compress with UPX to temporary output
             upx --best --lzma repos-mcp-tmp -o repos-mcp-compressed
-            
-            # Create output directory and install compressed binary
             mkdir -p $out/bin
             cp repos-mcp-compressed $out/bin/repos-mcp
             chmod +x $out/bin/repos-mcp
-            
-            # Copy other files from uncompressed build (if any)
             if [ -d ${repos-mcp-uncompressed}/share ]; then
               cp -r ${repos-mcp-uncompressed}/share $out/
             fi
           '';
           
-          installPhase = "true";  # Already installed in buildPhase
+          installPhase = "true";
         };
 
         containerImage = pkgs.dockerTools.buildLayeredImage {
@@ -110,12 +96,16 @@
           };
         };
 
+        vmTests = import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; };
+        
+        integrationTests = import ./nix/tests/default.nix { inherit pkgs system repos-mcp; };
+
       in
       {
         packages = {
           default = repos-mcp;
           inherit repos-mcp containerImage;
-          dockerImage = containerImage;  # Alias for CI compatibility
+          dockerImage = containerImage;
         };
 
         devShells.default = pkgs.mkShell {
@@ -140,18 +130,31 @@
         checks = {
           build = repos-mcp;
           container = containerImage;
-        } 
-        # Import and add all VM test categories to checks
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).auth
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).git-protocol
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).storage
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).multi-tenancy
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).performance
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).network
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).lfs
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; })."error-handling"
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; }).security
-        // (import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; })."edge-cases";
+        }
+        // vmTests.auth
+        // vmTests.git-protocol
+        // vmTests.storage
+        // vmTests.multi-tenancy
+        // vmTests.performance
+        // vmTests.network
+        // vmTests.lfs
+        // vmTests."error-handling"
+        // vmTests.security
+        // vmTests."edge-cases"
+        // integrationTests.checks
+        // integrationTests.tests;
       }
-    );
+    )
+    // {
+      nixosModules = {
+        repos-mcp = import ./nix/modules/repos-mcp.nix;
+        default = self.nixosModules.repos-mcp;
+      };
+
+      nixosModule = self.nixosModules.default;
+
+      overlays.default = final: prev: {
+        repos-mcp = self.packages.${final.system}.default;
+      };
+    };
 }

@@ -294,7 +294,7 @@ in
     };
 
     services.repos-mcp.settings = lib.mkMerge [
-      {
+      (lib.mkDefault {
         server = {
           host = cfg.host;
           port = cfg.port;
@@ -362,8 +362,7 @@ in
           horizontal_scaling = cfg.features.horizontalScaling;
           web_ui = cfg.features.webUi;
         };
-      }
-      cfg.settings
+      })
     ];
 
     networking.firewall.allowedTCPPorts = [ cfg.port cfg.sshPort ];

@@ -294,7 +294,7 @@ in
     };
 
     services.repos-mcp.settings = lib.mkMerge [
-      (lib.mkDefault {
+      {
         server = {
           host = cfg.host;
           port = cfg.port;
@@ -317,28 +317,17 @@ in
 
         storage = {
           type = cfg.storage.backend;
-          local = lib.mkIf (cfg.storage.backend == "local") {
+        } // (lib.optionalAttrs (cfg.storage.backend == "local") {
+          local = {
             path = cfg.storage.path;
           };
-          s3 = lib.mkIf (cfg.storage.backend == "s3") {
+        }) // (lib.optionalAttrs (cfg.storage.backend == "s3") {
+          s3 = {
             bucket = cfg.storage.s3.bucket;
             region = cfg.storage.s3.region;
             endpoint = cfg.storage.s3.endpoint;
           };
-        };
-
-        database = lib.mkIf cfg.database.enable {
-          host = cfg.database.host;
-          port = cfg.database.port;
-          name = cfg.database.name;
-          user = cfg.database.user;
-        };
-
-        redis = lib.mkIf cfg.redis.enable {
-          host = cfg.redis.host;
-          port = cfg.redis.port;
-          database = cfg.redis.database;
-        };
+        });
 
         rate_limit = {
           enabled = cfg.rateLimit.enable;
@@ -361,6 +350,21 @@ in
           security_scanning = cfg.features.securityScanning;
           horizontal_scaling = cfg.features.horizontalScaling;
           web_ui = cfg.features.webUi;
+        };
+      }
+      (lib.optionalAttrs cfg.database.enable {
+        database = {
+          host = cfg.database.host;
+          port = cfg.database.port;
+          name = cfg.database.name;
+          user = cfg.database.user;
+        };
+      })
+      (lib.optionalAttrs cfg.redis.enable {
+        redis = {
+          host = cfg.redis.host;
+          port = cfg.redis.port;
+          database = cfg.redis.database;
         };
       })
     ];

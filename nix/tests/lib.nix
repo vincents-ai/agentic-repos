@@ -15,6 +15,7 @@ let
 
           services.repos-mcp = {
             enable = true;
+            package = repos-mcp;
             host = "0.0.0.0";
             port = 8090;
             sshPort = 2222;

@@ -1,4 +1,4 @@
-{ pkgs, system, repos-mcp }:
+{ pkgs, system, repos-mcp, garage }:
 
 let
   # Test helper functions
@@ -15,6 +15,7 @@ let
             git
             curl
             openssh
+            garage
           ];
           
           services.openssh = {

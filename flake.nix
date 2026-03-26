@@ -96,9 +96,12 @@
           };
         };
 
-        vmTests = import ./nix/vm-tests.nix { inherit pkgs system repos-mcp; };
+        # Make Garage available for S3-compatible storage tests
+        garage = pkgs.garage;
+
+        vmTests = import ./nix/vm-tests.nix { inherit pkgs system repos-mcp garage; };
         
-        integrationTests = import ./nix/tests/default.nix { inherit pkgs system repos-mcp; };
+        integrationTests = import ./nix/tests/default.nix { inherit pkgs system repos-mcp garage; };
 
       in
       {

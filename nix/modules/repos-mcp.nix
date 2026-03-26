@@ -3,7 +3,6 @@
 let
   cfg = config.services.repos-mcp;
   settingsFormat = pkgs.formats.yaml { };
-  configFile = settingsFormat.generate "repos-mcp-config.yaml" cfg.settings;
 in
 {
   options.services.repos-mcp = {
@@ -221,80 +220,9 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    users.users.${cfg.user} = {
-      isSystemUser = true;
-      group = cfg.group;
-      home = cfg.dataDir;
-      description = "repos-mcp service user";
-    };
-
-    users.groups.${cfg.group} = { };
-
-    systemd.tmpfiles.rules = [
-      "d ${cfg.dataDir} 0750 ${cfg.user} ${cfg.group} -"
-      "d ${cfg.storage.path} 0750 ${cfg.user} ${cfg.group} -"
-      "d ${cfg.dataDir}/logs 0750 ${cfg.user} ${cfg.group} -"
-    ];
-
-    systemd.services.repos-mcp = {
-      description = "repos-mcp - Multi-tenant Git server with MCP integration";
-      documentation = [ "https://github.com/vincents-ai/repos-mcp" ];
-      after = [ "network.target" ]
-        ++ lib.optional cfg.database.enable "postgresql.service"
-        ++ lib.optional cfg.redis.enable "redis.service";
-      wants = [ "network.target" ]
-        ++ lib.optional cfg.database.enable "postgresql.service"
-        ++ lib.optional cfg.redis.enable "redis.service";
-      wantedBy = [ "multi-user.target" ];
-
-      serviceConfig = {
-        Type = "simple";
-        User = cfg.user;
-        Group = cfg.group;
-        WorkingDirectory = cfg.dataDir;
-        ExecStart = "${cfg.package}/bin/repos-mcp --config ${configFile}";
-        Restart = "on-failure";
-        RestartSec = "5s";
-
-        AmbientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
-        CapabilityBoundingSet = [ "CAP_NET_BIND_SERVICE" ];
-
-        NoNewPrivileges = true;
-        PrivateTmp = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        ReadWritePaths = [ cfg.dataDir ];
-        ReadOnlyPaths = lib.optional (cfg.database.passwordFile != null) cfg.database.passwordFile;
-
-        LimitNOFILE = 65535;
-        TasksMax = 4096;
-      };
-
-      environment = lib.mkMerge [
-        {
-          RUST_LOG = cfg.logging.level;
-        }
-        cfg.environment
-      ];
-
-      preStart = ''
-        if [ ! -f "${cfg.ssh.hostKeyPath}" ]; then
-          ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "${cfg.ssh.hostKeyPath}" -N "" -C "repos-mcp@$(hostname)"
-          chown ${cfg.user}:${cfg.group} "${cfg.ssh.hostKeyPath}"
-          chmod 600 "${cfg.ssh.hostKeyPath}"
-        fi
-
-        if [ ! -f "${cfg.ssh.authorizedKeysPath}" ]; then
-          touch "${cfg.ssh.authorizedKeysPath}"
-          chown ${cfg.user}:${cfg.group} "${cfg.ssh.authorizedKeysPath}"
-          chmod 600 "${cfg.ssh.authorizedKeysPath}"
-        fi
-      '';
-    };
-
-    services.repos-mcp.settings = lib.mkMerge [
-      {
+  config = lib.mkIf cfg.enable (let
+    # Build the configuration directly rather than relying on cfg.settings merge
+    settingsAttrset = {
         server = {
           host = cfg.host;
           port = cfg.port;
@@ -351,24 +279,95 @@ in
           horizontal_scaling = cfg.features.horizontalScaling;
           web_ui = cfg.features.webUi;
         };
-      }
-      (lib.optionalAttrs cfg.database.enable {
+      } // (lib.optionalAttrs cfg.database.enable {
         database = {
           host = cfg.database.host;
           port = cfg.database.port;
           name = cfg.database.name;
           user = cfg.database.user;
         };
-      })
-      (lib.optionalAttrs cfg.redis.enable {
+      }) // (lib.optionalAttrs cfg.redis.enable {
         redis = {
           host = cfg.redis.host;
           port = cfg.redis.port;
           database = cfg.redis.database;
         };
-      })
+      }) // cfg.settings;
+
+    configFile = settingsFormat.generate "repos-mcp-config.yaml" settingsAttrset;
+  in {
+    users.users.${cfg.user} = {
+      isSystemUser = true;
+      group = cfg.group;
+      home = cfg.dataDir;
+      description = "repos-mcp service user";
+    };
+
+    users.groups.${cfg.group} = { };
+
+    systemd.tmpfiles.rules = [
+      "d ${cfg.dataDir} 0750 ${cfg.user} ${cfg.group} -"
+      "d ${cfg.storage.path} 0750 ${cfg.user} ${cfg.group} -"
+      "d ${cfg.dataDir}/logs 0750 ${cfg.user} ${cfg.group} -"
     ];
 
+    systemd.services.repos-mcp = {
+      description = "repos-mcp - Multi-tenant Git server with MCP integration";
+      documentation = [ "https://github.com/vincents-ai/repos-mcp" ];
+      after = [ "network.target" ]
+        ++ lib.optional cfg.database.enable "postgresql.service"
+        ++ lib.optional cfg.redis.enable "redis.service";
+      wants = [ "network.target" ]
+        ++ lib.optional cfg.database.enable "postgresql.service"
+        ++ lib.optional cfg.redis.enable "redis.service";
+      wantedBy = [ "multi-user.target" ];
+
+      serviceConfig = {
+        Type = "simple";
+        User = cfg.user;
+        Group = cfg.group;
+        WorkingDirectory = cfg.dataDir;
+        ExecStart = "${cfg.package}/bin/repos-mcp --config ${configFile}";
+        Restart = "on-failure";
+        RestartSec = "5s";
+
+        AmbientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
+        CapabilityBoundingSet = [ "CAP_NET_BIND_SERVICE" ];
+
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        ReadWritePaths = [ cfg.dataDir ];
+        ReadOnlyPaths = lib.optional (cfg.database.passwordFile != null) cfg.database.passwordFile;
+
+        LimitNOFILE = 65535;
+        TasksMax = 4096;
+      };
+
+      environment = lib.mkMerge [
+        {
+          RUST_LOG = cfg.logging.level;
+          REPOS_MCP_CONFIG = "${configFile}";
+        }
+        cfg.environment
+      ];
+
+      preStart = ''
+        if [ ! -f "${cfg.ssh.hostKeyPath}" ]; then
+          ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "${cfg.ssh.hostKeyPath}" -N "" -C "repos-mcp@$(hostname)"
+          chown ${cfg.user}:${cfg.group} "${cfg.ssh.hostKeyPath}"
+          chmod 600 "${cfg.ssh.hostKeyPath}"
+        fi
+
+        if [ ! -f "${cfg.ssh.authorizedKeysPath}" ]; then
+          touch "${cfg.ssh.authorizedKeysPath}"
+          chown ${cfg.user}:${cfg.group} "${cfg.ssh.authorizedKeysPath}"
+          chmod 600 "${cfg.ssh.authorizedKeysPath}"
+        fi
+      '';
+    };
+
     networking.firewall.allowedTCPPorts = [ cfg.port cfg.sshPort ];
-  };
+  });
 }

@@ -99,6 +99,19 @@ pub struct LfsThrottleConfig {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Check for config path from environment variable
+        if let Ok(path) = std::env::var("REPOS_MCP_CONFIG") {
+            return Self::from_file(&path);
+        }
+
+        // Check for --config argument
+        let args: Vec<String> = std::env::args().collect();
+        for i in 0..args.len() - 1 {
+            if args[i] == "--config" {
+                return Self::from_file(&args[i + 1]);
+            }
+        }
+
         Self::from_file("config.yaml")
     }
 

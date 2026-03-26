@@ -8,8 +8,11 @@ use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
+use crate::scaling::{ClusterManager, HealthChecker, ScalingConfig};
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
+use routes::cluster::ClusterState;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 async fn metrics_endpoint() -> HttpResponse {
     match crate::lfs::encode_metrics() {
@@ -71,11 +74,28 @@ impl ApiServer {
             None
         };
 
+        let scaling_config = ScalingConfig::from_env();
+        let cluster_manager = Arc::new(RwLock::new(ClusterManager::new(scaling_config.clone())));
+        let health_checker = Arc::new(
+            HealthChecker::new(scaling_config.instance_id.clone())
+                .with_cluster_manager(Arc::clone(&cluster_manager)),
+        );
+
+        let cluster_state = web::Data::new(ClusterState {
+            cluster_manager,
+            health_checker,
+            leader_election: None,
+            config: scaling_config,
+            session_affinity: None,
+            distributed_lock: None,
+        });
+
         let config_clone = config.clone();
         HttpServer::new(move || {
             let mut app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
                 .app_data(web::Data::new(lfs_config.clone()))
+                .app_data(cluster_state.clone())
                 .wrap(Logger::default())
                 .route("/metrics", web::get().to(metrics_endpoint))
                 .service(web::scope("/api/v1").configure(routes::configure_routes));

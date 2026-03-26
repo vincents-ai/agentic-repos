@@ -1,4 +1,4 @@
-{ pkgs, repos-mcp }:
+{ pkgs, repos-mcp, garage }:
 
 let
   inherit (pkgs) lib;
@@ -27,6 +27,7 @@ let
             curl
             openssh
             repos-mcp
+            garage
           ];
 
           services.openssh = {

@@ -1,8 +1,8 @@
-{ pkgs, system, repos-mcp }:
+{ pkgs, system, repos-mcp, garage }:
 
 let
   inherit (pkgs) lib;
-  testLib = import ./lib.nix { inherit pkgs repos-mcp; };
+  testLib = import ./lib.nix { inherit pkgs repos-mcp garage; };
 
   inherit (testLib)
     mkVMTest

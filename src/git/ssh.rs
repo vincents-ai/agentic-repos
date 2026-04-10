@@ -527,7 +527,7 @@ impl russh::server::Handler for SshHandler {
                         session.channel_success(channel)?;
                         eprintln!("[SSH] Channel success sent, spawning upload-pack handler");
                         
-                        // Spawn git protocol handler in separate task so russh can process incoming data
+                        // Use system git-upload-pack for reliable protocol handling
                         let handle = session.handle();
                         let channel_senders = self.channel_senders.clone();
                         let repo_path = full_path.clone();
@@ -540,34 +540,30 @@ impl russh::server::Handler for SshHandler {
                             {
                                 let mut senders = channel_senders.lock().await;
                                 senders.insert(channel, tx);
-                                eprintln!("[SSH-SPAWN] Registered sender for channel {}, {} channels total", channel, senders.len());
+                                eprintln!("[SSH-SPAWN] Registered sender for channel {}", channel);
                             }
                             
                             let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
                             let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, handle.clone());
-                            let handler = crate::git::protocol::GitProtocolHandler::new();
                             
-                            eprintln!("[SSH-SPAWN] Starting upload-pack handler");
-                            let result: crate::git::error::Result<()> = handler.handle_upload_pack(reader, writer, &repo_path).await;
+                            eprintln!("[SSH-SPAWN] Starting git-upload-pack for {:?}", repo_path);
+                            let result = run_git_upload_pack(&repo_path, reader, writer).await;
                             eprintln!("[SSH-SPAWN] Upload-pack handler completed: {:?}", result.is_ok());
                             
                             {
                                 let mut senders = channel_senders.lock().await;
                                 senders.remove(&channel);
-                                eprintln!("[SSH-SPAWN] Removed sender for channel {}", channel);
                             }
                             
                             match result {
                                 Ok(()) => {
                                     info!("git-upload-pack completed for {} from {}", repository_name, peer_ip);
-                                    eprintln!("[SSH-SPAWN] Upload-pack success, sending exit status");
                                     let _ = handle.exit_status_request(channel, 0);
                                     let _ = handle.eof(channel);
                                     let _ = handle.close(channel);
                                 }
                                 Err(e) => {
                                     error!("git-upload-pack failed for {}: {}", repository_name, e);
-                                    eprintln!("[SSH-SPAWN] Upload-pack failed: {}", e);
                                     let _ = handle.exit_status_request(channel, 1);
                                     let _ = handle.eof(channel);
                                     let _ = handle.close(channel);
@@ -852,6 +848,98 @@ impl SshHandler {
         }
         
         Ok(())
+    }
+}
+
+/// Run git-upload-pack as a subprocess, piping SSH channel data through it
+async fn run_git_upload_pack<R, W>(
+    repo_path: &std::path::Path,
+    mut reader: R,
+    mut writer: W,
+) -> crate::git::error::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::process::Command;
+
+    eprintln!("[GIT-UPLOAD-PACK] Spawning git-upload-pack for {:?}", repo_path);
+
+    // Ensure absolute path
+    let abs_path = if repo_path.is_relative() {
+        std::env::current_dir()
+            .unwrap_or_default()
+            .join(repo_path)
+    } else {
+        repo_path.to_path_buf()
+    };
+
+    let mut child = Command::new("git-upload-pack")
+        .arg(&abs_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| crate::git::error::GitError::ProtocolError(
+            format!("Failed to spawn git-upload-pack: {}", e)
+        ))?;
+
+    let mut child_stdin = child.stdin.take().ok_or_else(|| {
+        crate::git::error::GitError::ProtocolError("Failed to get stdin".into())
+    })?;
+    let mut child_stdout = child.stdout.take().ok_or_else(|| {
+        crate::git::error::GitError::ProtocolError("Failed to get stdout".into())
+    })?;
+
+    // Pipe SSH channel data to git-upload-pack stdin
+    let input_task = tokio::spawn(async move {
+        let mut buf = [0u8; 65536];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if child_stdin.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        drop(child_stdin);
+    });
+
+    // Pipe git-upload-pack stdout to SSH channel
+    let output_task = tokio::spawn(async move {
+        let mut buf = [0u8; 65536];
+        loop {
+            match child_stdout.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if writer.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                    let _ = writer.flush().await;
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let _ = tokio::join!(input_task, output_task);
+
+    let status = child.wait().await.map_err(|e| {
+        crate::git::error::GitError::ProtocolError(format!("Failed to wait for child: {}", e))
+    })?;
+
+    eprintln!("[GIT-UPLOAD-PACK] Process exited with: {:?}", status);
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(crate::git::error::GitError::ProtocolError(
+            format!("git-upload-pack exited with: {:?}", status)
+        ))
     }
 }
 

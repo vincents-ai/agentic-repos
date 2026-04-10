@@ -105,6 +105,8 @@ impl CommandValidator {
         }
 
         let cleaned = repo_arg.trim_matches('\'').trim_matches('"');
+        // Strip leading slash - git sends paths like '/tenant/repo.git' over SSH
+        let cleaned = cleaned.trim_start_matches('/');
 
         if cleaned.is_empty() {
             return Err(CommandValidationError::EmptyRepository);

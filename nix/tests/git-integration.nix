@@ -28,21 +28,32 @@ let
       testScript = ''
         ${waitForReposMCP}
         ${setupSSHKeys}
+        ${setupGitConfig}
+        ${createTestRepo "tenant1" "auth-test"}
         
-        with subtest("SSH public key authentication succeeds"):
-          result = client.succeed("ssh -o BatchMode=yes -o ConnectTimeout=10 -p 2222 root@server 'echo auth_success'", timeout=30)
-          assert "auth_success" in result, "SSH authentication should succeed"
+        server.succeed("""
+          cd /tmp && \
+          git clone /var/lib/repos-mcp/repositories/tenant1/auth-test.git init-auth && \
+          cd init-auth && \
+          git config user.email 'init@server' && \
+          git config user.name 'Server Init' && \
+          echo 'Auth test' > README.md && \
+          git add README.md && \
+          git commit -m 'Initial commit' && \
+          git branch -M main && \
+          git push origin main
+        """)
+        
+        with subtest("SSH public key authentication succeeds for git clone"):
+          client.succeed("git clone ssh://root@server:2222/tenant1/auth-test.git /tmp/auth-test", timeout=60)
+          client.succeed("test -f /tmp/auth-test/README.md")
         
         with subtest("SSH connection with invalid key is rejected"):
           client.succeed("ssh-keygen -t ed25519 -f /tmp/invalid_key -N '''''' -C 'invalid'")
           client.fail("""
-            ssh -o BatchMode=yes \
-                -o IdentityFile=/tmp/invalid_key \
-                -o PubkeyAuthentication=yes \
-                -o PasswordAuthentication=no \
-                -o ConnectTimeout=10 \
-                -p 2222 root@server 'echo should_fail' 2>&1
-          """, timeout=15)
+            git clone -c core.sshCommand="ssh -o BatchMode=yes -o IdentityFile=/tmp/invalid_key -o ConnectTimeout=10" \
+              ssh://root@server:2222/tenant1/auth-test.git /tmp/auth-fail 2>&1
+          """, timeout=30)
       '';
     }
     {

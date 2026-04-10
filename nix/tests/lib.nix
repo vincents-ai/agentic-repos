@@ -63,15 +63,17 @@ let
   '';
 
   setupSSHKeys = ''
-    server.succeed("mkdir -p /etc/repos-mcp")
-    server.succeed("ssh-keygen -t ed25519 -f /etc/repos-mcp/ssh_host_ed25519_key -N \"\"")
+    server.succeed("mkdir -p /var/lib/repos-mcp")
+    server.succeed("chown repos-mcp:repos-mcp /var/lib/repos-mcp")
 
     client.succeed("mkdir -p /root/.ssh")
     client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
     client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/pubkey.txt")
 
     pubkey = client.succeed("cat /tmp/pubkey.txt").strip()
-    server.succeed(f"printf '%s' \"{pubkey}\" > /etc/repos-mcp/authorized_keys")
+    # repos-mcp format: username:ssh-key-type key-data comment
+    server.succeed(f"printf 'root:%s' \"{pubkey}\" > /var/lib/repos-mcp/authorized_keys")
+    server.succeed("chown repos-mcp:repos-mcp /var/lib/repos-mcp/authorized_keys")
     server.succeed("systemctl restart repos-mcp.service")
     server.wait_for_open_port(2222)
   '';
@@ -79,15 +81,22 @@ let
   setupGitConfig = ''
     client.succeed("git config --global user.name 'Test User'")
     client.succeed("git config --global user.email 'test@example.com'")
+    client.succeed("git config --global safe.directory '*'")
     client.succeed("echo 'Host server' > /root/.ssh/config")
     client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
     client.succeed("echo '  UserKnownHostsFile /dev/null' >> /root/.ssh/config")
     client.succeed("chmod 600 /root/.ssh/config")
+
+    server.succeed("git config --global user.name 'Server User'")
+    server.succeed("git config --global user.email 'server@example.com'")
+    server.succeed("git config --global safe.directory '*'")
   '';
 
   createTestRepo = tenant: name: ''
     server.succeed("mkdir -p /var/lib/repos-mcp/repositories/${tenant}")
-    server.succeed("cd /var/lib/repos-mcp/repositories/${tenant} && git init --bare ${name}.git")
+    server.succeed("chown repos-mcp:repos-mcp /var/lib/repos-mcp/repositories/${tenant}")
+    server.succeed("su -s /bin/sh repos-mcp -c 'cd /var/lib/repos-mcp/repositories/${tenant} && git init --bare ${name}.git'")
+    server.succeed("git config --global --add safe.directory /var/lib/repos-mcp/repositories/${tenant}/${name}.git")
   '';
 
   assertServiceRunning = ''

@@ -1,3 +1,4 @@
+use crate::adp::bootstrap_system_repo;
 use crate::api::ApiServer;
 use crate::config::AppConfig;
 use crate::features::FeatureFlags;
@@ -6,6 +7,7 @@ use crate::storage::local::LocalStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::spawn;
+use tracing::{error, info};
 
 pub struct Server {
     config: Arc<AppConfig>,
@@ -33,24 +35,32 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        println!("Starting repos-mcp server...");
+        info!("Starting repos-mcp server...");
+
+        // Bootstrap the system repo before accepting any connections.
+        // This is idempotent and safe to call on every start.
+        let storage_root = self.git_service.get_storage_root();
+        match bootstrap_system_repo(&storage_root) {
+            Ok(()) => info!("System repo bootstrap OK"),
+            Err(e) => error!("System repo bootstrap failed (non-fatal): {}", e),
+        }
 
         let config = (*self.config).clone();
         let git_service = self.git_service.clone();
         let feature_flags = self.feature_flags.clone();
 
         // Start SSH server in background
-        println!("Starting SSH server on port 2222...");
+        info!("Starting SSH server on port 2222...");
         let ssh_git_service = git_service.clone();
         spawn(async move {
             let ssh_server = SshServer::new(ssh_git_service, None, None);
             if let Err(e) = ssh_server.run().await {
-                eprintln!("SSH server error: {}", e);
+                error!("SSH server error: {}", e);
             }
         });
 
         // Start HTTP API server (blocks until server stops)
-        println!("Starting API server on port {}...", config.server.port);
+        info!("Starting API server on port {}...", config.server.port);
         let lfs_config = config.lfs.clone();
         let api_server = ApiServer::new(git_service.clone(), feature_flags, lfs_config);
 

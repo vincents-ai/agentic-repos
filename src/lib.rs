@@ -1,5 +1,6 @@
 //! repos-mcp - Multi-tenant Git server with SSH protocol support
 
+pub mod adp;
 pub mod api;
 pub mod auth;
 pub mod backup;

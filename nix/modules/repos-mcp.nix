@@ -349,6 +349,7 @@ in
         {
           RUST_LOG = cfg.logging.level;
           REPOS_MCP_CONFIG = "${configFile}";
+          PATH = lib.mkForce (lib.makeBinPath [ pkgs.git pkgs.openssh ] + ":/run/current-system/sw/bin");
         }
         cfg.environment
       ];

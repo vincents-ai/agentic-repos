@@ -35,12 +35,14 @@ pub mod access;
 pub mod bootstrap;
 pub mod config;
 pub mod glob;
+pub mod identity;
 pub mod schema;
 pub mod storage;
 
 pub use access::{AccessConfig, PathRule, Permission, UserEntry};
 pub use bootstrap::bootstrap_system_repo;
 pub use config::{RepoConfig, ServerConfig};
+pub use identity::CallerIdentity;
 pub use schema::{RefSchema, UiHints};
 pub use storage::AdpStore;
 

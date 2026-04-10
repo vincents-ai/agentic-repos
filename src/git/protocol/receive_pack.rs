@@ -3,6 +3,7 @@
 //! Implements the server-side of git-receive-pack for push operations.
 
 use super::packetline::{read_packet, write_data_packet, write_flush_packet, write_text_packet};
+use crate::adp::{CallerIdentity, ACCESS_PREFIX, CONFIG_PREFIX};
 use crate::git::error::{GitError, Result};
 use git2::{Oid, Repository};
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use tracing::{debug, error, info};
 
 pub struct ReceivePackHandler {
     repo_path: PathBuf,
+    caller_identity: Option<CallerIdentity>,
 }
 
 impl ReceivePackHandler {
@@ -18,7 +20,15 @@ impl ReceivePackHandler {
         Repository::open(repo_path)
             .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
 
-        Ok(Self { repo_path: repo_path.to_path_buf() })
+        Ok(Self {
+            repo_path: repo_path.to_path_buf(),
+            caller_identity: None,
+        })
+    }
+
+    pub fn with_caller_identity(mut self, identity: CallerIdentity) -> Self {
+        self.caller_identity = Some(identity);
+        self
     }
 
     pub async fn handle<R, W>(&self, reader: R, writer: W) -> Result<()>
@@ -26,17 +36,28 @@ impl ReceivePackHandler {
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
-        Self::handle_impl(self.repo_path.clone(), reader, writer).await
+        Self::handle_impl(
+            self.repo_path.clone(),
+            reader,
+            writer,
+            self.caller_identity.clone(),
+        )
+        .await
     }
 
-    async fn handle_impl<R, W>(repo_path: std::path::PathBuf, mut reader: R, mut writer: W) -> Result<()>
+    async fn handle_impl<R, W>(
+        repo_path: std::path::PathBuf,
+        mut reader: R,
+        mut writer: W,
+        caller_identity: Option<CallerIdentity>,
+    ) -> Result<()>
     where
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
         info!("Starting receive-pack protocol handler");
 
-        Self::advertise_refs_impl(&repo_path, &mut writer).await?;
+        Self::advertise_refs_impl(&repo_path, &mut writer, caller_identity.as_ref()).await?;
 
         let updates = Self::read_updates_impl(&mut reader).await?;
 
@@ -55,7 +76,11 @@ impl ReceivePackHandler {
         Ok(())
     }
 
-    async fn advertise_refs_impl<W: AsyncWrite + Unpin>(repo_path: &Path, writer: &mut W) -> Result<()> {
+    async fn advertise_refs_impl<W: AsyncWrite + Unpin>(
+        repo_path: &Path,
+        writer: &mut W,
+        caller_identity: Option<&CallerIdentity>,
+    ) -> Result<()> {
         debug!("Advertising references for receive-pack");
 
         let capabilities = vec![
@@ -76,19 +101,30 @@ impl ReceivePackHandler {
 
         // Collect all reference data before async operations to avoid Send issues
         let repo_path_clone2 = repo_path.to_path_buf();
+        let can_see_private = caller_identity
+            .map(|id| id.can_see_private_refs())
+            .unwrap_or(false);
         let ref_data = tokio::task::spawn_blocking(move || -> Result<Vec<(String, Oid)>> {
             let repo_clone = Repository::open(&repo_path_clone2)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
-            let refs = repo_clone.references()
-                .map_err(|e| GitError::ProtocolError(format!("Failed to list references: {}", e)))?;
+            let refs = repo_clone.references().map_err(|e| {
+                GitError::ProtocolError(format!("Failed to list references: {}", e))
+            })?;
 
             let mut results = Vec::new();
             for reference in refs {
-                let reference = reference
-                    .map_err(|e| GitError::ProtocolError(format!("Failed to read reference: {}", e)))?;
+                let reference = reference.map_err(|e| {
+                    GitError::ProtocolError(format!("Failed to read reference: {}", e))
+                })?;
 
                 if let (Some(name), Some(target)) = (reference.name(), reference.target()) {
-                    results.push((name.to_string(), target));
+                    if name.starts_with(ACCESS_PREFIX) || name.starts_with(CONFIG_PREFIX) {
+                        if can_see_private {
+                            results.push((name.to_string(), target));
+                        }
+                    } else {
+                        results.push((name.to_string(), target));
+                    }
                 }
             }
             Ok(results)
@@ -189,7 +225,10 @@ impl ReceivePackHandler {
         Ok(updates)
     }
 
-    async fn receive_packfile_impl<R: AsyncRead + Unpin>(repo_path: &Path, reader: &mut R) -> Result<()> {
+    async fn receive_packfile_impl<R: AsyncRead + Unpin>(
+        repo_path: &Path,
+        reader: &mut R,
+    ) -> Result<()> {
         debug!("Receiving packfile");
 
         let mut packfile_data = Vec::new();
@@ -216,9 +255,10 @@ impl ReceivePackHandler {
 
             let repo_path_clone = repo_path.to_path_buf();
             tokio::task::spawn_blocking(move || -> Result<()> {
-                let repo = Repository::open(&repo_path_clone)
-                    .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
-                
+                let repo = Repository::open(&repo_path_clone).map_err(|e| {
+                    GitError::RepoNotFound(format!("Failed to open repository: {}", e))
+                })?;
+
                 let odb = repo
                     .odb()
                     .map_err(|e| GitError::ProtocolError(format!("Failed to get ODB: {}", e)))?;
@@ -242,7 +282,9 @@ impl ReceivePackHandler {
                 Ok(())
             })
             .await
-            .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
+            .map_err(|e| {
+                GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e))
+            })??;
         }
 
         Ok(())
@@ -250,11 +292,14 @@ impl ReceivePackHandler {
 
     async fn apply_updates_impl(repo_path: &Path, updates: &[RefUpdate]) -> Result<()> {
         let repo_path_clone = repo_path.to_path_buf();
-        let updates_owned: Vec<RefUpdate> = updates.iter().map(|u| RefUpdate {
-            refname: u.refname.clone(),
-            old_oid: u.old_oid,
-            new_oid: u.new_oid,
-        }).collect();
+        let updates_owned: Vec<RefUpdate> = updates
+            .iter()
+            .map(|u| RefUpdate {
+                refname: u.refname.clone(),
+                old_oid: u.old_oid,
+                new_oid: u.new_oid,
+            })
+            .collect();
 
         tokio::task::spawn_blocking(move || -> Result<()> {
             let repo = Repository::open(&repo_path_clone)
@@ -263,8 +308,7 @@ impl ReceivePackHandler {
             for update in &updates_owned {
                 match (&update.old_oid, &update.new_oid) {
                     (_, Some(new_oid)) => {
-                        repo
-                            .reference(&update.refname, *new_oid, true, "push")
+                        repo.reference(&update.refname, *new_oid, true, "push")
                             .map_err(|e| {
                                 GitError::ProtocolError(format!(
                                     "Failed to update ref {}: {}",
@@ -343,9 +387,11 @@ mod tests {
     #[tokio::test]
     async fn test_advertise_refs() {
         let (dir, _repo) = create_test_repo();
-        
+
         let mut output = Vec::new();
-        ReceivePackHandler::advertise_refs_impl(dir.path(), &mut output).await.unwrap();
+        ReceivePackHandler::advertise_refs_impl(dir.path(), &mut output, None)
+            .await
+            .unwrap();
 
         assert!(!output.is_empty());
 

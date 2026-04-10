@@ -1,6 +1,7 @@
 //! Git upload-pack protocol handler
 
 use super::packetline::{read_packet, write_data_packet, write_flush_packet, write_text_packet};
+use crate::adp::{CallerIdentity, ACCESS_PREFIX, CONFIG_PREFIX};
 use crate::git::error::{GitError, Result};
 use git2::{Oid, Repository};
 use std::collections::HashSet;
@@ -10,6 +11,7 @@ use tracing::{debug, info};
 
 pub struct UploadPackHandler {
     repo_path: PathBuf,
+    caller_identity: Option<CallerIdentity>,
 }
 
 impl UploadPackHandler {
@@ -17,7 +19,15 @@ impl UploadPackHandler {
         Repository::open(repo_path)
             .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
 
-        Ok(Self { repo_path: repo_path.to_path_buf() })
+        Ok(Self {
+            repo_path: repo_path.to_path_buf(),
+            caller_identity: None,
+        })
+    }
+
+    pub fn with_caller_identity(mut self, identity: CallerIdentity) -> Self {
+        self.caller_identity = Some(identity);
+        self
     }
 
     pub async fn handle<R, W>(&self, reader: R, writer: W) -> Result<()>
@@ -25,10 +35,21 @@ impl UploadPackHandler {
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
-        Self::handle_impl(self.repo_path.clone(), reader, writer).await
+        Self::handle_impl(
+            self.repo_path.clone(),
+            reader,
+            writer,
+            self.caller_identity.clone(),
+        )
+        .await
     }
 
-    async fn handle_impl<R, W>(repo_path: std::path::PathBuf, mut reader: R, mut writer: W) -> Result<()>
+    async fn handle_impl<R, W>(
+        repo_path: std::path::PathBuf,
+        mut reader: R,
+        mut writer: W,
+        caller_identity: Option<CallerIdentity>,
+    ) -> Result<()>
     where
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
@@ -36,11 +57,15 @@ impl UploadPackHandler {
         info!("Starting upload-pack protocol handler");
         eprintln!("[UPLOAD-PACK] Starting handler");
 
-        Self::advertise_refs_impl(&repo_path, &mut writer).await?;
+        Self::advertise_refs_impl(&repo_path, &mut writer, caller_identity.as_ref()).await?;
         eprintln!("[UPLOAD-PACK] Advertised refs");
 
         let (wants, haves, capabilities) = Self::read_negotiation_impl(&mut reader).await?;
-        eprintln!("[UPLOAD-PACK] Read negotiation: {} wants, capabilities: {:?}", wants.len(), capabilities);
+        eprintln!(
+            "[UPLOAD-PACK] Read negotiation: {} wants, capabilities: {:?}",
+            wants.len(),
+            capabilities
+        );
 
         if wants.is_empty() {
             info!("Client wants nothing, ending connection");
@@ -55,7 +80,11 @@ impl UploadPackHandler {
         Ok(())
     }
 
-    async fn advertise_refs_impl<W: AsyncWrite + Unpin>(repo_path: &Path, writer: &mut W) -> Result<()> {
+    async fn advertise_refs_impl<W: AsyncWrite + Unpin>(
+        repo_path: &Path,
+        writer: &mut W,
+        caller_identity: Option<&CallerIdentity>,
+    ) -> Result<()> {
         debug!("Advertising references");
 
         let repo_path_clone = repo_path.to_path_buf();
@@ -84,20 +113,30 @@ impl UploadPackHandler {
         }
 
         let repo_path_clone2 = repo_path.to_path_buf();
+        let can_see_private = caller_identity
+            .map(|id| id.can_see_private_refs())
+            .unwrap_or(false);
         let ref_data = tokio::task::spawn_blocking(move || -> Result<Vec<(String, Oid)>> {
             let repo = Repository::open(&repo_path_clone2)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
-            let refs = repo
-                .references()
-                .map_err(|e| GitError::ProtocolError(format!("Failed to list references: {}", e)))?;
+            let refs = repo.references().map_err(|e| {
+                GitError::ProtocolError(format!("Failed to list references: {}", e))
+            })?;
 
             let mut results = Vec::new();
             for reference in refs {
-                let reference = reference
-                    .map_err(|e| GitError::ProtocolError(format!("Failed to read reference: {}", e)))?;
+                let reference = reference.map_err(|e| {
+                    GitError::ProtocolError(format!("Failed to read reference: {}", e))
+                })?;
 
                 if let (Some(name), Some(target)) = (reference.name(), reference.target()) {
-                    results.push((name.to_string(), target));
+                    if name.starts_with(ACCESS_PREFIX) || name.starts_with(CONFIG_PREFIX) {
+                        if can_see_private {
+                            results.push((name.to_string(), target));
+                        }
+                    } else {
+                        results.push((name.to_string(), target));
+                    }
                 }
             }
             Ok(results)
@@ -161,7 +200,7 @@ impl UploadPackHandler {
                         Ok(oid) => {
                             eprintln!("[UPLOAD-PACK] Client wants: {}", oid);
                             wants.push(oid);
-                            
+
                             // Parse capabilities from the first want line
                             // Format: "want <sha> cap1 cap2 cap3"
                             if capabilities.is_empty() && parts.len() > 2 {
@@ -196,8 +235,12 @@ impl UploadPackHandler {
             }
         }
 
-        eprintln!("[UPLOAD-PACK] Negotiation complete: {} wants, {} haves, {} capabilities", 
-                  wants.len(), haves.len(), capabilities.len());
+        eprintln!(
+            "[UPLOAD-PACK] Negotiation complete: {} wants, {} haves, {} capabilities",
+            wants.len(),
+            haves.len(),
+            capabilities.len()
+        );
         Ok((wants, haves, capabilities))
     }
 
@@ -218,9 +261,9 @@ impl UploadPackHandler {
         let packfile_data = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
             let repo_clone = Repository::open(&repo_path_clone)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
-            let mut packbuilder = repo_clone
-                .packbuilder()
-                .map_err(|e| GitError::ProtocolError(format!("Failed to create packbuilder: {}", e)))?;
+            let mut packbuilder = repo_clone.packbuilder().map_err(|e| {
+                GitError::ProtocolError(format!("Failed to create packbuilder: {}", e))
+            })?;
 
             let have_set: HashSet<Oid> = haves_owned.iter().copied().collect();
 
@@ -245,8 +288,9 @@ impl UploadPackHandler {
                     })?;
 
                     for oid_result in revwalk {
-                        let oid = oid_result
-                            .map_err(|e| GitError::ProtocolError(format!("Revwalk error: {}", e)))?;
+                        let oid = oid_result.map_err(|e| {
+                            GitError::ProtocolError(format!("Revwalk error: {}", e))
+                        })?;
 
                         if have_set.contains(&oid) {
                             continue;
@@ -272,7 +316,9 @@ impl UploadPackHandler {
                     packfile_data.extend_from_slice(data);
                     true
                 })
-                .map_err(|e| GitError::ProtocolError(format!("Failed to generate packfile: {}", e)))?;
+                .map_err(|e| {
+                    GitError::ProtocolError(format!("Failed to generate packfile: {}", e))
+                })?;
 
             debug!("Generated packfile: {} bytes", packfile_data.len());
             Ok(packfile_data)
@@ -337,9 +383,11 @@ mod tests {
     #[tokio::test]
     async fn test_advertise_refs() {
         let (dir, _repo) = create_test_repo();
-        
+
         let mut output = Vec::new();
-        UploadPackHandler::advertise_refs_impl(dir.path(), &mut output).await.unwrap();
+        UploadPackHandler::advertise_refs_impl(dir.path(), &mut output, None)
+            .await
+            .unwrap();
 
         assert!(!output.is_empty());
 

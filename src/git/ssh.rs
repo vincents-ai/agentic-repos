@@ -86,8 +86,8 @@ impl SshServer {
         }
 
         // Generate new host key
-        let new_key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let new_key =
+            PrivateKey::random(&mut OsRng, Algorithm::Ed25519).map_err(std::io::Error::other)?;
 
         // Save the new key
         if let Err(e) = self.save_host_key(&new_key, key_path).await {
@@ -114,7 +114,7 @@ impl SshServer {
         // Convert key to OpenSSH format
         let openssh_data = key
             .to_openssh(LineEnding::LF)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         // Write to file with restrictive permissions
         fs::write(key_path, openssh_data.as_bytes()).await?;
@@ -547,8 +547,17 @@ impl russh::server::Handler for SshHandler {
                             return Ok(());
                         }
 
+                        // BUGFIX (clone hang): register the channel sender BEFORE sending
+                        // channel_success, so that any client data arriving in data() is
+                        // never dropped due to missing sender.
+                        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+                        {
+                            let mut senders = self.channel_senders.lock().await;
+                            senders.insert(channel, tx);
+                        }
+
                         session.channel_success(channel)?;
-                        eprintln!("[SSH] Channel success sent, spawning upload-pack handler");
+                        debug!("Channel success sent, spawning upload-pack handler");
 
                         // Use native upload-pack protocol handler
                         let handle = session.handle();
@@ -558,35 +567,22 @@ impl russh::server::Handler for SshHandler {
                         let peer_ip = self.peer_ip.clone();
 
                         tokio::spawn(async move {
-                            eprintln!(
-                                "[SSH-SPAWN] Upload-pack task started for channel {}",
-                                channel
-                            );
-                            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                            {
-                                let mut senders = channel_senders.lock().await;
-                                senders.insert(channel, tx);
-                                eprintln!("[SSH-SPAWN] Registered sender for channel {}", channel);
-                            }
-
                             let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
                             let writer = crate::git::ssh_channel::SshChannelWriter::new(
                                 channel,
                                 handle.clone(),
                             );
 
-                            eprintln!(
-                                "[SSH-SPAWN] Starting native upload-pack for {:?}",
-                                repo_path
-                            );
                             let protocol_handler = crate::git::protocol::GitProtocolHandler::new();
                             let result = protocol_handler
                                 .handle_upload_pack(reader, writer, &repo_path)
                                 .await;
-                            eprintln!(
-                                "[SSH-SPAWN] Upload-pack handler completed: {:?}",
-                                result.is_ok()
-                            );
+
+                            // Cleanup: remove sender so data() stops forwarding to closed channel
+                            {
+                                let mut senders = channel_senders.lock().await;
+                                senders.remove(&channel);
+                            }
 
                             match result {
                                 Ok(()) => {
@@ -601,7 +597,6 @@ impl russh::server::Handler for SshHandler {
                             }
                         });
 
-                        eprintln!("[SSH] Spawned upload-pack task, returning from exec_request");
                         return Ok(());
                     }
                     crate::git::command::GitCommand::ReceivePack { repository } => {
@@ -636,8 +631,17 @@ impl russh::server::Handler for SshHandler {
                             return Ok(());
                         }
 
+                        // BUGFIX (clone hang): register the channel sender BEFORE sending
+                        // channel_success to eliminate the race condition where client data
+                        // arrives before the sender is registered.
+                        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+                        {
+                            let mut senders = self.channel_senders.lock().await;
+                            senders.insert(channel, tx);
+                        }
+
                         session.channel_success(channel)?;
-                        eprintln!("[SSH] Channel success sent, spawning receive-pack handler");
+                        debug!("Channel success sent, spawning receive-pack handler");
 
                         // Spawn git protocol handler in separate task so russh can process incoming data
                         let handle = session.handle();
@@ -647,17 +651,6 @@ impl russh::server::Handler for SshHandler {
                         let peer_ip = self.peer_ip.clone();
 
                         tokio::spawn(async move {
-                            eprintln!(
-                                "[SSH-SPAWN] Receive-pack task started for channel {}",
-                                channel
-                            );
-                            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                            {
-                                let mut senders = channel_senders.lock().await;
-                                senders.insert(channel, tx);
-                                eprintln!("[SSH-SPAWN] Registered sender for channel {}, {} channels total", channel, senders.len());
-                            }
-
                             let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
                             let writer = crate::git::ssh_channel::SshChannelWriter::new(
                                 channel,
@@ -665,19 +658,13 @@ impl russh::server::Handler for SshHandler {
                             );
                             let handler = crate::git::protocol::GitProtocolHandler::new();
 
-                            eprintln!("[SSH-SPAWN] Starting receive-pack handler");
                             let result: crate::git::error::Result<()> = handler
                                 .handle_receive_pack(reader, writer, &repo_path)
                                 .await;
-                            eprintln!(
-                                "[SSH-SPAWN] Receive-pack handler completed: {:?}",
-                                result.is_ok()
-                            );
 
                             {
                                 let mut senders = channel_senders.lock().await;
                                 senders.remove(&channel);
-                                eprintln!("[SSH-SPAWN] Removed sender for channel {}", channel);
                             }
 
                             match result {
@@ -686,27 +673,25 @@ impl russh::server::Handler for SshHandler {
                                         "git-receive-pack completed for {} from {}",
                                         repository_name, peer_ip
                                     );
-                                    eprintln!(
-                                        "[SSH-SPAWN] Receive-pack success, sending exit status"
-                                    );
-                                    let _ = handle.exit_status_request(channel, 0);
-                                    let _ = handle.eof(channel);
-                                    let _ = handle.close(channel);
+
+                                    let _ = handle.exit_status_request(channel, 0).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
                                 }
                                 Err(e) => {
                                     error!(
                                         "git-receive-pack failed for {}: {}",
                                         repository_name, e
                                     );
-                                    eprintln!("[SSH-SPAWN] Receive-pack failed: {}", e);
-                                    let _ = handle.exit_status_request(channel, 1);
-                                    let _ = handle.eof(channel);
-                                    let _ = handle.close(channel);
+                                    debug!("Receive-pack failed: {}", e);
+                                    let _ = handle.exit_status_request(channel, 1).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
                                 }
                             }
                         });
 
-                        eprintln!("[SSH] Spawned receive-pack task, returning from exec_request");
+                        debug!("Spawned receive-pack task, returning from exec_request");
                         return Ok(());
                     }
                     crate::git::command::GitCommand::LfsAuthenticate {
@@ -808,13 +793,6 @@ impl russh::server::Handler for SshHandler {
         data: &[u8],
         _session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
-        eprintln!("[SSH-DATA] === CALLBACK INVOKED ===");
-        eprintln!(
-            "[SSH-DATA] Received {} bytes on channel {} from {}",
-            data.len(),
-            channel,
-            self.peer_ip
-        );
         debug!(
             "Received data on channel {}: {} bytes from {}",
             channel,
@@ -823,21 +801,12 @@ impl russh::server::Handler for SshHandler {
         );
 
         let senders = self.channel_senders.lock().await;
-        eprintln!(
-            "[SSH-DATA] Locked senders, {} channels registered",
-            senders.len()
-        );
         if let Some(tx) = senders.get(&channel) {
-            eprintln!(
-                "[SSH-DATA] Found sender for channel {}, forwarding data",
-                channel
-            );
             let _ = tx.send(data.to_vec());
         } else {
-            eprintln!(
-                "[SSH-DATA] No sender for channel {}! Available channels: {:?}",
-                channel,
-                senders.keys().collect::<Vec<_>>()
+            warn!(
+                "No sender for channel {} — data dropped (client sent data before handler ready)",
+                channel
             );
         }
 
@@ -849,10 +818,6 @@ impl russh::server::Handler for SshHandler {
         channel: ChannelId,
         _session: &mut Session,
     ) -> std::result::Result<(), Self::Error> {
-        eprintln!(
-            "[SSH] channel_close called for channel {} from {}",
-            channel, self.peer_ip
-        );
         debug!(
             "Channel {} closed for client from {}",
             channel, self.peer_ip
@@ -870,11 +835,6 @@ impl russh::server::Handler for SshHandler {
 impl Drop for SshHandler {
     fn drop(&mut self) {
         let prev_count = self.connection_count.fetch_sub(1, Ordering::SeqCst);
-        eprintln!(
-            "[SSH] SshHandler dropped for {} (remaining: {})",
-            self.peer_ip,
-            prev_count.saturating_sub(1)
-        );
         info!(
             "SSH connection from {} closed (remaining: {})",
             self.peer_ip,
@@ -904,7 +864,7 @@ impl SshHandler {
         // Write to audit log file if configured
         let audit_path = "/var/log/repos-mcp/auth-audit.log";
         if let Some(parent) = std::path::Path::new(audit_path).parent() {
-            if let Err(_) = tokio::fs::create_dir_all(parent).await {
+            if tokio::fs::create_dir_all(parent).await.is_err() {
                 // If we can't create directory, just log to tracing
                 return Ok(());
             }

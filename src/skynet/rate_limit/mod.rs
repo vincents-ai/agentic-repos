@@ -6,9 +6,9 @@ pub mod token_bucket;
 pub use config::RateLimitConfig;
 pub use token_bucket::TokenBucket;
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// Rate limiter
 pub struct RateLimiter {

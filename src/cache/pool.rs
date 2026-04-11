@@ -15,10 +15,8 @@ pub struct CachePool {
 impl CachePool {
     pub async fn new(config: CacheConfig) -> CacheResult<Self> {
         let mut cfg = DeadpoolConfig::from_url(&config.url);
-        
-        cfg.pool = Some(PoolConfig::new(
-            config.max_connections as usize,
-        ));
+
+        cfg.pool = Some(PoolConfig::new(config.max_connections as usize));
 
         let pool = cfg
             .builder()
@@ -166,7 +164,7 @@ impl CacheConnection {
             .del(&keys)
             .await
             .map_err(|e| CacheError::Operation(format!("DEL failed: {}", e)))?;
-        
+
         debug!(pattern = pattern, count = count, "Cache delete by pattern");
         Ok(count as u64)
     }
@@ -212,7 +210,11 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("INCRBY failed: {}", e)))?;
         Ok(result)
     }
-    pub async fn sadd<K: AsRef<str>, V: AsRef<str>>(&mut self, key: K, member: V) -> CacheResult<bool> {
+    pub async fn sadd<K: AsRef<str>, V: AsRef<str>>(
+        &mut self,
+        key: K,
+        member: V,
+    ) -> CacheResult<bool> {
         let result: i32 = self
             .conn
             .sadd(key.as_ref(), member.as_ref())
@@ -220,7 +222,11 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("SADD failed: {}", e)))?;
         Ok(result > 0)
     }
-    pub async fn sismember<K: AsRef<str>, V: AsRef<str>>(&mut self, key: K, member: V) -> CacheResult<bool> {
+    pub async fn sismember<K: AsRef<str>, V: AsRef<str>>(
+        &mut self,
+        key: K,
+        member: V,
+    ) -> CacheResult<bool> {
         let result: bool = self
             .conn
             .sismember(key.as_ref(), member.as_ref())
@@ -228,7 +234,11 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("SISMEMBER failed: {}", e)))?;
         Ok(result)
     }
-    pub async fn srem<K: AsRef<str>, V: AsRef<str>>(&mut self, key: K, member: V) -> CacheResult<bool> {
+    pub async fn srem<K: AsRef<str>, V: AsRef<str>>(
+        &mut self,
+        key: K,
+        member: V,
+    ) -> CacheResult<bool> {
         let result: i32 = self
             .conn
             .srem(key.as_ref(), member.as_ref())
@@ -277,7 +287,11 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("KEYS failed: {}", e)))?;
         Ok(result)
     }
-    pub async fn hdel<K: AsRef<str>, F: AsRef<str>>(&mut self, key: K, field: F) -> CacheResult<bool> {
+    pub async fn hdel<K: AsRef<str>, F: AsRef<str>>(
+        &mut self,
+        key: K,
+        field: F,
+    ) -> CacheResult<bool> {
         let result: i32 = self
             .conn
             .hdel(key.as_ref(), field.as_ref())
@@ -285,7 +299,10 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("HDEL failed: {}", e)))?;
         Ok(result > 0)
     }
-    pub async fn hgetall<K: AsRef<str>>(&mut self, key: K) -> CacheResult<std::collections::HashMap<String, String>> {
+    pub async fn hgetall<K: AsRef<str>>(
+        &mut self,
+        key: K,
+    ) -> CacheResult<std::collections::HashMap<String, String>> {
         let result: std::collections::HashMap<String, String> = self
             .conn
             .hgetall(key.as_ref())
@@ -293,7 +310,10 @@ impl CacheConnection {
             .map_err(|e| CacheError::Operation(format!("HGETALL failed: {}", e)))?;
         Ok(result)
     }
-    async fn redis_cmd<T: deadpool_redis::redis::FromRedisValue>(&mut self, cmd: &str) -> CacheResult<T> {
+    async fn redis_cmd<T: deadpool_redis::redis::FromRedisValue>(
+        &mut self,
+        cmd: &str,
+    ) -> CacheResult<T> {
         let result = deadpool_redis::redis::cmd(cmd)
             .query_async(&mut self.conn)
             .await

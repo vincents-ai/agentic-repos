@@ -66,15 +66,19 @@ pub async fn setup_test_db() -> Option<Arc<PgPool>> {
         .await
         .expect("Failed to create index idx_lfs_locks_path");
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_lfs_locks_owner ON lfs_locks(tenant, repo, owner_name);")
-        .execute(&pool)
-        .await
-        .expect("Failed to create index idx_lfs_locks_owner");
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_lfs_locks_owner ON lfs_locks(tenant, repo, owner_name);",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create index idx_lfs_locks_owner");
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_lfs_locks_ref ON lfs_locks(tenant, repo, ref_name);")
-        .execute(&pool)
-        .await
-        .expect("Failed to create index idx_lfs_locks_ref");
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_lfs_locks_ref ON lfs_locks(tenant, repo, ref_name);",
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create index idx_lfs_locks_ref");
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_lfs_locks_expires ON lfs_locks(expires_at);")
         .execute(&pool)

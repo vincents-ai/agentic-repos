@@ -3,9 +3,11 @@
 //! Implements the server-side of git-receive-pack for push operations.
 
 use super::packetline::{read_packet, write_data_packet, write_flush_packet, write_text_packet};
-use crate::adp::{CallerIdentity, ACCESS_PREFIX, CONFIG_PREFIX};
+use crate::adp::{CallerIdentity, ACCESS_PREFIX, CONFIG_PREFIX, SECRETS_PREFIX};
 use crate::git::error::{GitError, Result};
-use git2::{Oid, Repository};
+use gix::features::progress;
+use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit};
+use gix::refs::FullName;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, error, info};
@@ -17,7 +19,7 @@ pub struct ReceivePackHandler {
 
 impl ReceivePackHandler {
     pub fn new(repo_path: &Path) -> Result<Self> {
-        Repository::open(repo_path)
+        gix::open(repo_path)
             .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
 
         Ok(Self {
@@ -91,39 +93,46 @@ impl ReceivePackHandler {
         ];
 
         let repo_path_clone1 = repo_path.to_path_buf();
-        let head_target = tokio::task::spawn_blocking(move || -> Result<Option<Oid>> {
-            let repo = Repository::open(&repo_path_clone1)
+        let head_target = tokio::task::spawn_blocking(move || -> Result<Option<gix::ObjectId>> {
+            let repo = gix::open(&repo_path_clone1)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
-            Ok(repo.head().ok().and_then(|h| h.target()))
+            Ok(repo.head_id().ok().map(|id| id.detach()))
         })
         .await
         .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
 
-        // Collect all reference data before async operations to avoid Send issues
         let repo_path_clone2 = repo_path.to_path_buf();
         let can_see_private = caller_identity
             .map(|id| id.can_see_private_refs())
             .unwrap_or(false);
-        let ref_data = tokio::task::spawn_blocking(move || -> Result<Vec<(String, Oid)>> {
-            let repo_clone = Repository::open(&repo_path_clone2)
+        let ref_data = tokio::task::spawn_blocking(move || -> Result<Vec<(String, gix::ObjectId)>> {
+            let repo = gix::open(&repo_path_clone2)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
-            let refs = repo_clone.references().map_err(|e| {
+            let refs_platform = repo.references().map_err(|e| {
                 GitError::ProtocolError(format!("Failed to list references: {}", e))
             })?;
 
             let mut results = Vec::new();
-            for reference in refs {
+            for reference in refs_platform.all().map_err(|e| {
+                GitError::ProtocolError(format!("Failed to iterate references: {}", e))
+            })? {
                 let reference = reference.map_err(|e| {
                     GitError::ProtocolError(format!("Failed to read reference: {}", e))
                 })?;
 
-                if let (Some(name), Some(target)) = (reference.name(), reference.target()) {
-                    if name.starts_with(ACCESS_PREFIX) || name.starts_with(CONFIG_PREFIX) {
-                        if can_see_private {
-                            results.push((name.to_string(), target));
-                        }
+                let name = reference.name().as_bstr().to_string();
+                let target = reference.try_id().map(|id| id.detach());
+
+                if let Some(target_id) = target {
+                    // Strip refs/adp/access/*, refs/adp/config/*, and refs/secrets/* from non-privileged clients
+                    let is_private_ref = name.starts_with(ACCESS_PREFIX) 
+                        || name.starts_with(CONFIG_PREFIX) 
+                        || name.starts_with(SECRETS_PREFIX);
+                    
+                    if is_private_ref && !can_see_private {
+                        // Skip this ref - it's private and client can't see private refs
                     } else {
-                        results.push((name.to_string(), target));
+                        results.push((name, target_id));
                     }
                 }
             }
@@ -142,7 +151,7 @@ impl ReceivePackHandler {
                 String::new()
             };
 
-            let line = format!("{} HEAD{}\n", oid, caps);
+            let line = format!("{} HEAD{}\n", oid.to_hex(), caps);
             write_data_packet(writer, line.as_bytes()).await?;
             first = false;
             count += 1;
@@ -155,7 +164,7 @@ impl ReceivePackHandler {
                 String::new()
             };
 
-            let line = format!("{} {}{}\n", target, name, caps);
+            let line = format!("{} {}{}\n", target.to_hex(), name, caps);
             write_data_packet(writer, line.as_bytes()).await?;
             first = false;
             count += 1;
@@ -198,7 +207,7 @@ impl ReceivePackHandler {
                     if old_oid_str == "0000000000000000000000000000000000000000" {
                         None
                     } else {
-                        Some(Oid::from_str(old_oid_str).map_err(|e| {
+                        Some(gix::ObjectId::from_hex(old_oid_str.as_bytes()).map_err(|e| {
                             GitError::ProtocolError(format!("Invalid old OID: {}", e))
                         })?)
                     };
@@ -207,7 +216,7 @@ impl ReceivePackHandler {
                     if new_oid_str == "0000000000000000000000000000000000000000" {
                         None
                     } else {
-                        Some(Oid::from_str(new_oid_str).map_err(|e| {
+                        Some(gix::ObjectId::from_hex(new_oid_str.as_bytes()).map_err(|e| {
                             GitError::ProtocolError(format!("Invalid new OID: {}", e))
                         })?)
                     };
@@ -245,45 +254,66 @@ impl ReceivePackHandler {
                 let progress = String::from_utf8_lossy(&packet[1..]);
                 debug!("Progress: {}", progress);
             } else if packet[0] == 3 {
-                let error = String::from_utf8_lossy(&packet[1..]);
-                error!("Error: {}", error);
+                let err = String::from_utf8_lossy(&packet[1..]);
+                error!("Error: {}", err);
             }
         }
 
         if !packfile_data.is_empty() {
-            use std::io::Write;
-
             let repo_path_clone = repo_path.to_path_buf();
             tokio::task::spawn_blocking(move || -> Result<()> {
-                let repo = Repository::open(&repo_path_clone).map_err(|e| {
-                    GitError::RepoNotFound(format!("Failed to open repository: {}", e))
+                let pack_dir = repo_path_clone.join("objects").join("pack");
+                std::fs::create_dir_all(&pack_dir).map_err(|e| {
+                    GitError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to create pack directory: {}", e),
+                    ))
                 })?;
 
-                let odb = repo
-                    .odb()
-                    .map_err(|e| GitError::ProtocolError(format!("Failed to get ODB: {}", e)))?;
-
-                let mut packwriter = odb.packwriter().map_err(|e| {
-                    GitError::ProtocolError(format!("Failed to create packwriter: {}", e))
+                let repo = gix::open(&repo_path_clone).map_err(|e| {
+                    GitError::RepoNotFound(format!(
+                        "Failed to open repository: {}",
+                        e
+                    ))
                 })?;
 
-                packwriter
-                    .write_all(&packfile_data)
-                    .map_err(|e| GitError::IoError(e))?;
+                let mut pack_reader = std::io::Cursor::new(&packfile_data);
+                let interrupt = std::sync::atomic::AtomicBool::new(false);
+                let mut prog = progress::Discard;
 
-                packwriter.commit().map_err(|e| {
-                    GitError::ProtocolError(format!("Failed to commit packfile: {}", e))
+                let outcome = gix_pack::Bundle::write_to_directory(
+                    &mut pack_reader,
+                    Some(&pack_dir),
+                    &mut prog,
+                    &interrupt,
+                    Some(&repo),
+                    gix_pack::bundle::write::Options::default(),
+                )
+                .map_err(|e| {
+                    GitError::ProtocolError(format!(
+                        "Failed to write pack: {}",
+                        e
+                    ))
                 })?;
 
                 debug!(
-                    "Received and indexed packfile: {} bytes",
+                    "Received and indexed pack: {} objects, {} bytes",
+                    outcome.index.num_objects,
                     packfile_data.len()
                 );
+
+                if let Some(keep_path) = outcome.keep_path {
+                    let _ = std::fs::remove_file(keep_path);
+                }
+
                 Ok(())
             })
             .await
             .map_err(|e| {
-                GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e))
+                GitError::ProtocolError(format!(
+                    "Failed to spawn blocking task: {}",
+                    e
+                ))
             })??;
         }
 
@@ -302,35 +332,53 @@ impl ReceivePackHandler {
             .collect();
 
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let repo = Repository::open(&repo_path_clone)
+            let repo = gix::open(&repo_path_clone)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
 
             for update in &updates_owned {
+                let ref_name = FullName::try_from(update.refname.as_str()).map_err(|e| {
+                    GitError::ProtocolError(format!(
+                        "Invalid ref name {}: {}",
+                        update.refname, e
+                    ))
+                })?;
+
                 match (&update.old_oid, &update.new_oid) {
                     (_, Some(new_oid)) => {
-                        repo.reference(&update.refname, *new_oid, true, "push")
-                            .map_err(|e| {
-                                GitError::ProtocolError(format!(
-                                    "Failed to update ref {}: {}",
-                                    update.refname, e
-                                ))
-                            })?;
-                        info!("Updated {} to {}", update.refname, new_oid);
-                    }
-                    (Some(_), None) => {
-                        let mut reference = repo.find_reference(&update.refname).map_err(|e| {
+                        repo.edit_reference(RefEdit {
+                            change: Change::Update {
+                                log: LogChange::default(),
+                                expected: PreviousValue::Any,
+                                new: gix::refs::Target::Object(*new_oid),
+                            },
+                            name: ref_name,
+                            deref: false,
+                        })
+                        .map_err(|e| {
                             GitError::ProtocolError(format!(
-                                "Failed to find ref {}: {}",
+                                "Failed to update ref {}: {}",
                                 update.refname, e
                             ))
                         })?;
 
-                        reference.delete().map_err(|e| {
+                        info!("Updated {} to {}", update.refname, new_oid.to_hex());
+                    }
+                    (Some(_), None) => {
+                        repo.edit_reference(RefEdit {
+                            change: Change::Delete {
+                                expected: PreviousValue::MustExist,
+                                log: gix::refs::transaction::RefLog::AndReference,
+                            },
+                            name: ref_name,
+                            deref: false,
+                        })
+                        .map_err(|e| {
                             GitError::ProtocolError(format!(
                                 "Failed to delete ref {}: {}",
                                 update.refname, e
                             ))
                         })?;
+
                         info!("Deleted {}", update.refname);
                     }
                     (None, None) => {
@@ -369,8 +417,8 @@ impl ReceivePackHandler {
 #[derive(Debug, Clone)]
 struct RefUpdate {
     refname: String,
-    old_oid: Option<Oid>,
-    new_oid: Option<Oid>,
+    old_oid: Option<gix::ObjectId>,
+    new_oid: Option<gix::ObjectId>,
 }
 
 #[cfg(test)]
@@ -378,9 +426,9 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn create_test_repo() -> (TempDir, Repository) {
+    fn create_test_repo() -> (TempDir, gix::Repository) {
         let dir = TempDir::new().unwrap();
-        let repo = Repository::init_bare(dir.path()).unwrap();
+        let repo = gix::init_bare(dir.path()).unwrap();
         (dir, repo)
     }
 

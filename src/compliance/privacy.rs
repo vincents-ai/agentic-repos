@@ -101,11 +101,7 @@ impl DataAnonymizer {
         Self { strategies }
     }
 
-    pub fn anonymize(
-        &self,
-        field_type: &str,
-        value: &str,
-    ) -> Result<String, PrivacyError> {
+    pub fn anonymize(&self, field_type: &str, value: &str) -> Result<String, PrivacyError> {
         let strategy = self
             .strategies
             .get(field_type)
@@ -197,10 +193,7 @@ impl AnonymizationStrategy for IpAddressAnonymizer {
         } else {
             let v6_parts: Vec<&str> = value.split(':').collect();
             if v6_parts.len() >= 4 {
-                Ok(format!(
-                    "{}:{}::xxxx",
-                    v6_parts[0], v6_parts[1]
-                ))
+                Ok(format!("{}:{}::xxxx", v6_parts[0], v6_parts[1]))
             } else {
                 Ok("0.0.0.0".to_string())
             }
@@ -272,14 +265,11 @@ impl<S: ComplianceAuditStorage> GdprDataExporter<S> {
 
             if matches!(
                 event.event_type,
-                ComplianceEventType::UserAuthentication
-                    | ComplianceEventType::UserAuthorization
+                ComplianceEventType::UserAuthentication | ComplianceEventType::UserAuthorization
             ) {
                 auth_events.push(if anonymize {
-                    self.anonymizer.anonymize_record(
-                        event_json,
-                        &self.get_anonymization_fields(),
-                    )?
+                    self.anonymizer
+                        .anonymize_record(event_json, &self.get_anonymization_fields())?
                 } else {
                     event_json
                 });
@@ -288,19 +278,15 @@ impl<S: ComplianceAuditStorage> GdprDataExporter<S> {
                 ComplianceEventType::DataAccess | ComplianceEventType::RepositoryAccess
             ) {
                 access_events.push(if anonymize {
-                    self.anonymizer.anonymize_record(
-                        event_json,
-                        &self.get_anonymization_fields(),
-                    )?
+                    self.anonymizer
+                        .anonymize_record(event_json, &self.get_anonymization_fields())?
                 } else {
                     event_json
                 });
             } else {
                 other_events.push(if anonymize {
-                    self.anonymizer.anonymize_record(
-                        event_json,
-                        &self.get_anonymization_fields(),
-                    )?
+                    self.anonymizer
+                        .anonymize_record(event_json, &self.get_anonymization_fields())?
                 } else {
                     event_json
                 });
@@ -397,7 +383,10 @@ impl<S: ComplianceAuditStorage> PrivacyControls<S> {
         tenant_id: &str,
         anonymize: bool,
     ) -> Result<UserDataExport, PrivacyError> {
-        let export = self.exporter.export_user_data(user_id, tenant_id, anonymize).await?;
+        let export = self
+            .exporter
+            .export_user_data(user_id, tenant_id, anonymize)
+            .await?;
 
         let event = ComplianceAuditEvent::new(
             ComplianceEventType::DataExport,
@@ -444,11 +433,7 @@ impl<S: ComplianceAuditStorage> PrivacyControls<S> {
         Ok(request)
     }
 
-    pub fn anonymize_data(
-        &self,
-        field_type: &str,
-        value: &str,
-    ) -> Result<String, PrivacyError> {
+    pub fn anonymize_data(&self, field_type: &str, value: &str) -> Result<String, PrivacyError> {
         self.anonymizer.anonymize(field_type, value)
     }
 
@@ -513,7 +498,9 @@ mod tests {
     fn test_email_anonymization() {
         let anonymizer = DataAnonymizer::new();
 
-        let result = anonymizer.anonymize("email", "test.user@example.com").unwrap();
+        let result = anonymizer
+            .anonymize("email", "test.user@example.com")
+            .unwrap();
         assert!(result.contains('@'));
         assert!(result.contains('*'));
         assert!(result.ends_with("@example.com"));

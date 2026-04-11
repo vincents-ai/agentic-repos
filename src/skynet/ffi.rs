@@ -506,11 +506,11 @@ pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResul
             .and_then(|p| p.parse().ok())
             .unwrap_or(2222);
 
-        let storage_path = std::env::var("REPOS_STORAGE_PATH")
-            .unwrap_or_else(|_| "./repositories".to_string());
+        let storage_path =
+            std::env::var("REPOS_STORAGE_PATH").unwrap_or_else(|_| "./repositories".to_string());
 
-        let host_key_path = std::env::var("REPOS_HOST_KEY_PATH")
-            .unwrap_or_else(|_| "./host_key".to_string());
+        let host_key_path =
+            std::env::var("REPOS_HOST_KEY_PATH").unwrap_or_else(|_| "./host_key".to_string());
 
         let authorized_keys_path = std::env::var("REPOS_AUTHORIZED_KEYS_PATH")
             .unwrap_or_else(|_| "./authorized_keys".to_string());
@@ -962,7 +962,7 @@ pub extern "C" fn plugin_execute_v2(
                 .replace("storage_", "storage.")
                 .replace("health_", "health.")
                 .replace("metrics_", "metrics.");
-            
+
             let plugin: Option<Arc<GitOperationsPlugin>> =
                 PLUGIN.lock().ok().and_then(|g| g.clone());
 

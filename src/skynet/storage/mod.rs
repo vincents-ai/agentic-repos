@@ -7,12 +7,12 @@ pub mod s3;
 pub use interface::{
     global_registry, s3_storage_free_buckets_result, s3_storage_free_object_result,
     s3_storage_free_objects_result, s3_storage_registry_get_default,
-    s3_storage_registry_get_for_tenant, s3_storage_registry_register, s3_storage_registry_unregister,
-    BucketConfig, BucketsResult, HealthResult, ObjectResult, ObjectsResult, RegisteredBackend,
-    S3BackendInfo, S3Capability, S3CompatibleStorageV1, S3StoragePtr, S3StorageRegistry,
-    StorageConfig, StorageResult, StorageResultCode, BoolResult, STORAGE_ALREADY_EXISTS,
-    STORAGE_ERROR, STORAGE_INVALID_CONFIG, STORAGE_NOT_CONNECTED, STORAGE_NOT_FOUND,
-    STORAGE_PERMISSION_DENIED, STORAGE_SUCCESS,
+    s3_storage_registry_get_for_tenant, s3_storage_registry_register,
+    s3_storage_registry_unregister, BoolResult, BucketConfig, BucketsResult, HealthResult,
+    ObjectResult, ObjectsResult, RegisteredBackend, S3BackendInfo, S3Capability,
+    S3CompatibleStorageV1, S3StoragePtr, S3StorageRegistry, StorageConfig, StorageResult,
+    StorageResultCode, STORAGE_ALREADY_EXISTS, STORAGE_ERROR, STORAGE_INVALID_CONFIG,
+    STORAGE_NOT_CONNECTED, STORAGE_NOT_FOUND, STORAGE_PERMISSION_DENIED, STORAGE_SUCCESS,
 };
 pub use local::LocalStorageBackend;
 pub use s3::S3StorageBackend;
@@ -24,10 +24,18 @@ use std::path::PathBuf;
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
     /// Create a repository
-    async fn create_repository(&self, tenant_id: &str, repo_name: &str) -> crate::skynet::error::SkynetPluginResult<()>;
+    async fn create_repository(
+        &self,
+        tenant_id: &str,
+        repo_name: &str,
+    ) -> crate::skynet::error::SkynetPluginResult<()>;
 
     /// Delete a repository
-    async fn delete_repository(&self, tenant_id: &str, repo_name: &str) -> crate::skynet::error::SkynetPluginResult<()>;
+    async fn delete_repository(
+        &self,
+        tenant_id: &str,
+        repo_name: &str,
+    ) -> crate::skynet::error::SkynetPluginResult<()>;
 
     /// Get repository path
     async fn get_repository_path(

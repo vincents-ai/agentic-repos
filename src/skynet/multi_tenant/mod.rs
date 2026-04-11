@@ -30,6 +30,8 @@ impl TenantContext {
 
     /// Check if user has permission
     pub fn has_permission(&self, permission: &Permission) -> bool {
-        self.roles.iter().any(|role| role.has_permission(permission))
+        self.roles
+            .iter()
+            .any(|role| role.has_permission(permission))
     }
 }

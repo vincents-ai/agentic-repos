@@ -13,15 +13,14 @@ use crate::adp::access::AccessConfig;
 use crate::adp::config::ServerConfig;
 use crate::adp::storage::{AdpStore, AdpStoreError};
 use crate::adp::SERVER_CONFIG_REF;
-use git2::Repository;
 use std::path::Path;
 use tracing::{debug, info, warn};
 
 /// Errors produced during bootstrap.
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapError {
-    #[error("git2 error: {0}")]
-    Git(#[from] git2::Error),
+    #[error("gix error: {0}")]
+    Git(String),
 
     #[error("ADP store error: {0}")]
     Store(#[from] AdpStoreError),
@@ -49,7 +48,7 @@ pub fn bootstrap_system_repo(storage_root: &Path) -> Result<()> {
     // Init the bare repo (idempotent — no-op if it already exists)
     if system_repo_path.exists() {
         // Verify it's a valid git repo; if so, skip initialisation
-        match Repository::open(&system_repo_path) {
+        match gix::open(&system_repo_path) {
             Ok(_) => {
                 debug!(
                     "System repo already exists at {:?}, skipping init",
@@ -61,12 +60,13 @@ pub fn bootstrap_system_repo(storage_root: &Path) -> Result<()> {
                     "System repo at {:?} could not be opened ({}), re-initialising",
                     system_repo_path, e
                 );
-                Repository::init_bare(&system_repo_path)?;
+                gix::init_bare(&system_repo_path)
+                    .map_err(|e| BootstrapError::Git(e.to_string()))?;
             }
         }
     } else {
         info!("Bootstrapping system repo at {:?}", system_repo_path);
-        Repository::init_bare(&system_repo_path)?;
+        gix::init_bare(&system_repo_path).map_err(|e| BootstrapError::Git(e.to_string()))?;
     }
 
     // Write default server config if not already present
@@ -104,7 +104,7 @@ mod tests {
 
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
         assert!(system_path.exists());
-        assert!(Repository::open(&system_path).is_ok());
+        assert!(gix::open(&system_path).is_ok());
     }
 
     #[test]

@@ -16,8 +16,8 @@ pub mod git_ops;
 pub mod health;
 pub mod interface;
 pub mod metadata;
-pub mod multi_tenant;
 pub mod monitoring;
+pub mod multi_tenant;
 pub mod rate_limit;
 pub mod ssh_keys;
 pub mod storage;
@@ -25,7 +25,6 @@ pub mod storage;
 pub use error::{SkynetPluginError, SkynetPluginResult};
 pub use interface::{GitOperationsPlugin, PluginResponse};
 pub use metadata::{git_operations_metadata, PluginMetadata};
-
 
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -40,7 +39,7 @@ pub const PLUGIN_NAME: &str = "git-operations";
 pub const PLUGIN_AUTHOR: &str = "Vincents.ai Team";
 
 /// Plugin description
-pub const PLUGIN_DESCRIPTION: &str = 
+pub const PLUGIN_DESCRIPTION: &str =
     "Multi-tenant Git server with SSH authentication, Git LFS support, \
      S3-compatible storage backends, rate limiting, and comprehensive monitoring";
 
@@ -72,10 +71,7 @@ pub async fn init_plugin(
     debug!("Creating Git Operations Plugin instance");
     let plugin = GitOperationsPlugin::new(config).await?;
 
-    info!(
-        "Successfully initialized {} plugin",
-        PLUGIN_NAME
-    );
+    info!("Successfully initialized {} plugin", PLUGIN_NAME);
 
     Ok(Arc::new(plugin))
 }

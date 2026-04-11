@@ -2,7 +2,7 @@
 
 use crate::skynet::error::SkynetPluginResult;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use tracing::{debug, error};
 
 /// SSH public key information
@@ -122,32 +122,26 @@ impl SshKeyManager {
             ));
         }
 
-        let key_data = base64_decode(parts[1])
-            .map_err(|e| {
-                error!("Failed to decode SSH key: {}", e);
-                crate::skynet::error::SkynetPluginError::InvalidSshKey(
-                    format!("Failed to decode key: {}", e),
-                )
-            })?;
+        let key_data = base64_decode(parts[1]).map_err(|e| {
+            error!("Failed to decode SSH key: {}", e);
+            crate::skynet::error::SkynetPluginError::InvalidSshKey(format!(
+                "Failed to decode key: {}",
+                e
+            ))
+        })?;
 
         let mut hasher = Sha256::new();
         hasher.update(&key_data);
         let hash = hasher.finalize();
 
         // Format as OpenSSH fingerprint: SHA256:base64(hash)
-        let fingerprint = format!(
-            "SHA256:{}",
-            base64_encode(&hash)
-                .trim_end_matches('=')
-        );
+        let fingerprint = format!("SHA256:{}", base64_encode(&hash).trim_end_matches('='));
 
         Ok(fingerprint)
     }
 
     /// Create a new SSH key entry
-    pub async fn create_key(
-        request: CreateSshKeyRequest,
-    ) -> SkynetPluginResult<SshKey> {
+    pub async fn create_key(request: CreateSshKeyRequest) -> SkynetPluginResult<SshKey> {
         debug!("Creating SSH key for user: {}", request.user_id);
 
         // Validate public key
@@ -206,10 +200,7 @@ impl SshKeyManager {
     }
 
     /// Update SSH key metadata
-    pub fn update_key(
-        mut key: SshKey,
-        request: UpdateSshKeyRequest,
-    ) -> SkynetPluginResult<SshKey> {
+    pub fn update_key(mut key: SshKey, request: UpdateSshKeyRequest) -> SkynetPluginResult<SshKey> {
         debug!("Updating SSH key: {}", key.id);
 
         if let Some(name) = request.name {
@@ -356,9 +347,7 @@ mod tests {
         assert!(SshKeyManager::is_valid(&key));
 
         // Set expiration to past
-        key.expires_at = Some(
-            (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339()
-        );
+        key.expires_at = Some((chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339());
         assert!(SshKeyManager::is_expired(&key));
         assert!(!SshKeyManager::is_valid(&key));
     }

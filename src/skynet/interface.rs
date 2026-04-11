@@ -16,8 +16,8 @@ use crate::skynet::error::SkynetPluginResult;
 use crate::skynet::metadata::PluginMetadata;
 use crate::skynet::storage::global_registry;
 use crate::skynet::{
-    git_ops::GitOperationService, health::HealthChecker, monitoring::MetricsCollector,
-    PLUGIN_NAME, PLUGIN_VERSION,
+    git_ops::GitOperationService, health::HealthChecker, monitoring::MetricsCollector, PLUGIN_NAME,
+    PLUGIN_VERSION,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,7 +79,11 @@ impl PluginResponse {
     }
 
     /// Create an error response
-    pub fn error(id: impl Into<String>, code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn error(
+        id: impl Into<String>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             result: None,
@@ -176,7 +180,10 @@ impl GitOperationsPlugin {
 
     /// Handle a plugin request
     pub async fn handle_request(&self, request: PluginRequest) -> PluginResponse {
-        debug!("Handling request: method={}, id={}", request.method, request.id);
+        debug!(
+            "Handling request: method={}, id={}",
+            request.method, request.id
+        );
 
         // Record request metric
         self.metrics.record_request(&request.method);
@@ -200,8 +207,12 @@ impl GitOperationsPlugin {
             "storage.delete_bucket" => self.handle_storage_delete_bucket(&request).await,
             "storage.set_tenant_mapping" => self.handle_storage_set_tenant_mapping(&request).await,
             "storage.get_tenant_mapping" => self.handle_storage_get_tenant_mapping(&request).await,
-            "storage.remove_tenant_mapping" => self.handle_storage_remove_tenant_mapping(&request).await,
-            "storage.set_default_backend" => self.handle_storage_set_default_backend(&request).await,
+            "storage.remove_tenant_mapping" => {
+                self.handle_storage_remove_tenant_mapping(&request).await
+            }
+            "storage.set_default_backend" => {
+                self.handle_storage_set_default_backend(&request).await
+            }
 
             // Unknown method
             _ => Err(crate::skynet::error::SkynetPluginError::invalid_request(
@@ -216,7 +227,8 @@ impl GitOperationsPlugin {
                 PluginResponse::success(&request.id, result)
             }
             Err(err) => {
-                self.metrics.record_error(&request.method, &err.error_code());
+                self.metrics
+                    .record_error(&request.method, &err.error_code());
                 error!("Request failed: {}", err);
                 PluginResponse::error(&request.id, &err.error_code(), err.to_string())
             }
@@ -228,14 +240,18 @@ impl GitOperationsPlugin {
         let tenant_id = request
             .tenant_id
             .as_ref()
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required")
+            })?
             .clone();
 
         let repo_name = request
             .params
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("name parameter required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("name parameter required")
+            })?
             .to_string();
 
         self.git_service
@@ -255,14 +271,18 @@ impl GitOperationsPlugin {
         let tenant_id = request
             .tenant_id
             .as_ref()
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required")
+            })?
             .clone();
 
         let repo_name = request
             .params
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("name parameter required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("name parameter required")
+            })?
             .to_string();
 
         self.git_service
@@ -282,7 +302,9 @@ impl GitOperationsPlugin {
         let tenant_id = request
             .tenant_id
             .as_ref()
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required")
+            })?
             .clone();
 
         let repos = self.git_service.list_repositories(&tenant_id).await?;
@@ -297,14 +319,18 @@ impl GitOperationsPlugin {
         let tenant_id = request
             .tenant_id
             .as_ref()
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required")
+            })?
             .clone();
 
         let repo_name = request
             .params
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("name parameter required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("name parameter required")
+            })?
             .to_string();
 
         let info = self
@@ -336,7 +362,10 @@ impl GitOperationsPlugin {
         }))
     }
 
-    async fn handle_storage_list_backends(&self, request: &PluginRequest) -> SkynetPluginResult<Value> {
+    async fn handle_storage_list_backends(
+        &self,
+        request: &PluginRequest,
+    ) -> SkynetPluginResult<Value> {
         let include_details = request
             .params
             .get("include_details")
@@ -365,7 +394,10 @@ impl GitOperationsPlugin {
         }))
     }
 
-    async fn handle_storage_list_buckets(&self, request: &PluginRequest) -> SkynetPluginResult<Value> {
+    async fn handle_storage_list_buckets(
+        &self,
+        request: &PluginRequest,
+    ) -> SkynetPluginResult<Value> {
         let backend_name = request
             .params
             .get("backend_name")
@@ -387,7 +419,11 @@ impl GitOperationsPlugin {
                         let mut names = Vec::new();
                         for ptr in slice {
                             if !ptr.is_null() {
-                                names.push(std::ffi::CStr::from_ptr(*ptr).to_string_lossy().into_owned());
+                                names.push(
+                                    std::ffi::CStr::from_ptr(*ptr)
+                                        .to_string_lossy()
+                                        .into_owned(),
+                                );
                             }
                         }
                         names
@@ -411,12 +447,19 @@ impl GitOperationsPlugin {
         }
     }
 
-    async fn handle_storage_create_bucket(&self, request: &PluginRequest) -> SkynetPluginResult<Value> {
+    async fn handle_storage_create_bucket(
+        &self,
+        request: &PluginRequest,
+    ) -> SkynetPluginResult<Value> {
         let bucket_name = request
             .params
             .get("bucket_name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("bucket_name parameter required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request(
+                    "bucket_name parameter required",
+                )
+            })?
             .to_string();
 
         let backend_name = request
@@ -438,9 +481,13 @@ impl GitOperationsPlugin {
         match backend {
             Some(service) => {
                 let bucket_config = crate::skynet::storage::BucketConfig::default();
-                let bucket_name_cstr = std::ffi::CString::new(bucket_name.clone())
-                    .map_err(|_| crate::skynet::error::SkynetPluginError::invalid_request("Invalid bucket name"))?;
-                
+                let bucket_name_cstr =
+                    std::ffi::CString::new(bucket_name.clone()).map_err(|_| {
+                        crate::skynet::error::SkynetPluginError::invalid_request(
+                            "Invalid bucket name",
+                        )
+                    })?;
+
                 let create_result = (service.create_bucket)(
                     service.context,
                     bucket_name_cstr.as_ptr(),
@@ -454,20 +501,31 @@ impl GitOperationsPlugin {
                         "created_at": chrono::Utc::now().to_rfc3339(),
                     }))
                 } else {
-                    let error_msg = create_result.get_error().unwrap_or("Failed to create bucket".to_string());
+                    let error_msg = create_result
+                        .get_error()
+                        .unwrap_or("Failed to create bucket".to_string());
                     Err(crate::skynet::error::SkynetPluginError::storage(error_msg))
                 }
             }
-            None => Err(crate::skynet::error::SkynetPluginError::storage("No storage backend available")),
+            None => Err(crate::skynet::error::SkynetPluginError::storage(
+                "No storage backend available",
+            )),
         }
     }
 
-    async fn handle_storage_delete_bucket(&self, request: &PluginRequest) -> SkynetPluginResult<Value> {
+    async fn handle_storage_delete_bucket(
+        &self,
+        request: &PluginRequest,
+    ) -> SkynetPluginResult<Value> {
         let bucket_name = request
             .params
             .get("bucket_name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("bucket_name parameter required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request(
+                    "bucket_name parameter required",
+                )
+            })?
             .to_string();
 
         let backend_name = request
@@ -484,9 +542,14 @@ impl GitOperationsPlugin {
 
         match backend {
             Some(service) => {
-                let bucket_name_cstr = std::ffi::CString::new(bucket_name.clone())
-                    .map_err(|_| crate::skynet::error::SkynetPluginError::invalid_request("Invalid bucket name"))?;
-                let delete_result = (service.delete_bucket)(service.context, bucket_name_cstr.as_ptr());
+                let bucket_name_cstr =
+                    std::ffi::CString::new(bucket_name.clone()).map_err(|_| {
+                        crate::skynet::error::SkynetPluginError::invalid_request(
+                            "Invalid bucket name",
+                        )
+                    })?;
+                let delete_result =
+                    (service.delete_bucket)(service.context, bucket_name_cstr.as_ptr());
 
                 if delete_result.is_success() {
                     Ok(json!({
@@ -495,11 +558,15 @@ impl GitOperationsPlugin {
                         "deleted_at": chrono::Utc::now().to_rfc3339(),
                     }))
                 } else {
-                    let error_msg = delete_result.get_error().unwrap_or("Failed to delete bucket".to_string());
+                    let error_msg = delete_result
+                        .get_error()
+                        .unwrap_or("Failed to delete bucket".to_string());
                     Err(crate::skynet::error::SkynetPluginError::storage(error_msg))
                 }
             }
-            None => Err(crate::skynet::error::SkynetPluginError::storage("No storage backend available")),
+            None => Err(crate::skynet::error::SkynetPluginError::storage(
+                "No storage backend available",
+            )),
         }
     }
 
@@ -510,14 +577,20 @@ impl GitOperationsPlugin {
         let tenant_id = request
             .tenant_id
             .as_ref()
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required")
+            })?
             .clone();
 
         let backend_name = request
             .params
             .get("backend_name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("backend_name parameter required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request(
+                    "backend_name parameter required",
+                )
+            })?
             .to_string();
 
         let bucket_prefix = request
@@ -531,7 +604,7 @@ impl GitOperationsPlugin {
 
         if !backend_exists {
             return Err(crate::skynet::error::SkynetPluginError::invalid_request(
-                format!("Storage backend '{}' not found", backend_name)
+                format!("Storage backend '{}' not found", backend_name),
             ));
         }
 
@@ -563,11 +636,13 @@ impl GitOperationsPlugin {
         let tenant_id = request
             .tenant_id
             .as_ref()
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required")
+            })?
             .clone();
 
         let mappings = self.tenant_mappings.read().unwrap();
-        
+
         if let Some(mapping) = mappings.get(&tenant_id) {
             Ok(json!({
                 "tenant_id": mapping.tenant_id,
@@ -587,7 +662,7 @@ impl GitOperationsPlugin {
                     }));
                 }
             }
-            
+
             Ok(json!({
                 "tenant_id": tenant_id,
                 "backend_name": null,
@@ -605,7 +680,9 @@ impl GitOperationsPlugin {
         let tenant_id = request
             .tenant_id
             .as_ref()
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request("tenant_id required")
+            })?
             .clone();
 
         let mut mappings = self.tenant_mappings.write().unwrap().clone();
@@ -631,7 +708,11 @@ impl GitOperationsPlugin {
             .params
             .get("backend_name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::skynet::error::SkynetPluginError::invalid_request("backend_name parameter required"))?
+            .ok_or_else(|| {
+                crate::skynet::error::SkynetPluginError::invalid_request(
+                    "backend_name parameter required",
+                )
+            })?
             .to_string();
 
         let backends = global_registry().list_backends();
@@ -639,7 +720,7 @@ impl GitOperationsPlugin {
 
         if !backend_exists {
             return Err(crate::skynet::error::SkynetPluginError::invalid_request(
-                format!("Storage backend '{}' not found", backend_name)
+                format!("Storage backend '{}' not found", backend_name),
             ));
         }
 

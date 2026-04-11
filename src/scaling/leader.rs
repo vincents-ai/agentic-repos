@@ -61,7 +61,9 @@ impl LeaderElection {
     pub async fn try_become_leader(&self) -> Result<Option<LeaderHandle>, LockError> {
         let lock_key = format!("leader:{}", self.config.cluster_name);
         let options = LockOptions::new(&lock_key)
-            .with_ttl(Duration::from_secs(self.config.leader_election_timeout_secs * 3))
+            .with_ttl(Duration::from_secs(
+                self.config.leader_election_timeout_secs * 3,
+            ))
             .with_retry(Duration::from_millis(50), 1);
 
         match self.distributed_lock.acquire(options).await {
@@ -152,7 +154,6 @@ impl LeaderElection {
             )),
         }
     }
-
 
     pub async fn stop_renewal_task(&self) {
         let mut task = self.renew_task.write().await;

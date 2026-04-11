@@ -14,11 +14,9 @@ pub fn configure_user_routes(cfg: &mut web::ServiceConfig) {
         );
 }
 
-pub async fn list_users(
-    pool: web::Data<sqlx::PgPool>,
-) -> ActixResult<HttpResponse> {
+pub async fn list_users(pool: web::Data<sqlx::PgPool>) -> ActixResult<HttpResponse> {
     let repo = UserRepository::new(pool.get_ref().clone());
-    
+
     match repo.list().await {
         Ok(users) => {
             let api_users: Vec<ApiUser> = users
@@ -31,7 +29,7 @@ pub async fn list_users(
                     repository_count: 0, // TODO: Implement repository counting
                 })
                 .collect();
-            
+
             Ok(HttpResponse::Ok().json(api_users))
         }
         Err(e) => {
@@ -58,7 +56,7 @@ pub async fn create_user(
     }
 
     let repo = UserRepository::new(pool.get_ref().clone());
-    
+
     let create_user = CreateUser {
         username: request.username,
         email: request.email,
@@ -90,7 +88,7 @@ pub async fn get_user(
     let username = path.into_inner();
 
     let repo = UserRepository::new(pool.get_ref().clone());
-    
+
     match repo.get_by_username(&username).await {
         Ok(Some(user)) => {
             let api_user = ApiUser {
@@ -129,7 +127,7 @@ pub async fn update_user(
     }
 
     let repo = UserRepository::new(pool.get_ref().clone());
-    
+
     let update_user = StorageUpdateUser {
         username: username.clone(),
         email: request.email,
@@ -161,11 +159,9 @@ pub async fn delete_user(
 ) -> ActixResult<HttpResponse> {
     let username = path.into_inner();
     let repo = UserRepository::new(pool.get_ref().clone());
-    
+
     match repo.delete(&username).await {
-        Ok(_) => {
-            Ok(HttpResponse::NoContent().finish())
-        }
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(_e) => {
             let error = ApiError::not_found(&format!("User '{}' not found", username));
             Ok(HttpResponse::NotFound().json(error))
@@ -178,9 +174,9 @@ pub async fn list_user_repositories(
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
     let username = path.into_inner();
-    
+
     let repo = UserRepository::new(pool.get_ref().clone());
-    
+
     match repo.get_by_username(&username).await {
         Ok(Some(_user)) => {
             // TODO: Implement repository listing when repository storage is added
@@ -192,7 +188,8 @@ pub async fn list_user_repositories(
             Ok(HttpResponse::NotFound().json(error))
         }
         Err(e) => {
-            let error = ApiError::internal_error(&format!("Failed to list user repositories: {}", e));
+            let error =
+                ApiError::internal_error(&format!("Failed to list user repositories: {}", e));
             Ok(HttpResponse::InternalServerError().json(error))
         }
     }

@@ -37,7 +37,9 @@ impl RedisSessionStore {
     }
 
     fn user_sessions_key(&self, user_id: &str) -> String {
-        CacheKey::user(self.key_prefix(), user_id).with("sessions").to_redis_key()
+        CacheKey::user(self.key_prefix(), user_id)
+            .with("sessions")
+            .to_redis_key()
     }
 
     async fn add_to_user_sessions(&self, user_id: &str, session_id: &Uuid) -> CacheResult<()> {
@@ -71,23 +73,21 @@ impl SessionStore for RedisSessionStore {
         };
 
         match conn.get(&key).await {
-            Ok(Some(json)) => {
-                match serde_json::from_str::<Session>(&json) {
-                    Ok(session) => {
-                        if session.is_expired() {
-                            let _ = conn.delete(&key).await;
-                            None
-                        } else {
-                            debug!("Session cache hit");
-                            Some(session)
-                        }
-                    }
-                    Err(e) => {
-                        debug!("Failed to deserialize session: {}", e);
+            Ok(Some(json)) => match serde_json::from_str::<Session>(&json) {
+                Ok(session) => {
+                    if session.is_expired() {
+                        let _ = conn.delete(&key).await;
                         None
+                    } else {
+                        debug!("Session cache hit");
+                        Some(session)
                     }
                 }
-            }
+                Err(e) => {
+                    debug!("Failed to deserialize session: {}", e);
+                    None
+                }
+            },
             Ok(None) => {
                 debug!("Session cache miss");
                 None
@@ -120,21 +120,30 @@ impl SessionStore for RedisSessionStore {
 
         let remaining = session.remaining_duration();
         // Convert chrono::Duration to std::time::Duration
-        let ttl = remaining.to_std().unwrap_or_else(|_| {
-            StdDuration::from_secs(self.session_duration.num_seconds() as u64)
-        });
+        let ttl = remaining
+            .to_std()
+            .unwrap_or_else(|_| StdDuration::from_secs(self.session_duration.num_seconds() as u64));
         let ttl_secs = ttl.as_secs();
 
-        if let Err(e) = conn.set(&key, &json, StdDuration::from_secs(ttl_secs)).await {
+        if let Err(e) = conn
+            .set(&key, &json, StdDuration::from_secs(ttl_secs))
+            .await
+        {
             debug!("Failed to set session in cache: {}", e);
             return;
         }
 
         if let Some(tenant_id) = &session.tenant_id {
-            let _ = self.add_to_user_sessions(&session.user.provider_user_id, &session.id).await;
-            let _ = self.add_to_user_sessions(&format!("tenant:{}", tenant_id), &session.id).await;
+            let _ = self
+                .add_to_user_sessions(&session.user.provider_user_id, &session.id)
+                .await;
+            let _ = self
+                .add_to_user_sessions(&format!("tenant:{}", tenant_id), &session.id)
+                .await;
         } else {
-            let _ = self.add_to_user_sessions(&session.user.provider_user_id, &session.id).await;
+            let _ = self
+                .add_to_user_sessions(&session.user.provider_user_id, &session.id)
+                .await;
         }
 
         debug!("Session stored in cache");
@@ -143,7 +152,7 @@ impl SessionStore for RedisSessionStore {
     #[instrument(skip(self), fields(session_id = %session_id))]
     async fn delete(&self, session_id: &Uuid) {
         let session = self.get(session_id).await;
-        
+
         let key = self.session_key(session_id);
         let mut conn = match self.pool.get_connection().await {
             Ok(c) => c,
@@ -158,9 +167,13 @@ impl SessionStore for RedisSessionStore {
         }
 
         if let Some(session) = session {
-            let _ = self.remove_from_user_sessions(&session.user.provider_user_id, session_id).await;
+            let _ = self
+                .remove_from_user_sessions(&session.user.provider_user_id, session_id)
+                .await;
             if let Some(tenant_id) = &session.tenant_id {
-                let _ = self.remove_from_user_sessions(&format!("tenant:{}", tenant_id), session_id).await;
+                let _ = self
+                    .remove_from_user_sessions(&format!("tenant:{}", tenant_id), session_id)
+                    .await;
             }
         }
 
@@ -247,12 +260,12 @@ impl RedisSessionStore {
     pub async fn session_count(&self) -> CacheResult<u64> {
         let pattern = format!("{}:session:*", self.key_prefix());
         let mut conn = self.pool.get_connection().await?;
-        
+
         let keys: Vec<String> = conn
             .keys(&pattern)
             .await
             .map_err(|e| crate::cache::CacheError::Operation(format!("KEYS failed: {}", e)))?;
-        
+
         Ok(keys.len() as u64)
     }
 }
@@ -260,7 +273,7 @@ impl RedisSessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::oauth::{OAuthUser, OAuthProvider};
+    use crate::auth::oauth::{OAuthProvider, OAuthUser};
 
     fn _test_user() -> OAuthUser {
         OAuthUser {

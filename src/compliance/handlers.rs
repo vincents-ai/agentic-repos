@@ -6,8 +6,7 @@ use std::sync::Arc;
 use super::audit::{ComplianceAuditStorage, InMemoryComplianceAuditStorage};
 use super::privacy::PrivacyControls;
 use super::reports::{
-    ComplianceReportGenerator, ComplianceReportStorage,
-    InMemoryReportStorage, ReportType,
+    ComplianceReportGenerator, ComplianceReportStorage, InMemoryReportStorage, ReportType,
 };
 use super::retention::{DataRetentionPolicy, DataRetentionService};
 use super::ComplianceConfig;
@@ -106,17 +105,41 @@ pub fn configure_compliance_routes<S: ComplianceAuditStorage + 'static>(
         .route("/reports", web::get().to(list_reports::<S>))
         .route("/reports", web::post().to(generate_report::<S>))
         .route("/reports/{id}", web::get().to(get_report::<S>))
-        .route("/reports/{id}/download", web::get().to(download_report::<S>))
+        .route(
+            "/reports/{id}/download",
+            web::get().to(download_report::<S>),
+        )
         .route("/gdpr/data-export", web::get().to(export_user_data::<S>))
-        .route("/gdpr/data-export", web::post().to(export_user_data_post::<S>))
+        .route(
+            "/gdpr/data-export",
+            web::post().to(export_user_data_post::<S>),
+        )
         .route("/gdpr/data", web::delete().to(delete_user_data::<S>))
-        .route("/retention/policies", web::get().to(list_retention_policies::<S>))
-        .route("/retention/policies", web::post().to(create_retention_policy::<S>))
-        .route("/retention/policies/{id}", web::get().to(get_retention_policy::<S>))
-        .route("/retention/policies/{id}", web::delete().to(delete_retention_policy::<S>))
+        .route(
+            "/retention/policies",
+            web::get().to(list_retention_policies::<S>),
+        )
+        .route(
+            "/retention/policies",
+            web::post().to(create_retention_policy::<S>),
+        )
+        .route(
+            "/retention/policies/{id}",
+            web::get().to(get_retention_policy::<S>),
+        )
+        .route(
+            "/retention/policies/{id}",
+            web::delete().to(delete_retention_policy::<S>),
+        )
         .route("/retention/enforce", web::post().to(enforce_retention::<S>))
-        .route("/retention/enforce-all", web::post().to(enforce_all_retention::<S>))
-        .route("/retention/summary", web::get().to(get_retention_summary::<S>));
+        .route(
+            "/retention/enforce-all",
+            web::post().to(enforce_all_retention::<S>),
+        )
+        .route(
+            "/retention/summary",
+            web::get().to(get_retention_summary::<S>),
+        );
 }
 
 async fn list_reports<S: ComplianceAuditStorage>(
@@ -254,38 +277,34 @@ async fn download_report<S: ComplianceAuditStorage>(
     let format = query.format.as_deref().unwrap_or("json");
 
     match state.report_storage.get(&report_id).await {
-        Ok(Some(report)) => {
-            match format {
-                "csv" => {
-                    match ComplianceReportGenerator::<S>::format_report_as_csv(&report) {
-                        Ok(csv) => HttpResponse::Ok()
-                            .content_type("text/csv")
-                            .insert_header((
-                                "Content-Disposition",
-                                format!(
-                                    "attachment; filename=\"compliance-report-{}.csv\"",
-                                    report_id
-                                ),
-                            ))
-                            .body(csv),
-                        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-                            error: "conversion_failed".to_string(),
-                            message: e.to_string(),
-                        }),
-                    }
-                }
-                _ => HttpResponse::Ok()
-                    .content_type("application/json")
+        Ok(Some(report)) => match format {
+            "csv" => match ComplianceReportGenerator::<S>::format_report_as_csv(&report) {
+                Ok(csv) => HttpResponse::Ok()
+                    .content_type("text/csv")
                     .insert_header((
                         "Content-Disposition",
                         format!(
-                            "attachment; filename=\"compliance-report-{}.json\"",
+                            "attachment; filename=\"compliance-report-{}.csv\"",
                             report_id
                         ),
                     ))
-                    .json(&report),
-            }
-        }
+                    .body(csv),
+                Err(e) => HttpResponse::InternalServerError().json(ApiError {
+                    error: "conversion_failed".to_string(),
+                    message: e.to_string(),
+                }),
+            },
+            _ => HttpResponse::Ok()
+                .content_type("application/json")
+                .insert_header((
+                    "Content-Disposition",
+                    format!(
+                        "attachment; filename=\"compliance-report-{}.json\"",
+                        report_id
+                    ),
+                ))
+                .json(&report),
+        },
         Ok(None) => HttpResponse::NotFound().json(ApiError {
             error: "not_found".to_string(),
             message: format!("Report {} not found", report_id),
@@ -375,7 +394,8 @@ async fn delete_user_data<S: ComplianceAuditStorage>(
         .delete_user_data(
             &body.user_id,
             &tenant,
-            body.anonymize_instead.unwrap_or(state.config.anonymize_on_deletion),
+            body.anonymize_instead
+                .unwrap_or(state.config.anonymize_on_deletion),
         )
         .await
     {
@@ -403,18 +423,19 @@ async fn create_retention_policy<S: ComplianceAuditStorage>(
     state: web::Data<ComplianceState<S>>,
     body: web::Json<CreatePolicyRequest>,
 ) -> HttpResponse {
-    let action = match body.action.to_lowercase().as_str() {
-        "delete" => super::retention::RetentionAction::Delete,
-        "anonymize" => super::retention::RetentionAction::Anonymize,
-        "archive" => super::retention::RetentionAction::Archive,
-        "notify" => super::retention::RetentionAction::Notify,
-        _ => {
-            return HttpResponse::BadRequest().json(ApiError {
+    let action =
+        match body.action.to_lowercase().as_str() {
+            "delete" => super::retention::RetentionAction::Delete,
+            "anonymize" => super::retention::RetentionAction::Anonymize,
+            "archive" => super::retention::RetentionAction::Archive,
+            "notify" => super::retention::RetentionAction::Notify,
+            _ => return HttpResponse::BadRequest().json(ApiError {
                 error: "invalid_action".to_string(),
-                message: "Invalid retention action. Must be one of: delete, anonymize, archive, notify".to_string(),
-            })
-        }
-    };
+                message:
+                    "Invalid retention action. Must be one of: delete, anonymize, archive, notify"
+                        .to_string(),
+            }),
+        };
 
     let policy = DataRetentionPolicy {
         policy_id: uuid::Uuid::new_v4().to_string(),
@@ -553,13 +574,11 @@ mod tests {
         let config = ComplianceConfig::default();
         let state = web::Data::new(ComplianceState::new(config));
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .service(web::scope("/api/v1/compliance").configure(|cfg| {
-                    configure_compliance_routes(cfg, state);
-                })),
-        )
+        let app = test::init_service(App::new().app_data(state.clone()).service(
+            web::scope("/api/v1/compliance").configure(|cfg| {
+                configure_compliance_routes(cfg, state);
+            }),
+        ))
         .await;
 
         let req = test::TestRequest::get()

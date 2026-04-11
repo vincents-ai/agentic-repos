@@ -1,6 +1,4 @@
-use crate::backup::models::{
-    Backup, BackupStatus, BackupType, RestoreRequest, RestoreResult,
-};
+use crate::backup::models::{Backup, BackupStatus, BackupType, RestoreRequest, RestoreResult};
 use crate::backup::service::{BackupError, BackupService};
 use crate::features::FeatureFlags;
 use actix_web::{web, HttpResponse, Result};
@@ -139,10 +137,12 @@ fn error_response(error: BackupError) -> HttpResponse {
             "error": "Invalid backup state",
             "message": error.to_string()
         })),
-        BackupError::Configuration(_) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": "Configuration error",
-            "message": error.to_string()
-        })),
+        BackupError::Configuration(_) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Configuration error",
+                "message": error.to_string()
+            }))
+        }
         _ => HttpResponse::InternalServerError().json(serde_json::json!({
             "error": "Backup operation failed",
             "message": error.to_string()
@@ -176,7 +176,7 @@ pub async fn create_backup(
         Ok(backup) => {
             let backup_id = backup.id;
             let service = Arc::clone(&backup_service.into_inner());
-            
+
             tokio::spawn(async move {
                 if let Err(e) = service.execute_backup(backup_id).await {
                     tracing::error!("Backup {} failed: {}", backup_id, e);

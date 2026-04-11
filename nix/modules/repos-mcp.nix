@@ -168,8 +168,8 @@ in
 
       connectionTimeout = lib.mkOption {
         type = lib.types.int;
-        default = 30;
-        description = "SSH connection timeout in seconds.";
+        default = 300;
+        description = "SSH connection inactivity timeout in seconds.";
       };
 
       authorizedKeysPath = lib.mkOption {

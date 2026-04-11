@@ -12,7 +12,6 @@ pub mod storage;
 
 use crate::git::rate_limit::RateLimitConfig;
 use crate::storage::{StorageBackend, StorageError};
-use git2::{Repository as Git2Repository, RepositoryInitOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -22,7 +21,7 @@ pub enum GitServiceError {
     #[error("Storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("Git error: {0}")]
-    Git(#[from] git2::Error),
+    Git(String),
     #[error("Repository not found: {0}")]
     RepositoryNotFound(String),
     #[error("Repository already exists: {0}")]
@@ -116,9 +115,8 @@ impl GitService {
 
         self.storage.create_directory(&repo_path).await?;
 
-        let mut opts = RepositoryInitOptions::new();
-        opts.bare(true);
-        let _repo = Git2Repository::init_opts(&repo_path, &opts)?;
+        let _repo = gix::init_bare(&repo_path)
+            .map_err(|e| GitServiceError::Git(e.to_string()))?;
 
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -158,18 +156,21 @@ impl GitService {
 
         let size = self.calculate_repository_size(&repo_path).await?;
 
-        let repo = Git2Repository::open_bare(&repo_path)?;
+        let repo = gix::open(&repo_path)
+            .map_err(|e| GitServiceError::RepositoryNotFound(e.to_string()))?;
 
-        let default_branch = match repo.head() {
-            Ok(head) => {
-                if let Some(name) = head.shorthand() {
-                    name.to_string()
-                } else {
-                    "main".to_string()
-                }
-            }
-            Err(_) => "main".to_string(),
-        };
+        let default_branch = repo
+            .head_name()
+            .ok()
+            .and_then(|opt_name| opt_name)
+            .map(|name| {
+                let name_str = name.as_bstr().to_string();
+                name_str
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(&name_str)
+                    .to_string()
+            })
+            .unwrap_or_else(|| "main".to_string());
 
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -266,31 +267,65 @@ impl GitService {
             )));
         }
 
-        let repo = Git2Repository::open_bare(&repo_path)?;
+        let repo = gix::open(&repo_path)
+            .map_err(|e| GitServiceError::RepositoryNotFound(e.to_string()))?;
 
         let mut branches = Vec::new();
 
-        let branch_iter = repo.branches(Some(git2::BranchType::Local))?;
-        for branch_result in branch_iter {
-            let (branch, _branch_type) = branch_result?;
+            let refs_platform = repo
+                .references()
+                .map_err(|e| GitServiceError::Git(e.to_string()))?;
+            let branch_iter = refs_platform
+                .local_branches()
+                .map_err(|e| GitServiceError::Git(e.to_string()))?;
 
-            if let Some(branch_name) = branch.name()? {
-                if let Some(target) = branch.get().target() {
-                    let commit = repo.find_commit(target)?;
+        for reference in branch_iter {
+            let r = reference.map_err(|e| GitServiceError::Git(e.to_string()))?;
+            let name_str = r.inner.name.as_bstr().to_string();
+            let branch_name = name_str
+                .strip_prefix("refs/heads/")
+                .unwrap_or(&name_str)
+                .to_string();
 
-                    let branch_info = BranchInfo {
-                        name: branch_name.to_string(),
-                        commit_sha: target.to_string(),
-                        commit_message: commit.message().unwrap_or("").to_string(),
-                        author: commit.author().name().unwrap_or("Unknown").to_string(),
-                        created_at: chrono::DateTime::from_timestamp(commit.time().seconds(), 0)
-                            .unwrap_or_else(chrono::Utc::now)
-                            .to_rfc3339(),
-                    };
+            let target_id = r
+                .inner
+                .target
+                .try_id()
+                .ok_or_else(|| {
+                    GitServiceError::Git(format!("branch '{}' is symbolic", branch_name))
+                })?
+                .to_owned();
 
-                    branches.push(branch_info);
-                }
-            }
+            let commit = repo
+                .find_commit(target_id)
+                .map_err(|e| GitServiceError::Git(e.to_string()))?;
+
+            let commit_message = commit
+                .message()
+                .map(|m| m.summary().to_string())
+                .unwrap_or_default();
+
+            let author_name = commit
+                .author()
+                .map(|a| a.name.to_string())
+                .unwrap_or_else(|_| "Unknown".to_string());
+
+            let created_at = commit
+                .time()
+                .map(|t| {
+                    chrono::DateTime::from_timestamp(t.seconds, 0)
+                        .unwrap_or_else(chrono::Utc::now)
+                        .to_rfc3339()
+                })
+                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+
+            branches.push(BranchInfo {
+                name: branch_name,
+                commit_sha: target_id.to_hex().to_string(),
+                commit_message,
+                author: author_name,
+                created_at,
+            });
         }
 
         Ok(branches)

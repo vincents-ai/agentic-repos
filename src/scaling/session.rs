@@ -37,8 +37,7 @@ impl SessionConfig {
     }
 
     pub fn touch(&mut self, ttl_secs: u64) {
-        self.expires_at =
-            chrono::Utc::now() + chrono::Duration::seconds(ttl_secs as i64);
+        self.expires_at = chrono::Utc::now() + chrono::Duration::seconds(ttl_secs as i64);
     }
 }
 
@@ -71,7 +70,8 @@ impl SessionAffinity {
 
     pub async fn create_session(&self, session_id: Option<String>) -> SessionConfig {
         let id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let session = SessionConfig::new(id.clone(), self.instance_id.clone(), self.config.ttl_secs);
+        let session =
+            SessionConfig::new(id.clone(), self.instance_id.clone(), self.config.ttl_secs);
 
         let mut sessions = self.sessions.write().await;
         sessions.insert(id, session.clone());
@@ -133,10 +133,9 @@ impl SessionAffinity {
     }
 
     pub fn get_cookie_value(&self, session: &SessionConfig) -> String {
-        format!("{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
-            self.config.cookie_name,
-            session.session_id,
-            self.config.ttl_secs
+        format!(
+            "{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
+            self.config.cookie_name, session.session_id, self.config.ttl_secs
         )
     }
 
@@ -213,7 +212,9 @@ mod tests {
         let config = SessionAffinityConfig::default();
         let affinity = SessionAffinity::new(config, "instance-1".to_string());
 
-        let _session = affinity.create_session(Some("test-session".to_string())).await;
+        let _session = affinity
+            .create_session(Some("test-session".to_string()))
+            .await;
 
         let validated = affinity.validate_session("test-session").await;
         assert!(validated.is_some());
@@ -225,7 +226,9 @@ mod tests {
         let affinity1 = SessionAffinity::new(config.clone(), "instance-1".to_string());
         let affinity2 = SessionAffinity::new(config, "instance-2".to_string());
 
-        let _session = affinity1.create_session(Some("test-session".to_string())).await;
+        let _session = affinity1
+            .create_session(Some("test-session".to_string()))
+            .await;
 
         let validated = affinity2.validate_session("test-session").await;
         assert!(validated.is_none());

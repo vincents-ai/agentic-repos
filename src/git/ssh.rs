@@ -550,7 +550,7 @@ impl russh::server::Handler for SshHandler {
                         session.channel_success(channel)?;
                         eprintln!("[SSH] Channel success sent, spawning upload-pack handler");
 
-                        // Use system git-upload-pack for reliable protocol handling
+                        // Use native upload-pack protocol handler
                         let handle = session.handle();
                         let channel_senders = self.channel_senders.clone();
                         let repo_path = full_path.clone();
@@ -575,8 +575,9 @@ impl russh::server::Handler for SshHandler {
                                 handle.clone(),
                             );
 
-                            eprintln!("[SSH-SPAWN] Starting git-upload-pack for {:?}", repo_path);
-                            let result = run_git_upload_pack(&repo_path, reader, writer).await;
+                            eprintln!("[SSH-SPAWN] Starting native upload-pack for {:?}", repo_path);
+                            let protocol_handler = crate::git::protocol::GitProtocolHandler::new();
+                            let result = protocol_handler.handle_upload_pack(reader, writer, &repo_path).await;
                             eprintln!(
                                 "[SSH-SPAWN] Upload-pack handler completed: {:?}",
                                 result.is_ok()
@@ -928,137 +929,6 @@ impl SshHandler {
     }
 }
 
-/// Run git-upload-pack as a subprocess, piping SSH channel data through it
-async fn run_git_upload_pack<R, W>(
-    repo_path: &std::path::Path,
-    mut reader: R,
-    mut writer: W,
-) -> crate::git::error::Result<()>
-where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::process::Command;
-
-    eprintln!(
-        "[GIT-UPLOAD-PACK] Spawning git-upload-pack for {:?}",
-        repo_path
-    );
-
-    // Ensure absolute path
-    let abs_path = if repo_path.is_relative() {
-        std::env::current_dir().unwrap_or_default().join(repo_path)
-    } else {
-        repo_path.to_path_buf()
-    };
-
-    let mut child = Command::new("git-upload-pack")
-        .arg(&abs_path)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            crate::git::error::GitError::ProtocolError(format!(
-                "Failed to spawn git-upload-pack: {}",
-                e
-            ))
-        })?;
-
-    let mut child_stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| crate::git::error::GitError::ProtocolError("Failed to get stdin".into()))?;
-    let mut child_stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| crate::git::error::GitError::ProtocolError("Failed to get stdout".into()))?;
-    let mut child_stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| crate::git::error::GitError::ProtocolError("Failed to get stderr".into()))?;
-
-    let stderr_task = tokio::spawn(async move {
-        let mut buf = [0u8; 4096];
-        let mut accumulated = String::new();
-        loop {
-            match child_stderr.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    let text = String::from_utf8_lossy(&buf[..n]);
-                    accumulated.push_str(&text);
-                }
-                Err(_) => break,
-            }
-        }
-        if !accumulated.is_empty() {
-            eprintln!("[GIT-UPLOAD-PACK] stderr: {}", accumulated.trim());
-        }
-    });
-
-    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
-
-    let input_task = tokio::spawn(async move {
-        let mut buf = [0u8; 65536];
-        let mut stop = stop_rx;
-        loop {
-            tokio::select! {
-                result = reader.read(&mut buf) => {
-                    match result {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            if child_stdin.write_all(&buf[..n]).await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-                _ = stop.changed() => {
-                    break;
-                }
-            }
-        }
-    });
-
-    let output_task = tokio::spawn(async move {
-        let mut buf = [0u8; 65536];
-        loop {
-            match child_stdout.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    if writer.write_all(&buf[..n]).await.is_err() {
-                        break;
-                    }
-                    let _ = writer.flush().await;
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    let _ = output_task.await;
-    let _ = stderr_task.await;
-
-    let _ = stop_tx.send(true);
-    let _ = input_task.await;
-
-    let status = child.wait().await.map_err(|e| {
-        crate::git::error::GitError::ProtocolError(format!("Failed to wait for child: {}", e))
-    })?;
-
-    eprintln!("[GIT-UPLOAD-PACK] Process exited with: {:?}", status);
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(crate::git::error::GitError::ProtocolError(format!(
-            "git-upload-pack exited with: {:?}",
-            status
-        )))
-    }
-}
 
 #[cfg(test)]
 mod tests {

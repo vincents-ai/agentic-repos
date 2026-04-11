@@ -96,7 +96,10 @@ impl InMemorySessionStore {
 impl SessionStore for InMemorySessionStore {
     async fn get(&self, session_id: &Uuid) -> Option<Session> {
         let sessions = self.sessions.read().await;
-        sessions.get(session_id).filter(|s| !s.is_expired()).cloned()
+        sessions
+            .get(session_id)
+            .filter(|s| !s.is_expired())
+            .cloned()
     }
 
     async fn set(&self, session: Session) {
@@ -189,9 +192,11 @@ impl<S: SessionStore> SessionManager<S> {
 
 impl InMemorySessionStore {
     pub fn session_count(&self) -> usize {
-        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async {
-            let sessions = self.sessions.read().await;
-            sessions.len()
-        }))
-}
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let sessions = self.sessions.read().await;
+                sessions.len()
+            })
+        })
+    }
 }

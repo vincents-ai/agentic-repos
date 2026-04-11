@@ -1,6 +1,6 @@
 use crate::api::models::ApiError;
-use crate::auth::SessionManager;
 use crate::auth::session::InMemorySessionStore;
+use crate::auth::SessionManager;
 use crate::features::FeatureFlags;
 use actix_web::{web, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};

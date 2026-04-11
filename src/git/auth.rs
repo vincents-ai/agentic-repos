@@ -103,7 +103,11 @@ impl AuthorizedKeysManager {
     pub fn is_key_authorized(&self, user: &str, public_key: &PublicKey) -> bool {
         eprintln!("[AUTH] Checking if user '{}' is authorized", user);
         let Some(user_keys) = self.authorized_keys.get(user) else {
-            eprintln!("[AUTH] User '{}' not found in authorized keys. Available users: {:?}", user, self.authorized_keys.keys().collect::<Vec<_>>());
+            eprintln!(
+                "[AUTH] User '{}' not found in authorized keys. Available users: {:?}",
+                user,
+                self.authorized_keys.keys().collect::<Vec<_>>()
+            );
             debug!("User '{}' not found in authorized keys", user);
             return false;
         };
@@ -111,7 +115,10 @@ impl AuthorizedKeysManager {
         let provided_key = match public_key.to_openssh() {
             Ok(key_str) => key_str,
             Err(e) => {
-                eprintln!("[AUTH] Failed to convert public key to OpenSSH format: {}", e);
+                eprintln!(
+                    "[AUTH] Failed to convert public key to OpenSSH format: {}",
+                    e
+                );
                 error!("Failed to convert public key to OpenSSH format: {}", e);
                 return false;
             }
@@ -137,7 +144,7 @@ impl AuthorizedKeysManager {
         eprintln!("[AUTH] Comparing keys:");
         eprintln!("[AUTH]   Provided: '{}'", provided_key);
         eprintln!("[AUTH]   Authorized: '{}'", authorized_key);
-        
+
         let provided_parts: Vec<&str> = provided_key.split_whitespace().collect();
         let authorized_parts: Vec<&str> = authorized_key.split_whitespace().collect();
 
@@ -151,10 +158,10 @@ impl AuthorizedKeysManager {
 
         let key_type_match = provided_parts[0] == authorized_parts[0];
         let key_data_match = provided_parts[1] == authorized_parts[1];
-        
+
         eprintln!("[AUTH]   Key type match: {}", key_type_match);
         eprintln!("[AUTH]   Key data match: {}", key_data_match);
-        
+
         key_type_match && key_data_match
     }
 

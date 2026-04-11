@@ -81,7 +81,7 @@ pub async fn read_packet<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<
 
     let len_str = std::str::from_utf8(&len_buf)
         .map_err(|e| GitError::ProtocolError(format!("Invalid packet length prefix: {}", e)))?;
-    
+
     eprintln!("[PKTLINE] Got length prefix: {:?}", len_str);
 
     let len = u16::from_str_radix(len_str, 16)
@@ -109,7 +109,7 @@ pub async fn read_packet<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<
 
     let data_len = len - 4;
     eprintln!("[PKTLINE] Reading {} bytes of data...", data_len);
-    
+
     if data_len > MAX_PACKET_SIZE {
         return Err(GitError::ProtocolError(format!(
             "Packet too large: {} bytes",

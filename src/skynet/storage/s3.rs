@@ -76,10 +76,11 @@ impl S3StorageBackend {
 
     /// Create from environment variables
     pub fn from_env() -> SkynetPluginResult<Self> {
-        let config = S3StorageConfig::from_env()
-            .ok_or_else(|| SkynetPluginError::ConfigurationError(
-                "Missing S3 configuration in environment variables".to_string()
-            ))?;
+        let config = S3StorageConfig::from_env().ok_or_else(|| {
+            SkynetPluginError::ConfigurationError(
+                "Missing S3 configuration in environment variables".to_string(),
+            )
+        })?;
 
         info!("Initializing S3 storage with endpoint: {}", config.endpoint);
         Ok(Self::new(config))
@@ -117,7 +118,12 @@ impl S3StorageBackend {
             debug!("Checking if bucket '{}' exists", self.config.bucket);
 
             // Try to head the bucket
-            match client.head_bucket().bucket(&self.config.bucket).send().await {
+            match client
+                .head_bucket()
+                .bucket(&self.config.bucket)
+                .send()
+                .await
+            {
                 Ok(_) => {
                     debug!("Bucket '{}' exists", self.config.bucket);
                 }
@@ -130,7 +136,10 @@ impl S3StorageBackend {
                         .send()
                         .await
                         .map_err(|e| {
-                            SkynetPluginError::StorageError(format!("Failed to create bucket: {}", e))
+                            SkynetPluginError::StorageError(format!(
+                                "Failed to create bucket: {}",
+                                e
+                            ))
                         })?;
 
                     info!("Created bucket '{}'", self.config.bucket);
@@ -147,9 +156,9 @@ impl S3StorageBackend {
 
     /// Get the S3 client
     fn client(&self) -> SkynetPluginResult<&Client> {
-        self.client.as_ref().ok_or_else(|| {
-            SkynetPluginError::StorageError("S3 client not initialized".to_string())
-        })
+        self.client
+            .as_ref()
+            .ok_or_else(|| SkynetPluginError::StorageError("S3 client not initialized".to_string()))
     }
 
     /// Generate S3 key for a repository
@@ -165,11 +174,7 @@ impl S3StorageBackend {
 
 #[async_trait]
 impl StorageBackend for S3StorageBackend {
-    async fn create_repository(
-        &self,
-        tenant_id: &str,
-        repo_name: &str,
-    ) -> SkynetPluginResult<()> {
+    async fn create_repository(&self, tenant_id: &str, repo_name: &str) -> SkynetPluginResult<()> {
         let key = self.repo_key(tenant_id, repo_name);
         let client = self.client()?;
 
@@ -189,11 +194,7 @@ impl StorageBackend for S3StorageBackend {
         Ok(())
     }
 
-    async fn delete_repository(
-        &self,
-        tenant_id: &str,
-        repo_name: &str,
-    ) -> SkynetPluginResult<()> {
+    async fn delete_repository(&self, tenant_id: &str, repo_name: &str) -> SkynetPluginResult<()> {
         let prefix = self.repo_key(tenant_id, repo_name);
         let client = self.client()?;
 
@@ -224,7 +225,10 @@ impl StorageBackend for S3StorageBackend {
                         .send()
                         .await
                         .map_err(|e| {
-                            SkynetPluginError::StorageError(format!("Failed to delete object: {}", e))
+                            SkynetPluginError::StorageError(format!(
+                                "Failed to delete object: {}",
+                                e
+                            ))
                         })?;
                 }
             }
@@ -277,11 +281,7 @@ impl StorageBackend for S3StorageBackend {
         Ok(())
     }
 
-    async fn download_lfs_object(
-        &self,
-        tenant_id: &str,
-        oid: &str,
-    ) -> SkynetPluginResult<Vec<u8>> {
+    async fn download_lfs_object(&self, tenant_id: &str, oid: &str) -> SkynetPluginResult<Vec<u8>> {
         let key = self.lfs_key(tenant_id, oid);
         let client = self.client()?;
 

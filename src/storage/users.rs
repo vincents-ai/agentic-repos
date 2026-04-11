@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
-use uuid::Uuid;
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct User {
@@ -33,13 +33,13 @@ pub struct UpdateUser {
 pub enum UserStorageError {
     #[error("User not found: {0}")]
     NotFound(String),
-    
+
     #[error("User already exists: {0}")]
     AlreadyExists(String),
-    
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
-    
+
     #[error("Validation error: {0}")]
     Validation(String),
 }
@@ -146,7 +146,11 @@ impl UserRepository {
         Ok(result)
     }
 
-    pub async fn update(&self, username: &str, update: UpdateUser) -> Result<User, UserStorageError> {
+    pub async fn update(
+        &self,
+        username: &str,
+        update: UpdateUser,
+    ) -> Result<User, UserStorageError> {
         let now = Utc::now();
 
         let row = sqlx::query(

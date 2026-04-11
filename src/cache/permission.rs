@@ -99,7 +99,11 @@ impl PermissionCache {
     }
 
     #[instrument(skip(self), fields(user_id = %user_id, tenant_id = %tenant_id))]
-    pub async fn invalidate_user_permissions(&self, user_id: &str, tenant_id: &str) -> crate::cache::CacheResult<bool> {
+    pub async fn invalidate_user_permissions(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> crate::cache::CacheResult<bool> {
         let key = CacheKey::tenant(self.key_prefix(), tenant_id)
             .with("user")
             .with(user_id)
@@ -114,7 +118,11 @@ impl PermissionCache {
         user_id: &str,
         repository_id: &str,
     ) -> crate::cache::CacheResult<Option<RepositoryPermissionCache>> {
-        let key = CacheKey::permission(self.key_prefix(), user_id, &format!("repo:{}", repository_id));
+        let key = CacheKey::permission(
+            self.key_prefix(),
+            user_id,
+            &format!("repo:{}", repository_id),
+        );
         self.get_json(&key.to_redis_key()).await
     }
 
@@ -125,40 +133,64 @@ impl PermissionCache {
         repository_id: &str,
         permission: &RepositoryPermissionCache,
     ) -> crate::cache::CacheResult<()> {
-        let key = CacheKey::permission(self.key_prefix(), user_id, &format!("repo:{}", repository_id));
+        let key = CacheKey::permission(
+            self.key_prefix(),
+            user_id,
+            &format!("repo:{}", repository_id),
+        );
         let ttl = self.pool.config().permission_ttl();
         self.set_json(&key.to_redis_key(), permission, ttl).await
     }
 
     #[instrument(skip(self), fields(user_id = %user_id, repo_id = %repository_id))]
-    pub async fn invalidate_repo_permission(&self, user_id: &str, repository_id: &str) -> crate::cache::CacheResult<bool> {
-        let key = CacheKey::permission(self.key_prefix(), user_id, &format!("repo:{}", repository_id));
+    pub async fn invalidate_repo_permission(
+        &self,
+        user_id: &str,
+        repository_id: &str,
+    ) -> crate::cache::CacheResult<bool> {
+        let key = CacheKey::permission(
+            self.key_prefix(),
+            user_id,
+            &format!("repo:{}", repository_id),
+        );
         let mut conn = self.pool.get_connection().await?;
         conn.delete(&key.to_redis_key()).await
     }
 
     #[instrument(skip(self), fields(user_id = %user_id))]
-    pub async fn invalidate_all_user_permissions(&self, user_id: &str) -> crate::cache::CacheResult<u64> {
+    pub async fn invalidate_all_user_permissions(
+        &self,
+        user_id: &str,
+    ) -> crate::cache::CacheResult<u64> {
         let pattern = CacheKey::user_pattern(self.key_prefix(), user_id);
         let mut conn = self.pool.get_connection().await?;
         conn.delete_pattern(&pattern).await
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id))]
-    pub async fn invalidate_tenant_permissions(&self, tenant_id: &str) -> crate::cache::CacheResult<u64> {
+    pub async fn invalidate_tenant_permissions(
+        &self,
+        tenant_id: &str,
+    ) -> crate::cache::CacheResult<u64> {
         let pattern = CacheKey::tenant_pattern(self.key_prefix(), tenant_id);
         let mut conn = self.pool.get_connection().await?;
         conn.delete_pattern(&pattern).await
     }
 
     #[instrument(skip(self), fields(repo_id = %repository_id))]
-    pub async fn invalidate_repository_permissions(&self, repository_id: &str) -> crate::cache::CacheResult<u64> {
+    pub async fn invalidate_repository_permissions(
+        &self,
+        repository_id: &str,
+    ) -> crate::cache::CacheResult<u64> {
         let pattern = format!("{}:perm:*:repo:{}*", self.key_prefix(), repository_id);
         let mut conn = self.pool.get_connection().await?;
         conn.delete_pattern(&pattern).await
     }
 
-    async fn get_json<T: for<'de> Deserialize<'de>>(&self, key: &str) -> crate::cache::CacheResult<Option<T>> {
+    async fn get_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> crate::cache::CacheResult<Option<T>> {
         let mut conn = self.pool.get_connection().await?;
         match conn.get(key).await? {
             Some(json) => {
@@ -173,7 +205,12 @@ impl PermissionCache {
         }
     }
 
-    async fn set_json<T: Serialize>(&self, key: &str, value: &T, ttl: std::time::Duration) -> crate::cache::CacheResult<()> {
+    async fn set_json<T: Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: std::time::Duration,
+    ) -> crate::cache::CacheResult<()> {
         let json = serde_json::to_string(value)?;
         let mut conn = self.pool.get_connection().await?;
         conn.set(key, &json, ttl).await
@@ -188,7 +225,7 @@ mod tests {
         let mut perms = HashSet::new();
         perms.insert("read".to_string());
         perms.insert("write".to_string());
-        
+
         let mut roles = HashSet::new();
         roles.insert("developer".to_string());
 
@@ -216,7 +253,7 @@ mod tests {
         let perm = RepositoryPermissionCache::new("user-1".to_string(), "repo-1".to_string())
             .with_read()
             .with_write();
-        
+
         assert!(perm.can_read);
         assert!(perm.can_write);
         assert!(!perm.can_admin);
@@ -224,9 +261,9 @@ mod tests {
 
     #[test]
     fn test_repo_permission_admin() {
-        let perm = RepositoryPermissionCache::new("user-1".to_string(), "repo-1".to_string())
-            .with_admin();
-        
+        let perm =
+            RepositoryPermissionCache::new("user-1".to_string(), "repo-1".to_string()).with_admin();
+
         assert!(perm.can_read);
         assert!(perm.can_write);
         assert!(perm.can_admin);

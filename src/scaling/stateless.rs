@@ -127,7 +127,10 @@ impl<T: Clone + Send + Sync + 'static> DistributedSet<T> {
 
     pub async fn insert(&self, value: T) -> bool {
         let mut set = self.local.write().await;
-        if !set.iter().any(|v| std::mem::discriminant(v) == std::mem::discriminant(&value)) {
+        if !set
+            .iter()
+            .any(|v| std::mem::discriminant(v) == std::mem::discriminant(&value))
+        {
             set.push(value);
             true
         } else {

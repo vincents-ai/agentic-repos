@@ -146,16 +146,14 @@ impl DistributedLock {
             }
         }
 
-        warn!("Failed to acquire lock after {} attempts: {}", options.max_retries, options.key);
+        warn!(
+            "Failed to acquire lock after {} attempts: {}",
+            options.max_retries, options.key
+        );
         Err(LockError::AcquireFailed(options.key.clone()))
     }
 
-    async fn try_redis_set(
-        &self,
-        _key: String,
-        _value: &str,
-        _ttl: Duration,
-    ) -> LockResult<bool> {
+    async fn try_redis_set(&self, _key: String, _value: &str, _ttl: Duration) -> LockResult<bool> {
         Ok(true)
     }
 
@@ -241,13 +239,17 @@ impl DistributedLock {
         Err(LockError::NotHeld)
     }
 
-    pub async fn extend(&self, handle: &mut LockHandle, additional_ttl: Duration) -> LockResult<()> {
+    pub async fn extend(
+        &self,
+        handle: &mut LockHandle,
+        additional_ttl: Duration,
+    ) -> LockResult<()> {
         if handle.is_expired() {
             return Err(LockError::Expired);
         }
 
-        let new_expires_at = handle.expires_at
-            + chrono::Duration::from_std(additional_ttl).unwrap();
+        let new_expires_at =
+            handle.expires_at + chrono::Duration::from_std(additional_ttl).unwrap();
         handle.expires_at = new_expires_at;
 
         debug!(
@@ -259,11 +261,7 @@ impl DistributedLock {
         Ok(())
     }
 
-    pub async fn with_lock<T, F, Fut>(
-        &self,
-        options: LockOptions,
-        f: F,
-    ) -> LockResult<T>
+    pub async fn with_lock<T, F, Fut>(&self, options: LockOptions, f: F) -> LockResult<T>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = T>,
@@ -336,7 +334,9 @@ mod tests {
         let mut handle = lock.acquire(options).await.unwrap();
         let original_expiry = handle.expires_at;
 
-        lock.extend(&mut handle, Duration::from_secs(30)).await.unwrap();
+        lock.extend(&mut handle, Duration::from_secs(30))
+            .await
+            .unwrap();
         assert!(handle.expires_at > original_expiry);
     }
 }

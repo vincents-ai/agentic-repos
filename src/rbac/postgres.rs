@@ -1,7 +1,7 @@
-use async_trait::async_trait;
+use crate::rbac::db_models::{DbRepositoryPermission, DbRole, DbUser};
 use crate::rbac::models::{Permission, RepositoryPermission, Role, User};
 use crate::rbac::storage::{RbacStorage, StorageError};
-use crate::rbac::db_models::{DbUser, DbRole, DbRepositoryPermission};
+use async_trait::async_trait;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -262,7 +262,7 @@ impl RbacStorage for PostgresRbacStorage {
         permission: RepositoryPermission,
     ) -> Result<(), StorageError> {
         let _key = format!("{}:{}", permission.repository_id, permission.user_id);
-        
+
         for perm in &permission.permissions {
             sqlx::query(
                 r#"
@@ -312,20 +312,22 @@ impl RbacStorage for PostgresRbacStorage {
                 Err(_) => continue, // skip unknown permissions
             };
 
-            map.entry(key.clone()).and_modify(|rp| {
-                rp.permissions.insert(perm.clone());
-            }).or_insert_with(|| RepositoryPermission {
-                repository_id: key.0.clone(),
-                user_id: key.1,
-                permissions: {
-                    let mut s = std::collections::HashSet::new();
-                    s.insert(perm.clone());
-                    s
-                },
-                granted_by: r.granted_by,
-                granted_at: r.granted_at,
-                expires_at: None,
-            });
+            map.entry(key.clone())
+                .and_modify(|rp| {
+                    rp.permissions.insert(perm.clone());
+                })
+                .or_insert_with(|| RepositoryPermission {
+                    repository_id: key.0.clone(),
+                    user_id: key.1,
+                    permissions: {
+                        let mut s = std::collections::HashSet::new();
+                        s.insert(perm.clone());
+                        s
+                    },
+                    granted_by: r.granted_by,
+                    granted_at: r.granted_at,
+                    expires_at: None,
+                });
         }
 
         Ok(map.into_iter().map(|(_, v)| v).collect())

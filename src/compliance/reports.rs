@@ -50,7 +50,10 @@ impl std::str::FromStr for ReportType {
             "access_control_audit" | "access_control" => Ok(ReportType::AccessControlAudit),
             "security_incident" | "security" => Ok(ReportType::SecurityIncident),
             "data_retention" | "retention" => Ok(ReportType::DataRetention),
-            _ => Err(ReportError::Generation(format!("Unknown report type: {}", s))),
+            _ => Err(ReportError::Generation(format!(
+                "Unknown report type: {}",
+                s
+            ))),
         }
     }
 }
@@ -756,9 +759,15 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 finding_id: format!("FIND-{}", uuid::Uuid::new_v4()),
                 severity: FindingSeverity::Medium,
                 title: "High number of failed authentication attempts".to_string(),
-                description: format!("{} failed authentication attempts in the reporting period", failed_auth),
+                description: format!(
+                    "{} failed authentication attempts in the reporting period",
+                    failed_auth
+                ),
                 control_reference: "CC6.1".to_string(),
-                remediation: Some("Review authentication logs and consider implementing rate limiting".to_string()),
+                remediation: Some(
+                    "Review authentication logs and consider implementing rate limiting"
+                        .to_string(),
+                ),
                 status: FindingStatus::Open,
             });
         }
@@ -858,7 +867,10 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 name: "User Authentication".to_string(),
                 purpose: "Access control and security".to_string(),
                 legal_basis: LegalBasis::LegitimateInterests,
-                data_categories: vec!["Authentication Data".to_string(), "IP Addresses".to_string()],
+                data_categories: vec![
+                    "Authentication Data".to_string(),
+                    "IP Addresses".to_string(),
+                ],
                 recipients: vec!["Security Team".to_string()],
                 retention_period_days: 365,
             },
@@ -971,11 +983,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown")
                             .to_string(),
-                        assigned_to: event
-                            .actor
-                            .user_id
-                            .clone()
-                            .unwrap_or_default(),
+                        assigned_to: event.actor.user_id.clone().unwrap_or_default(),
                         assigned_by: event
                             .details
                             .get("assigned_by")
@@ -1000,15 +1008,8 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                     permission_changes.push(PermissionChange {
                         change_id: event.id.clone(),
                         changed_at: event.timestamp,
-                        changed_by: event
-                            .actor
-                            .user_id
-                            .clone()
-                            .unwrap_or_default(),
-                        target_user: event
-                            .resource
-                            .resource_id
-                            .clone(),
+                        changed_by: event.actor.user_id.clone().unwrap_or_default(),
+                        target_user: event.resource.resource_id.clone(),
                         change_type: event
                             .details
                             .get("change_type")
@@ -1351,8 +1352,14 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
         csv.push_str(&format!("Report ID,{}\n", report.id));
         csv.push_str(&format!("Report Type,{}\n", report.report_type));
         csv.push_str(&format!("Tenant ID,{}\n", report.tenant_id));
-        csv.push_str(&format!("Generated At,{}\n", report.generated_at.to_rfc3339()));
-        csv.push_str(&format!("Period Start,{}\n", report.period_start.to_rfc3339()));
+        csv.push_str(&format!(
+            "Generated At,{}\n",
+            report.generated_at.to_rfc3339()
+        ));
+        csv.push_str(&format!(
+            "Period Start,{}\n",
+            report.period_start.to_rfc3339()
+        ));
         csv.push_str(&format!("Period End,{}\n", report.period_end.to_rfc3339()));
         csv.push_str(&format!("Status,{:?}\n", report.status));
         csv.push_str(&format!("Summary,{}\n", report.summary));

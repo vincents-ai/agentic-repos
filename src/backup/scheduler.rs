@@ -71,7 +71,7 @@ impl BackupScheduler {
 
     pub async fn remove_schedule(&self, name: &str) -> Result<(), String> {
         let mut jobs = self.jobs.write().await;
-        
+
         if jobs.remove(name).is_some() {
             info!("Removed backup schedule: {}", name);
             Ok(())
@@ -82,7 +82,7 @@ impl BackupScheduler {
 
     pub async fn enable_schedule(&self, name: &str) -> Result<(), String> {
         let mut jobs = self.jobs.write().await;
-        
+
         if let Some(job) = jobs.get_mut(name) {
             job.enabled = true;
             job.next_run = self.calculate_next_run(&job.cron_expression)?;
@@ -95,7 +95,7 @@ impl BackupScheduler {
 
     pub async fn disable_schedule(&self, name: &str) -> Result<(), String> {
         let mut jobs = self.jobs.write().await;
-        
+
         if let Some(job) = jobs.get_mut(name) {
             job.enabled = false;
             job.next_run = None;
@@ -155,9 +155,12 @@ impl BackupScheduler {
                     if let Some(next_run) = job.next_run {
                         if next_run <= chrono::Utc::now() {
                             debug!("Executing scheduled backup: {}", job.name);
-                            
-                            let tenant_id = job.tenant_id.clone().unwrap_or_else(|| "default".to_string());
-                            
+
+                            let tenant_id = job
+                                .tenant_id
+                                .clone()
+                                .unwrap_or_else(|| "default".to_string());
+
                             match backup_service
                                 .create_backup(
                                     job.backup_type.clone(),
@@ -173,7 +176,7 @@ impl BackupScheduler {
                                 Ok(backup) => {
                                     let backup_id = backup.id;
                                     let service = Arc::clone(&backup_service);
-                                    
+
                                     tokio::spawn(async move {
                                         if let Err(e) = service.execute_backup(backup_id).await {
                                             error!("Scheduled backup {} failed: {}", backup_id, e);
@@ -181,8 +184,10 @@ impl BackupScheduler {
                                     });
 
                                     job.last_run = Some(chrono::Utc::now());
-                                    
-                                    if let Ok(next) = BackupScheduler::calculate_next_run_static(&job.cron_expression) {
+
+                                    if let Ok(next) = BackupScheduler::calculate_next_run_static(
+                                        &job.cron_expression,
+                                    ) {
                                         job.next_run = next;
                                     }
 
@@ -215,28 +220,36 @@ impl BackupScheduler {
         *self.running.read().await
     }
 
-    fn calculate_next_run(&self, cron_expression: &str) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+    fn calculate_next_run(
+        &self,
+        cron_expression: &str,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
         Self::calculate_next_run_static(cron_expression)
     }
 
-    fn calculate_next_run_static(cron_expression: &str) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
+    fn calculate_next_run_static(
+        cron_expression: &str,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, String> {
         let parts: Vec<&str> = cron_expression.split_whitespace().collect();
-        
+
         if parts.len() != 5 {
             return Err(format!("Invalid cron expression: {}", cron_expression));
         }
 
         let now = chrono::Utc::now();
         let next = now + chrono::Duration::days(1);
-        
-        debug!("Calculated next run for '{}' as approximately {}", cron_expression, next);
-        
+
+        debug!(
+            "Calculated next run for '{}' as approximately {}",
+            cron_expression, next
+        );
+
         Ok(Some(next))
     }
 
     pub async fn trigger_schedule(&self, name: &str) -> Result<uuid::Uuid, String> {
         let jobs = self.jobs.read().await;
-        
+
         let job = jobs
             .get(name)
             .ok_or_else(|| format!("Schedule not found: {}", name))?;
@@ -245,7 +258,10 @@ impl BackupScheduler {
             return Err(format!("Schedule {} is disabled", name));
         }
 
-        let tenant_id = job.tenant_id.clone().unwrap_or_else(|| "default".to_string());
+        let tenant_id = job
+            .tenant_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
 
         let backup = self
             .backup_service

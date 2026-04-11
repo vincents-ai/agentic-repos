@@ -105,7 +105,8 @@ impl ApiCache {
 
         debug!("API cache miss for {} with params {}", endpoint, params);
         let result = compute().await?;
-        self.set_response_with_ttl(endpoint, params, &result, ttl).await?;
+        self.set_response_with_ttl(endpoint, params, &result, ttl)
+            .await?;
         Ok(result)
     }
 
@@ -115,7 +116,10 @@ impl ApiCache {
         conn.delete_pattern(&pattern).await
     }
 
-    async fn get_json<T: DeserializeOwned>(&self, key: &str) -> crate::cache::CacheResult<Option<T>> {
+    async fn get_json<T: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> crate::cache::CacheResult<Option<T>> {
         let mut conn = self.pool.get_connection().await?;
         match conn.get(key).await? {
             Some(json) => {
@@ -130,7 +134,12 @@ impl ApiCache {
         }
     }
 
-    async fn set_json<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> crate::cache::CacheResult<()> {
+    async fn set_json<T: Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: Duration,
+    ) -> crate::cache::CacheResult<()> {
         let json = serde_json::to_string(value)?;
         let mut conn = self.pool.get_connection().await?;
         conn.set(key, &json, ttl).await

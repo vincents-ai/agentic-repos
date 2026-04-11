@@ -7,9 +7,9 @@ pub mod retention;
 pub use audit::{ComplianceAuditEvent, ComplianceAuditStorage, ComplianceEventType};
 pub use privacy::{DataAnonymizer, GdprDataExporter, PrivacyControls};
 pub use reports::{
-    AccessControlAudit, ComplianceReport, ComplianceReportGenerator,
-    ComplianceReportStorage, DataRetentionReport, GdprDataProcessingReport,
-    ReportFormat, ReportType, SecurityIncidentReport, Soc2ComplianceReport,
+    AccessControlAudit, ComplianceReport, ComplianceReportGenerator, ComplianceReportStorage,
+    DataRetentionReport, GdprDataProcessingReport, ReportFormat, ReportType,
+    SecurityIncidentReport, Soc2ComplianceReport,
 };
 pub use retention::{DataRetentionPolicy, DataRetentionService, RetentionAction};
 

@@ -115,9 +115,7 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
         let policy = policies
             .iter_mut()
             .find(|p| p.policy_id == policy_id)
-            .ok_or_else(|| {
-                RetentionError::Policy(format!("Policy {} not found", policy_id))
-            })?;
+            .ok_or_else(|| RetentionError::Policy(format!("Policy {} not found", policy_id)))?;
 
         if let Some(name) = updates.name {
             policy.name = name;
@@ -139,7 +137,10 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
         Ok(policy.clone())
     }
 
-    pub async fn get_policy(&self, policy_id: &str) -> RetentionResult<Option<DataRetentionPolicy>> {
+    pub async fn get_policy(
+        &self,
+        policy_id: &str,
+    ) -> RetentionResult<Option<DataRetentionPolicy>> {
         let policies = self.policies.read().await;
         Ok(policies.iter().find(|p| p.policy_id == policy_id).cloned())
     }
@@ -166,9 +167,7 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
         let policy = policies
             .iter_mut()
             .find(|p| p.policy_id == policy_id)
-            .ok_or_else(|| {
-                RetentionError::Policy(format!("Policy {} not found", policy_id))
-            })?;
+            .ok_or_else(|| RetentionError::Policy(format!("Policy {} not found", policy_id)))?;
 
         policy.exceptions.push(exception);
         policy.updated_at = Utc::now();
@@ -188,9 +187,7 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
             let policy = policies
                 .iter()
                 .find(|p| p.policy_id == policy_id)
-                .ok_or_else(|| {
-                    RetentionError::Policy(format!("Policy {} not found", policy_id))
-                })?;
+                .ok_or_else(|| RetentionError::Policy(format!("Policy {} not found", policy_id)))?;
 
             if !policy.enabled {
                 return Err(RetentionError::Enforcement(format!(
@@ -235,15 +232,16 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
         };
 
         let mut executions = self.executions.write().await;
-        if let Some(exec) = executions.iter_mut().find(|e| e.execution_id == execution_id) {
+        if let Some(exec) = executions
+            .iter_mut()
+            .find(|e| e.execution_id == execution_id)
+        {
             exec.items_processed = deleted_count;
             exec.items_affected = if dry_run { 0 } else { deleted_count };
             exec.completed_at = Some(Utc::now());
             exec.status = RetentionExecutionStatus::Completed;
-            exec.details.insert(
-                "dry_run".to_string(),
-                serde_json::json!(dry_run),
-            );
+            exec.details
+                .insert("dry_run".to_string(), serde_json::json!(dry_run));
             exec.details.insert(
                 "cutoff_date".to_string(),
                 serde_json::json!(cutoff.to_rfc3339()),
@@ -272,11 +270,7 @@ impl<S: ComplianceAuditStorage> DataRetentionService<S> {
             match result {
                 Ok(execution) => results.push(execution),
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to enforce policy {}: {}",
-                        policy.policy_id,
-                        e
-                    );
+                    tracing::warn!("Failed to enforce policy {}: {}", policy.policy_id, e);
                 }
             }
         }

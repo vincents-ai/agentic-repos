@@ -68,12 +68,14 @@ impl WebhookService {
         &self,
         url: String,
         secret: Option<String>,
+        secret_keys: Vec<String>,
         events: HashSet<WebhookEvent>,
         tenant_id: String,
     ) -> WebhookResult<Webhook> {
         self.validate_url(&url)?;
 
-        let webhook = Webhook::new(url, secret, events, tenant_id);
+        let mut webhook = Webhook::new(url, secret, events, tenant_id);
+        webhook.secret_keys = secret_keys;
         self.storage.create(webhook.clone()).await?;
 
         info!(

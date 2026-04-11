@@ -93,10 +93,8 @@ pub struct ClusterManager {
 
 impl ClusterManager {
     pub fn new(config: ScalingConfig) -> Self {
-        let local_instance = InstanceInfo::new(
-            config.instance_id.clone(),
-            config.cluster_name.clone(),
-        );
+        let local_instance =
+            InstanceInfo::new(config.instance_id.clone(), config.cluster_name.clone());
         let distributed_lock = Arc::new(DistributedLock::new(
             config.redis_url.clone(),
             config.instance_id.clone(),
@@ -244,7 +242,10 @@ impl ClusterManager {
     }
 
     pub async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("Shutting down cluster manager for instance {}", self.config.instance_id);
+        info!(
+            "Shutting down cluster manager for instance {}",
+            self.config.instance_id
+        );
         self.set_local_status(InstanceStatus::ShuttingDown).await;
 
         if let Some(tx) = &self.shutdown_tx {
@@ -264,10 +265,7 @@ impl ClusterManager {
     pub async fn acquire_cluster_lock(
         &self,
         resource: &str,
-    ) -> Result<
-        crate::scaling::lock::LockHandle,
-        crate::scaling::lock::LockError,
-    > {
+    ) -> Result<crate::scaling::lock::LockHandle, crate::scaling::lock::LockError> {
         let key = format!("cluster:{}:{}", self.config.cluster_name, resource);
         let options = LockOptions::new(&key)
             .with_ttl(Duration::from_secs(30))
@@ -299,8 +297,7 @@ mod tests {
 
         assert!(instance.is_healthy(30));
 
-        instance.last_heartbeat =
-            chrono::Utc::now() - chrono::Duration::seconds(60);
+        instance.last_heartbeat = chrono::Utc::now() - chrono::Duration::seconds(60);
         assert!(!instance.is_healthy(30));
     }
 

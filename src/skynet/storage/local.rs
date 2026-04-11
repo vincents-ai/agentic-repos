@@ -1,8 +1,8 @@
 //! Local filesystem storage backend
 
+use super::StorageBackend;
 use async_trait::async_trait;
 use std::path::PathBuf;
-use super::StorageBackend;
 
 /// Local filesystem storage backend
 pub struct LocalStorageBackend {
@@ -39,7 +39,11 @@ impl StorageBackend for LocalStorageBackend {
         tenant_id: &str,
         repo_name: &str,
     ) -> crate::skynet::error::SkynetPluginResult<PathBuf> {
-        Ok(self.base_path.join(tenant_id).join("repos").join(format!("{}.git", repo_name)))
+        Ok(self
+            .base_path
+            .join(tenant_id)
+            .join("repos")
+            .join(format!("{}.git", repo_name)))
     }
 
     async fn upload_lfs_object(

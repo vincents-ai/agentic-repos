@@ -38,54 +38,93 @@ impl LfsObjectCache {
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id, oid = %oid))]
-    pub async fn get_object(&self, tenant_id: &str, oid: &str) -> crate::cache::CacheResult<Option<LfsObjectMetadata>> {
+    pub async fn get_object(
+        &self,
+        tenant_id: &str,
+        oid: &str,
+    ) -> crate::cache::CacheResult<Option<LfsObjectMetadata>> {
         let key = CacheKey::lfs_object(self.key_prefix(), tenant_id, oid).with("meta");
         self.get_json(&key.to_redis_key()).await
     }
 
     #[instrument(skip(self, metadata), fields(tenant_id = %tenant_id, oid = %oid))]
-    pub async fn set_object(&self, tenant_id: &str, oid: &str, metadata: &LfsObjectMetadata) -> crate::cache::CacheResult<()> {
+    pub async fn set_object(
+        &self,
+        tenant_id: &str,
+        oid: &str,
+        metadata: &LfsObjectMetadata,
+    ) -> crate::cache::CacheResult<()> {
         let key = CacheKey::lfs_object(self.key_prefix(), tenant_id, oid).with("meta");
         let ttl = self.pool.config().lfs_object_ttl();
         self.set_json(&key.to_redis_key(), metadata, ttl).await
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id, oid = %oid))]
-    pub async fn object_exists(&self, tenant_id: &str, oid: &str) -> crate::cache::CacheResult<Option<LfsObjectExists>> {
+    pub async fn object_exists(
+        &self,
+        tenant_id: &str,
+        oid: &str,
+    ) -> crate::cache::CacheResult<Option<LfsObjectExists>> {
         let key = CacheKey::lfs_object(self.key_prefix(), tenant_id, oid).with("exists");
         self.get_json(&key.to_redis_key()).await
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id, oid = %oid))]
-    pub async fn set_object_exists(&self, tenant_id: &str, oid: &str, exists: &LfsObjectExists) -> crate::cache::CacheResult<()> {
+    pub async fn set_object_exists(
+        &self,
+        tenant_id: &str,
+        oid: &str,
+        exists: &LfsObjectExists,
+    ) -> crate::cache::CacheResult<()> {
         let key = CacheKey::lfs_object(self.key_prefix(), tenant_id, oid).with("exists");
         let ttl = self.pool.config().lfs_object_ttl();
         self.set_json(&key.to_redis_key(), exists, ttl).await
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id, oid = %oid))]
-    pub async fn invalidate_object(&self, tenant_id: &str, oid: &str) -> crate::cache::CacheResult<u64> {
+    pub async fn invalidate_object(
+        &self,
+        tenant_id: &str,
+        oid: &str,
+    ) -> crate::cache::CacheResult<u64> {
         let pattern = CacheKey::lfs_object(self.key_prefix(), tenant_id, oid).pattern();
         let mut conn = self.pool.get_connection().await?;
         conn.delete_pattern(&pattern).await
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id))]
-    pub async fn invalidate_tenant_objects(&self, tenant_id: &str) -> crate::cache::CacheResult<u64> {
+    pub async fn invalidate_tenant_objects(
+        &self,
+        tenant_id: &str,
+    ) -> crate::cache::CacheResult<u64> {
         let pattern = format!("{}:lfs:{}:*", self.key_prefix(), tenant_id);
         let mut conn = self.pool.get_connection().await?;
         conn.delete_pattern(&pattern).await
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id, repo_id = %repository_id))]
-    pub async fn invalidate_repository_objects(&self, tenant_id: &str, repository_id: &str) -> crate::cache::CacheResult<u64> {
-        let pattern = format!("{}:lfs:{}:repo:{}:*", self.key_prefix(), tenant_id, repository_id);
+    pub async fn invalidate_repository_objects(
+        &self,
+        tenant_id: &str,
+        repository_id: &str,
+    ) -> crate::cache::CacheResult<u64> {
+        let pattern = format!(
+            "{}:lfs:{}:repo:{}:*",
+            self.key_prefix(),
+            tenant_id,
+            repository_id
+        );
         let mut conn = self.pool.get_connection().await?;
         conn.delete_pattern(&pattern).await
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id))]
-    pub async fn mark_verified(&self, tenant_id: &str, oid: &str, verified_at: &str) -> crate::cache::CacheResult<()> {
+    pub async fn mark_verified(
+        &self,
+        tenant_id: &str,
+        oid: &str,
+        verified_at: &str,
+    ) -> crate::cache::CacheResult<()> {
         if let Some(mut metadata) = self.get_object(tenant_id, oid).await? {
             metadata.verified = true;
             metadata.verified_at = Some(verified_at.to_string());
@@ -94,7 +133,10 @@ impl LfsObjectCache {
         Ok(())
     }
 
-    async fn get_json<T: for<'de> Deserialize<'de>>(&self, key: &str) -> crate::cache::CacheResult<Option<T>> {
+    async fn get_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> crate::cache::CacheResult<Option<T>> {
         let mut conn = self.pool.get_connection().await?;
         match conn.get(key).await? {
             Some(json) => {
@@ -109,7 +151,12 @@ impl LfsObjectCache {
         }
     }
 
-    async fn set_json<T: Serialize>(&self, key: &str, value: &T, ttl: std::time::Duration) -> crate::cache::CacheResult<()> {
+    async fn set_json<T: Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: std::time::Duration,
+    ) -> crate::cache::CacheResult<()> {
         let json = serde_json::to_string(value)?;
         let mut conn = self.pool.get_connection().await?;
         conn.set(key, &json, ttl).await

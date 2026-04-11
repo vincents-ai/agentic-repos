@@ -78,6 +78,11 @@ pub struct Webhook {
     pub id: Uuid,
     pub url: String,
     pub secret: Option<String>,
+    /// Allowed secret keys that this webhook can access for egress.
+    /// If empty, webhook cannot access any secrets.
+    /// If contains "*", webhook can access all secrets.
+    #[serde(default)]
+    pub secret_keys: Vec<String>,
     pub events: HashSet<WebhookEvent>,
     pub tenant_id: String,
     pub active: bool,
@@ -97,6 +102,7 @@ impl Webhook {
             id: Uuid::new_v4(),
             url,
             secret,
+            secret_keys: Vec::new(),
             events,
             tenant_id,
             active: true,
@@ -117,6 +123,21 @@ impl Webhook {
     pub fn deactivate(&mut self) {
         self.active = false;
         self.updated_at = Utc::now();
+    }
+
+    /// Check if this webhook is allowed to access a specific secret key.
+    /// Returns true if the webhook can access the given secret.
+    pub fn can_access_secret(&self, secret_key: &str) -> bool {
+        // If secret_keys is empty, webhook cannot access any secrets
+        if self.secret_keys.is_empty() {
+            return false;
+        }
+        // If secret_keys contains "*", webhook can access all secrets
+        if self.secret_keys.contains(&"*".to_string()) {
+            return true;
+        }
+        // Check if the specific key is in the allowlist
+        self.secret_keys.iter().any(|k| k == secret_key)
     }
 }
 

@@ -1,9 +1,9 @@
+use russh::{server::Handle, ChannelId};
+use std::future::Future;
 use std::io;
 use std::pin::Pin;
-use std::future::Future;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use russh::{ChannelId, server::Handle};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, Mutex};
 
@@ -32,7 +32,7 @@ impl AsyncWrite for SshChannelWriter {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         eprintln!("[SSH-WRITER] poll_write called with {} bytes", buf.len());
-        
+
         if let Some(ref mut fut) = self.pending {
             eprintln!("[SSH-WRITER] polling pending future");
             match fut.as_mut().poll(cx) {
@@ -57,21 +57,27 @@ impl AsyncWrite for SshChannelWriter {
 
             eprintln!("[SSH-WRITER] creating new future for {} bytes", len);
             eprintln!("[SSH-WRITER] data hex: {:02x?}", &buf[..len.min(120)]);
-            eprintln!("[SSH-WRITER] data content: {:?}", String::from_utf8_lossy(&buf[..len.min(100)]));
+            eprintln!(
+                "[SSH-WRITER] data content: {:?}",
+                String::from_utf8_lossy(&buf[..len.min(100)])
+            );
             let mut fut = Box::pin(async move {
                 eprintln!("[SSH-WRITER] inside future, sending data...");
                 match session_handle.data(channel, data).await {
                     Ok(_) => eprintln!("[SSH-WRITER] data sent successfully"),
                     Err(e) => {
                         eprintln!("[SSH-WRITER] FAILED to send SSH data");
-                        eprintln!("[SSH-WRITER] Error type: {}", std::any::type_name_of_val(&e));
+                        eprintln!(
+                            "[SSH-WRITER] Error type: {}",
+                            std::any::type_name_of_val(&e)
+                        );
                         eprintln!("[SSH-WRITER] Error debug: {:?}", e);
                     }
                 }
                 eprintln!("[SSH-WRITER] data sent, waking");
                 waker.wake();
             });
-            
+
             match fut.as_mut().poll(cx) {
                 Poll::Ready(()) => {
                     eprintln!("[SSH-WRITER] future completed immediately");
@@ -88,7 +94,10 @@ impl AsyncWrite for SshChannelWriter {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        eprintln!("[SSH-WRITER] poll_flush called, pending={:?}", self.pending.is_some());
+        eprintln!(
+            "[SSH-WRITER] poll_flush called, pending={:?}",
+            self.pending.is_some()
+        );
         if let Some(ref mut fut) = self.pending {
             match fut.as_mut().poll(cx) {
                 Poll::Ready(()) => {
@@ -136,8 +145,11 @@ impl AsyncRead for SshChannelReader {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        eprintln!("[SSH-READER] poll_read called, buffer remaining={}", buf.remaining());
-        
+        eprintln!(
+            "[SSH-READER] poll_read called, buffer remaining={}",
+            buf.remaining()
+        );
+
         if self.offset < self.buffer.len() {
             let remaining = &self.buffer[self.offset..];
             let to_copy = remaining.len().min(buf.remaining());

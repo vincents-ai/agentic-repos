@@ -103,7 +103,10 @@ impl BackupService {
         backup.start();
         self.storage.update(backup.clone()).await?;
 
-        info!("Starting backup {} for tenant {}", backup.id, backup.tenant_id);
+        info!(
+            "Starting backup {} for tenant {}",
+            backup.id, backup.tenant_id
+        );
 
         let result = match backup.backup_type {
             BackupType::Full => self.execute_full_backup(&mut backup).await,
@@ -169,8 +172,11 @@ impl BackupService {
         let mut backup_data = Vec::new();
 
         for repo_id in &backup.repository_ids {
-            let repo_path = format!("{}/{}/{}.git", self.git_storage_path, backup.tenant_id, repo_id);
-            
+            let repo_path = format!(
+                "{}/{}/{}.git",
+                self.git_storage_path, backup.tenant_id, repo_id
+            );
+
             match self.create_git_bundle(&repo_path, repo_id).await {
                 Ok(bundle_data) => {
                     backup_data.extend_from_slice(&bundle_data);
@@ -179,14 +185,17 @@ impl BackupService {
                         format!("repo_{}_size", repo_id),
                         bundle_data.len().to_string(),
                     );
-                    debug!("Backed up repository {} ({} bytes)", repo_id, bundle_data.len());
+                    debug!(
+                        "Backed up repository {} ({} bytes)",
+                        repo_id,
+                        bundle_data.len()
+                    );
                 }
                 Err(e) => {
                     warn!("Failed to backup repository {}: {}", repo_id, e);
-                    backup.metadata.insert(
-                        format!("repo_{}_error", repo_id),
-                        e.to_string(),
-                    );
+                    backup
+                        .metadata
+                        .insert(format!("repo_{}_error", repo_id), e.to_string());
                 }
             }
         }
@@ -210,12 +219,13 @@ impl BackupService {
             .map_err(|e| BackupError::Git(format!("Failed to open repo {}: {}", repo_id, e)))?;
 
         let mut bundle_data = Vec::new();
-        
+
         // Create a simple archive format by listing references
         // This is a simplified approach since git2 bundle_write may not be available
-        let references = repo.references()
+        let references = repo
+            .references()
             .map_err(|e| BackupError::Git(e.to_string()))?;
-        
+
         for reference in references.flatten() {
             if let Some(name) = reference.shorthand() {
                 if let Some(target) = reference.target() {
@@ -224,10 +234,10 @@ impl BackupService {
                 }
             }
         }
-        
+
         // Add a marker for end of bundle
         bundle_data.extend_from_slice(b"---END-BUNDLE---\n");
-        
+
         if bundle_data.is_empty() {
             return Err(BackupError::Git("No references found".to_string()));
         }
@@ -262,7 +272,9 @@ impl BackupService {
         }
 
         if !backup_data.is_empty() {
-            backup.metadata.insert("lfs_size".to_string(), total_size.to_string());
+            backup
+                .metadata
+                .insert("lfs_size".to_string(), total_size.to_string());
         }
 
         Ok(total_size)
@@ -280,10 +292,12 @@ impl BackupService {
             "repository_ids": backup.repository_ids,
         });
 
-        let data = serde_json::to_vec(&metadata)
-            .map_err(|e| BackupError::BackupFailed(e.to_string()))?;
+        let data =
+            serde_json::to_vec(&metadata).map_err(|e| BackupError::BackupFailed(e.to_string()))?;
 
-        backup.metadata.insert("database_size".to_string(), data.len().to_string());
+        backup
+            .metadata
+            .insert("database_size".to_string(), data.len().to_string());
 
         Ok(data.len() as u64)
     }
@@ -303,7 +317,9 @@ impl BackupService {
         let data = serde_json::to_vec(&config_data)
             .map_err(|e| BackupError::BackupFailed(e.to_string()))?;
 
-        backup.metadata.insert("config_size".to_string(), data.len().to_string());
+        backup
+            .metadata
+            .insert("config_size".to_string(), data.len().to_string());
 
         Ok(data.len() as u64)
     }
@@ -312,9 +328,9 @@ impl BackupService {
         if let Some(path) = &backup.storage_path {
             let data = self.storage.retrieve_backup_data(path).await?;
             let checksum = compute_checksum(&data);
-            
+
             debug!("Backup {} checksum: {}", backup.id, checksum);
-            
+
             Ok(checksum)
         } else {
             Err(BackupError::VerificationFailed(
@@ -398,30 +414,41 @@ impl BackupService {
         if request.dry_run {
             result.status = RestoreStatus::Completed;
             result.completed_at = Some(chrono::Utc::now());
-            result.warnings.push("Dry run - no actual restore performed".to_string());
+            result
+                .warnings
+                .push("Dry run - no actual restore performed".to_string());
             return Ok(result);
         }
 
-        let target_tenant = request.target_tenant_id.as_ref().unwrap_or(&backup.tenant_id);
+        let target_tenant = request
+            .target_tenant_id
+            .as_ref()
+            .unwrap_or(&backup.tenant_id);
 
         match backup.backup_type {
             BackupType::Full => {
-                self.restore_repositories(&backup, target_tenant, &request, &mut result).await;
+                self.restore_repositories(&backup, target_tenant, &request, &mut result)
+                    .await;
                 self.restore_lfs(&backup, target_tenant, &mut result).await;
-                self.restore_database(&backup, target_tenant, &mut result).await;
-                self.restore_config(&backup, target_tenant, &mut result).await;
+                self.restore_database(&backup, target_tenant, &mut result)
+                    .await;
+                self.restore_config(&backup, target_tenant, &mut result)
+                    .await;
             }
             BackupType::Repository => {
-                self.restore_repositories(&backup, target_tenant, &request, &mut result).await;
+                self.restore_repositories(&backup, target_tenant, &request, &mut result)
+                    .await;
             }
             BackupType::LfsObjects => {
                 self.restore_lfs(&backup, target_tenant, &mut result).await;
             }
             BackupType::Database => {
-                self.restore_database(&backup, target_tenant, &mut result).await;
+                self.restore_database(&backup, target_tenant, &mut result)
+                    .await;
             }
             BackupType::Configuration => {
-                self.restore_config(&backup, target_tenant, &mut result).await;
+                self.restore_config(&backup, target_tenant, &mut result)
+                    .await;
             }
         }
 
@@ -468,7 +495,9 @@ impl BackupService {
                     debug!("Restored repository {}", repo_id);
                 }
                 Err(e) => {
-                    result.errors.push(format!("Failed to restore {}: {}", repo_id, e));
+                    result
+                        .errors
+                        .push(format!("Failed to restore {}: {}", repo_id, e));
                     warn!("Failed to restore repository {}: {}", repo_id, e);
                 }
             }
@@ -479,12 +508,7 @@ impl BackupService {
         Ok(())
     }
 
-    async fn restore_lfs(
-        &self,
-        backup: &Backup,
-        _target_tenant: &str,
-        result: &mut RestoreResult,
-    ) {
+    async fn restore_lfs(&self, backup: &Backup, _target_tenant: &str, result: &mut RestoreResult) {
         if backup.include_lfs {
             result.restored_lfs_objects = backup
                 .metadata

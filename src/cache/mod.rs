@@ -1,23 +1,23 @@
+pub mod api;
 pub mod config;
+pub mod invalidation;
 pub mod keys;
+pub mod lfs;
+pub mod permission;
 pub mod pool;
 pub mod repository;
 pub mod session;
-pub mod api;
-pub mod lfs;
-pub mod permission;
-pub mod invalidation;
 
-pub use config::CacheConfig;
 use crate::cache::invalidation::CacheInvalidator;
-pub use keys::CacheKey;
-pub use pool::{CachePool, CacheConnection};
-pub use repository::RepositoryCache;
-pub use session::RedisSessionStore;
 pub use api::ApiCache;
+pub use config::CacheConfig;
+pub use keys::hash_params;
+pub use keys::CacheKey;
 pub use lfs::LfsObjectCache;
 pub use permission::PermissionCache;
-pub use keys::hash_params;
+pub use pool::{CacheConnection, CachePool};
+pub use repository::RepositoryCache;
+pub use session::RedisSessionStore;
 
 use std::sync::Arc;
 use thiserror::Error;
@@ -26,19 +26,19 @@ use thiserror::Error;
 pub enum CacheError {
     #[error("Redis connection error: {0}")]
     Connection(String),
-    
+
     #[error("Redis operation error: {0}")]
     Operation(String),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Cache miss for key: {0}")]
     Miss(String),
-    
+
     #[error("Pool error: {0}")]
     Pool(String),
-    
+
     #[error("Configuration error: {0}")]
     Config(String),
 }
@@ -53,10 +53,7 @@ pub struct CacheLayer {
 
 impl CacheLayer {
     pub fn new(config: CacheConfig) -> Self {
-        Self {
-            pool: None,
-            config,
-        }
+        Self { pool: None, config }
     }
 
     pub fn with_pool(pool: Arc<CachePool>) -> Self {
@@ -94,7 +91,9 @@ impl CacheLayer {
     }
 
     pub fn session_store(&self) -> Option<RedisSessionStore> {
-        self.pool.as_ref().map(|p| RedisSessionStore::new(p.clone()))
+        self.pool
+            .as_ref()
+            .map(|p| RedisSessionStore::new(p.clone()))
     }
 
     pub fn api_cache(&self) -> Option<ApiCache> {

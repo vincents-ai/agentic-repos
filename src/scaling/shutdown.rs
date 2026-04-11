@@ -122,10 +122,7 @@ impl GracefulShutdown {
         }
 
         let drain_timeout = Duration::from_secs(self.timeout_secs / 2);
-        info!(
-            "Waiting up to {:?} for connections to drain",
-            drain_timeout
-        );
+        info!("Waiting up to {:?} for connections to drain", drain_timeout);
 
         let signal = self.signal.clone();
         let _drain_signal = signal.clone();
@@ -181,8 +178,10 @@ impl GracefulShutdown {
             {
                 use tokio::signal::unix::{signal, SignalKind};
 
-                let mut sigterm = signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
-                let mut sigint = signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
+                let mut sigterm =
+                    signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
+                let mut sigint =
+                    signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
 
                 tokio::select! {
                     _ = sigterm.recv() => {
@@ -196,7 +195,9 @@ impl GracefulShutdown {
 
             #[cfg(not(unix))]
             {
-                tokio::signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+                tokio::signal::ctrl_c()
+                    .await
+                    .expect("Failed to install Ctrl+C handler");
                 info!("Received Ctrl+C");
             }
 

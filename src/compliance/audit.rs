@@ -184,7 +184,7 @@ impl ComplianceAuditEvent {
 #[async_trait::async_trait]
 pub trait ComplianceAuditStorage: Send + Sync {
     async fn store(&self, event: ComplianceAuditEvent) -> Result<(), AuditAggregationError>;
-    
+
     async fn query(
         &self,
         tenant_id: Option<&str>,
@@ -368,17 +368,8 @@ impl ComplianceAuditStorage for InMemoryComplianceAuditStorage {
         tenant_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<ComplianceAuditEvent>, AuditAggregationError> {
-        self.query(
-            tenant_id,
-            None,
-            None,
-            None,
-            Some(user_id),
-            None,
-            limit,
-            0,
-        )
-        .await
+        self.query(tenant_id, None, None, None, Some(user_id), None, limit, 0)
+            .await
     }
 
     async fn get_events_for_resource(
@@ -391,8 +382,7 @@ impl ComplianceAuditStorage for InMemoryComplianceAuditStorage {
         let filtered: Vec<ComplianceAuditEvent> = events
             .iter()
             .filter(|e| {
-                e.resource.resource_type == resource_type
-                    && e.resource.resource_id == resource_id
+                e.resource.resource_type == resource_type && e.resource.resource_id == resource_id
             })
             .take(limit)
             .cloned()
@@ -560,11 +550,8 @@ mod tests {
     #[tokio::test]
     async fn test_in_memory_storage() {
         let storage = InMemoryComplianceAuditStorage::new(1000);
-        let event = ComplianceAuditEvent::new(
-            ComplianceEventType::UserAuthentication,
-            "tenant-1",
-            "login",
-        );
+        let event =
+            ComplianceAuditEvent::new(ComplianceEventType::UserAuthentication, "tenant-1", "login");
 
         storage.store(event).await.unwrap();
 

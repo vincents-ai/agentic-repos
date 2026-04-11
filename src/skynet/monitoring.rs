@@ -1,9 +1,9 @@
 //! Monitoring and metrics collection for Skynet v2 plugin
 
+use parking_lot::RwLock;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use tracing::debug;
 
 /// Metrics collector

@@ -1,8 +1,8 @@
 //! Cluster API routes for horizontal scaling
 
 use crate::scaling::{
-    ClusterManager, DistributedLock, HealthChecker, LeaderElection, LockOptions,
-    ScalingConfig, SessionAffinity,
+    ClusterManager, DistributedLock, HealthChecker, LeaderElection, LockOptions, ScalingConfig,
+    SessionAffinity,
 };
 use actix_web::{web, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
@@ -86,27 +86,21 @@ pub fn configure_cluster_routes(cfg: &mut web::ServiceConfig) {
         .route("/locks/{resource}", web::delete().to(release_lock));
 }
 
-async fn get_cluster_status(
-    state: web::Data<ClusterState>,
-) -> ActixResult<HttpResponse> {
+async fn get_cluster_status(state: web::Data<ClusterState>) -> ActixResult<HttpResponse> {
     let manager = state.cluster_manager.read().await;
     let status = manager.get_cluster_status().await;
 
     Ok(HttpResponse::Ok().json(status))
 }
 
-async fn get_instances(
-    state: web::Data<ClusterState>,
-) -> ActixResult<HttpResponse> {
+async fn get_instances(state: web::Data<ClusterState>) -> ActixResult<HttpResponse> {
     let manager = state.cluster_manager.read().await;
     let instances = manager.get_instances().await;
 
     Ok(HttpResponse::Ok().json(instances))
 }
 
-async fn get_leader(
-    state: web::Data<ClusterState>,
-) -> ActixResult<HttpResponse> {
+async fn get_leader(state: web::Data<ClusterState>) -> ActixResult<HttpResponse> {
     if let Some(ref election) = state.leader_election {
         if let Some(leader) = election.get_current_leader().await {
             return Ok(HttpResponse::Ok().json(leader));
@@ -119,9 +113,7 @@ async fn get_leader(
     })))
 }
 
-async fn liveness_probe(
-    state: web::Data<ClusterState>,
-) -> ActixResult<HttpResponse> {
+async fn liveness_probe(state: web::Data<ClusterState>) -> ActixResult<HttpResponse> {
     let status = state.health_checker.check_liveness().await;
 
     match status.state {
@@ -132,9 +124,7 @@ async fn liveness_probe(
     }
 }
 
-async fn readiness_probe(
-    state: web::Data<ClusterState>,
-) -> ActixResult<HttpResponse> {
+async fn readiness_probe(state: web::Data<ClusterState>) -> ActixResult<HttpResponse> {
     let status = state.health_checker.check_readiness().await;
 
     match status.state {
@@ -221,8 +211,8 @@ pub async fn acquire_lock(
     let ttl_seconds = query.ttl_seconds.unwrap_or(30);
 
     if let Some(ref lock) = state.distributed_lock {
-        let options = LockOptions::new(&resource)
-            .with_ttl(std::time::Duration::from_secs(ttl_seconds));
+        let options =
+            LockOptions::new(&resource).with_ttl(std::time::Duration::from_secs(ttl_seconds));
 
         match lock.acquire(options).await {
             Ok(handle) => {
@@ -291,12 +281,8 @@ pub async fn release_lock(
         };
 
         match lock.release(handle).await {
-            Ok(()) => {
-                Ok(HttpResponse::Ok().json(ReleaseLockResponse { released: true }))
-            }
-            Err(_) => {
-                Ok(HttpResponse::Ok().json(ReleaseLockResponse { released: false }))
-            }
+            Ok(()) => Ok(HttpResponse::Ok().json(ReleaseLockResponse { released: true })),
+            Err(_) => Ok(HttpResponse::Ok().json(ReleaseLockResponse { released: false })),
         }
     } else {
         Ok(HttpResponse::ServiceUnavailable().json(serde_json::json!({

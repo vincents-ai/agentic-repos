@@ -9,12 +9,21 @@
 //! For a ref `refs/adp/schema/my-schema` the sidecars are stored at
 //! `refs/adp/schema/v1/my-schema`, `refs/adp/schema/v2/my-schema`, …
 //! The `list_refs` and `list_schemas` helpers automatically skip sidecar refs.
+//!
+//! ## Implementation note
+//!
+//! Ref management uses the `gix` high-level Repository API; object operations
+//! (blob/tree/commit creation) still use `git2` (object migration is separate).
 
 use crate::adp::access::AccessConfig;
 use crate::adp::is_version_sidecar;
 use crate::adp::schema::RefSchema;
 use crate::adp::{ACCESS_CONFIG_REF, SCHEMA_PREFIX};
 use git2::{Repository, Signature};
+use gix::bstr::ByteSlice;
+use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit};
+use gix::refs::FullName;
+use gix::refs::Target;
 use serde_json::Value;
 use std::path::Path;
 use thiserror::Error;
@@ -25,14 +34,38 @@ pub enum AdpStoreError {
     #[error("git2 error: {0}")]
     Git(#[from] git2::Error),
 
+    #[error("gix open error: {0}")]
+    GixOpen(#[from] gix::open::Error),
+
+    #[error("gix reference find error: {0}")]
+    GixRefFind(#[from] gix::reference::find::Error),
+
+    #[error("gix reference iter error: {0}")]
+    GixRefIter(#[from] gix::reference::iter::Error),
+
+    #[error("gix ref iteration init error: {0}")]
+    GixRefIterInit(#[from] gix::reference::iter::init::Error),
+
+    #[error("gix reference edit error: {0}")]
+    GixRefEdit(#[from] gix::reference::edit::Error),
+
+    #[error("gix reference name error: {0}")]
+    GixRefName(#[from] gix::refs::name::Error),
+
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
 
     #[error("Ref not found: {0}")]
     NotFound(String),
 
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("Boxed gix error: {0}")]
+    GixBoxed(String),
+}
+
+impl From<Box<dyn std::error::Error + Send + Sync>> for AdpStoreError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        AdpStoreError::GixBoxed(err.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, AdpStoreError>;
@@ -45,8 +78,6 @@ pub type Result<T> = std::result::Result<T, AdpStoreError>;
 pub struct AdpStore;
 
 impl AdpStore {
-    /// Create a new `AdpStore`.  The store itself holds no state; all
-    /// operations receive the repo path as a parameter.
     pub fn new() -> Self {
         Self
     }
@@ -63,25 +94,34 @@ impl AdpStore {
     ///
     /// Returns the parsed `serde_json::Value`.
     pub fn read_ref_blob(repo_path: &Path, refname: &str) -> Result<Value> {
-        let repo = Repository::open(repo_path)?;
-        let reference = repo
-            .find_reference(refname)
-            .map_err(|_| AdpStoreError::NotFound(refname.to_string()))?;
+        let git2_repo = Repository::open(repo_path)?;
+        let gix_repo = gix::open(repo_path)?;
 
-        // Try to peel to commit first (our write format: commit→tree→"data" blob).
-        let blob_content: Vec<u8> = if let Ok(commit) = reference.peel_to_commit() {
+        let reference = gix_repo
+            .try_find_reference(refname)
+            .map_err(AdpStoreError::GixRefFind)?
+            .ok_or_else(|| AdpStoreError::NotFound(refname.to_string()))?;
+
+        let target_id = reference
+            .try_id()
+            .ok_or_else(|| AdpStoreError::NotFound(format!("{}: symbolic ref", refname)))?;
+
+        let hex = target_id.to_hex().to_string();
+        let git2_oid = git2::Oid::from_str(&hex)
+            .map_err(|e| AdpStoreError::NotFound(format!("invalid oid: {}", e)))?;
+
+        let blob_content: Vec<u8> = if let Ok(commit) = git2_repo.find_commit(git2_oid) {
             let tree = commit.tree()?;
             let entry = tree
                 .get_name("data")
                 .ok_or_else(|| AdpStoreError::NotFound(format!("{}/tree/data", refname)))?;
-            let obj = entry.to_object(&repo)?;
+            let obj = entry.to_object(&git2_repo)?;
             let blob = obj
                 .as_blob()
                 .ok_or_else(|| AdpStoreError::NotFound(format!("{}/data not a blob", refname)))?;
             blob.content().to_vec()
         } else {
-            // Fall back: the ref points directly to a blob.
-            let blob = reference.peel_to_blob().map_err(AdpStoreError::Git)?;
+            let blob = git2_repo.find_blob(git2_oid).map_err(AdpStoreError::Git)?;
             blob.content().to_vec()
         };
 
@@ -95,29 +135,29 @@ impl AdpStore {
     /// The primary ref is always force-updated.  An immutable version sidecar
     /// is also created (see module docs).
     pub fn write_ref_blob(repo_path: &Path, refname: &str, value: &Value) -> Result<()> {
-        let repo = Repository::open(repo_path)?;
+        let git2_repo = Repository::open(repo_path)?;
+        let gix_repo = gix::open(repo_path)?;
         let json_bytes = serde_json::to_vec_pretty(value)?;
 
-        let blob_oid = repo.blob(&json_bytes)?;
+        let blob_oid = git2_repo.blob(&json_bytes)?;
 
-        // Build a minimal commit wrapping the blob so we can point a ref at it.
-        // We use a tree with a single entry named "data".
         let sig = adp_signature();
-        let mut tb = repo.treebuilder(None)?;
+        let mut tb = git2_repo.treebuilder(None)?;
         tb.insert("data", blob_oid, 0o100644)?;
         let tree_oid = tb.write()?;
-        let tree = repo.find_tree(tree_oid)?;
+        let tree = git2_repo.find_tree(tree_oid)?;
 
-        // Find parent commit if the ref already exists
-        let parent_commit = repo
-            .find_reference(refname)
-            .ok()
-            .and_then(|r| r.peel_to_commit().ok());
+        let parent_commit = gix_repo
+            .try_find_reference(refname)
+            .map_err(AdpStoreError::GixRefFind)?
+            .and_then(|r| r.try_id().map(|id| id.to_hex().to_string()))
+            .and_then(|hex| git2::Oid::from_str(&hex).ok())
+            .and_then(|oid| git2_repo.find_commit(oid).ok());
 
         let parents: Vec<&git2::Commit<'_>> = parent_commit.iter().collect();
 
-        let commit_oid = repo.commit(
-            None, // don't update any ref yet
+        let commit_oid = git2_repo.commit(
+            None,
             &sig,
             &sig,
             &format!("adp: update {}", refname),
@@ -125,13 +165,29 @@ impl AdpStore {
             &parents,
         )?;
 
-        // Force-update the primary ref
-        repo.reference(refname, commit_oid, true, "adp write")?;
+        let gix_commit_oid =
+            gix::hash::ObjectId::try_from(commit_oid.as_bytes()).expect("valid 20-byte sha1");
 
-        // Create an immutable version sidecar
-        let sidecar = next_sidecar_ref(&repo, refname)?;
-        // Sidecars are never force-updated (they must be immutable)
-        repo.reference(&sidecar, commit_oid, false, "adp version sidecar")?;
+        gix_repo.edit_reference(RefEdit {
+            change: Change::Update {
+                log: LogChange::default(),
+                expected: PreviousValue::Any,
+                new: Target::Object(gix_commit_oid),
+            },
+            name: FullName::try_from(refname)?,
+            deref: false,
+        })?;
+
+        let sidecar = next_sidecar_ref(&gix_repo, refname)?;
+        gix_repo.edit_reference(RefEdit {
+            change: Change::Update {
+                log: LogChange::default(),
+                expected: PreviousValue::MustNotExist,
+                new: Target::Object(gix_commit_oid),
+            },
+            name: FullName::try_from(sidecar.as_str())?,
+            deref: false,
+        })?;
 
         Ok(())
     }
@@ -139,16 +195,16 @@ impl AdpStore {
     /// List all refs under `prefix` in the repository at `repo_path`, skipping
     /// version sidecar refs.
     pub fn list_refs(repo_path: &Path, prefix: &str) -> Result<Vec<String>> {
-        let repo = Repository::open(repo_path)?;
-        let refs = repo.references_glob(&format!("{}*", prefix))?;
+        let gix_repo = gix::open(repo_path)?;
+        let platform = gix_repo.references()?;
+        let iter = platform.all()?;
 
         let mut result = Vec::new();
-        for r in refs {
+        for r in iter {
             let r = r?;
-            if let Some(name) = r.name() {
-                if !is_version_sidecar(name) {
-                    result.push(name.to_string());
-                }
+            let name = r.name().as_bstr().to_string();
+            if name.starts_with(prefix) && !is_version_sidecar(&name) {
+                result.push(name);
             }
         }
         Ok(result)
@@ -234,23 +290,11 @@ impl Default for AdpStore {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Build an ADP bot signature for commits.
 fn adp_signature() -> Signature<'static> {
-    // Unwrap is safe: the strings are valid UTF-8 and the time is valid.
     Signature::now("ADP Bot", "adp@localhost").expect("valid signature")
 }
 
-/// Compute the next available version sidecar ref name for `primary_ref`.
-///
-/// For `refs/adp/schema/my-schema` the sidecars live at
-/// `refs/adp/schema/v{N}/my-schema`.  This function returns the first `vN`
-/// that does not yet exist in the repo.
-fn next_sidecar_ref(repo: &Repository, primary_ref: &str) -> Result<String> {
-    // We need to reconstruct the sidecar pattern.
-    // primary_ref = refs/adp/{ns}/{id}
-    // sidecar     = refs/adp/{ns}/v{N}/{id}
-    //
-    // Split at "refs/adp/" then decompose "{ns}/{id}".
+fn next_sidecar_ref(gix_repo: &gix::Repository, primary_ref: &str) -> Result<String> {
     let after_prefix = primary_ref.strip_prefix("refs/adp/").unwrap_or(primary_ref);
 
     let slash_pos = after_prefix.find('/').unwrap_or(after_prefix.len());
@@ -261,15 +305,20 @@ fn next_sidecar_ref(repo: &Repository, primary_ref: &str) -> Result<String> {
         ""
     };
 
-    // Count existing sidecars
-    let sidecar_glob = format!("refs/adp/{}/v*/{}", ns, id);
-    let existing = repo.references_glob(&sidecar_glob)?;
+    let sidecar_pattern = format!("refs/adp/{}/v*/{}", ns, id);
+    let platform = gix_repo.references()?;
+    let iter = platform.all()?;
+
     let mut max_n: u32 = 0;
-    for r in existing {
+    for r in iter {
         let r = r?;
-        if let Some(name) = r.name() {
-            // Extract the version number
-            if let Some(v_segment) = extract_version_segment(name, ns, id) {
+        let name = r.name().as_bstr().to_string();
+        if gix::glob::wildmatch(
+            sidecar_pattern.as_bytes().as_bstr(),
+            name.as_bytes().as_bstr(),
+            gix::glob::wildmatch::Mode::empty(),
+        ) {
+            if let Some(v_segment) = extract_version_segment(&name, ns, id) {
                 if v_segment > max_n {
                     max_n = v_segment;
                 }
@@ -281,10 +330,7 @@ fn next_sidecar_ref(repo: &Repository, primary_ref: &str) -> Result<String> {
     Ok(format!("refs/adp/{}/v{}/{}", ns, next_n, id))
 }
 
-/// Extract the version number from a sidecar ref name like
-/// `refs/adp/schema/v3/my-schema`.
 fn extract_version_segment(refname: &str, ns: &str, _id: &str) -> Option<u32> {
-    // refs/adp/{ns}/v{N}/{id}
     let prefix = format!("refs/adp/{}/v", ns);
     let after = refname.strip_prefix(&prefix)?;
     let slash = after.find('/')?;
@@ -350,12 +396,10 @@ mod tests {
         let schema1 = make_schema("task");
         let schema2 = make_schema("session");
         AdpStore::write_schema(dir.path(), &schema1).unwrap();
-        // Write schema1 again to create a v2 sidecar
         AdpStore::write_schema(dir.path(), &schema1).unwrap();
         AdpStore::write_schema(dir.path(), &schema2).unwrap();
 
         let schemas = AdpStore::list_schemas(dir.path()).unwrap();
-        // Should have exactly 2 schemas (task + session), not 3 (no sidecars)
         assert_eq!(schemas.len(), 2);
         let ids: Vec<&str> = schemas.iter().map(|s| s.id.as_str()).collect();
         assert!(ids.contains(&"task"));
@@ -365,18 +409,26 @@ mod tests {
     #[test]
     fn test_version_sidecars_are_created() {
         let dir = TempDir::new().unwrap();
-        let repo = init_bare_repo(dir.path());
+        init_bare_repo(dir.path());
 
         let schema = make_schema("task");
         AdpStore::write_schema(dir.path(), &schema).unwrap();
         AdpStore::write_schema(dir.path(), &schema).unwrap();
 
-        // There should be two sidecar refs: v1 and v2
-        let sidecars: Vec<_> = repo
-            .references_glob("refs/adp/schema/v*/task")
-            .unwrap()
+        let gix_repo = gix::open(dir.path()).unwrap();
+        let platform = gix_repo.references().unwrap();
+        let iter = platform.all().unwrap();
+
+        let sidecars: Vec<String> = iter
             .filter_map(|r| r.ok())
-            .filter_map(|r| r.name().map(|n| n.to_string()))
+            .map(|r| r.name().as_bstr().to_string())
+            .filter(|name| {
+                gix::glob::wildmatch(
+                    b"refs/adp/schema/v*/task".as_bstr(),
+                    name.as_bytes().as_bstr(),
+                    gix::glob::wildmatch::Mode::empty(),
+                )
+            })
             .collect();
 
         assert_eq!(
@@ -417,10 +469,9 @@ mod tests {
 
         let schema = make_schema("task");
         AdpStore::write_schema(dir.path(), &schema).unwrap();
-        AdpStore::write_schema(dir.path(), &schema).unwrap(); // creates v2 sidecar
+        AdpStore::write_schema(dir.path(), &schema).unwrap();
 
         let refs = AdpStore::list_refs(dir.path(), "refs/adp/schema/").unwrap();
-        // Only the primary ref should appear
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0], "refs/adp/schema/task");
     }

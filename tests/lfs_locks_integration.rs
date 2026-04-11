@@ -1,10 +1,10 @@
 use repos_mcp::config::LfsConfig;
 use repos_mcp::features::FeatureFlags;
+use repos_mcp::lfs::test_utils::{cleanup_test_db, setup_test_db};
 use repos_mcp::lfs::{
     CreateLockRequest, DeleteLockRequest, GitRef, LfsLockManager, LfsTokenGenerator,
 };
 use std::sync::Arc;
-use repos_mcp::lfs::test_utils::{cleanup_test_db, setup_test_db};
 use tokio::time::{sleep, Duration};
 
 async fn setup_test_environment() -> Option<(Arc<sqlx::PgPool>, LfsConfig, FeatureFlags)> {
@@ -39,7 +39,9 @@ async fn cleanup_test_environment(pool: &sqlx::PgPool) {
 
 #[tokio::test]
 async fn test_complete_lock_unlock_workflow() {
-    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else { return };
+    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else {
+        return;
+    };
     let manager = LfsLockManager::new(pool.clone());
 
     let create_request = CreateLockRequest {
@@ -90,7 +92,9 @@ async fn test_complete_lock_unlock_workflow() {
 
 #[tokio::test]
 async fn test_concurrent_lock_attempts_same_path() {
-    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else { return };
+    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else {
+        return;
+    };
     let manager = Arc::new(LfsLockManager::new(pool.clone()));
 
     let request1 = CreateLockRequest {
@@ -120,7 +124,9 @@ async fn test_concurrent_lock_attempts_same_path() {
 
 #[tokio::test]
 async fn test_lock_expiration_workflow() {
-    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else { return };
+    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else {
+        return;
+    };
     let manager = LfsLockManager::new(pool.clone());
 
     let request1 = CreateLockRequest {
@@ -172,7 +178,9 @@ async fn test_lock_expiration_workflow() {
 
 #[tokio::test]
 async fn test_verify_endpoint_workflow() {
-    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else { return };
+    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else {
+        return;
+    };
     let manager = LfsLockManager::new(pool.clone());
 
     let request1 = CreateLockRequest {
@@ -223,7 +231,9 @@ async fn test_verify_endpoint_workflow() {
 
 #[tokio::test]
 async fn test_force_delete_workflow() {
-    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else { return };
+    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else {
+        return;
+    };
     let manager = LfsLockManager::new(pool.clone());
 
     let request = CreateLockRequest {
@@ -262,7 +272,9 @@ async fn test_force_delete_workflow() {
 
 #[tokio::test]
 async fn test_multi_tenant_isolation() {
-    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else { return };
+    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else {
+        return;
+    };
     let manager = LfsLockManager::new(pool.clone());
 
     let request1 = CreateLockRequest {
@@ -305,7 +317,9 @@ async fn test_multi_tenant_isolation() {
 
 #[tokio::test]
 async fn test_pagination_workflow() {
-    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else { return };
+    let Some((pool, _lfs_config, _features)) = setup_test_environment().await else {
+        return;
+    };
     let manager = LfsLockManager::new(pool.clone());
 
     for i in 1..=10 {

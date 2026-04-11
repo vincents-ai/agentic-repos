@@ -138,8 +138,9 @@ impl HealthChecker {
                 Ok(message) => HealthCheck::healthy(&check.name())
                     .with_latency(latency)
                     .with_message_opt(message),
-                Err(message) => HealthCheck::unhealthy(&check.name(), message)
-                    .with_latency(latency),
+                Err(message) => {
+                    HealthCheck::unhealthy(&check.name(), message).with_latency(latency)
+                }
             };
             checks.push(health_check);
         }
@@ -187,10 +188,7 @@ impl HealthChecker {
 
     pub async fn is_ready(&self) -> bool {
         let status = self.check_readiness().await;
-        matches!(
-            status.state,
-            HealthState::Healthy | HealthState::Degraded
-        )
+        matches!(status.state, HealthState::Healthy | HealthState::Degraded)
     }
 
     pub async fn is_alive(&self) -> bool {
@@ -218,9 +216,7 @@ pub struct DatabaseCheck {
 
 impl DatabaseCheck {
     pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-        }
+        Self { name: name.into() }
     }
 }
 

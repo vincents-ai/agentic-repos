@@ -1,9 +1,9 @@
+use crate::cache::{CacheKey, CachePool, CacheResult};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, instrument};
-use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
-use crate::cache::{CacheKey, CachePool, CacheResult};
-use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryMetadata {
     pub id: String,
@@ -54,13 +54,22 @@ impl RepositoryCache {
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id, repo_name = %name))]
-    pub async fn get_metadata(&self, tenant_id: &str, name: &str) -> CacheResult<Option<RepositoryMetadata>> {
+    pub async fn get_metadata(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> CacheResult<Option<RepositoryMetadata>> {
         let key = CacheKey::repository(self.key_prefix(), tenant_id, name).with("metadata");
         self.get_json(&key.to_redis_key()).await
     }
 
     #[instrument(skip(self, metadata), fields(tenant_id = %tenant_id, repo_name = %name))]
-    pub async fn set_metadata(&self, tenant_id: &str, name: &str, metadata: &RepositoryMetadata) -> CacheResult<()> {
+    pub async fn set_metadata(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        metadata: &RepositoryMetadata,
+    ) -> CacheResult<()> {
         let key = CacheKey::repository(self.key_prefix(), tenant_id, name).with("metadata");
         let ttl = self.pool.config().repository_ttl();
         self.set_json(&key.to_redis_key(), metadata, ttl).await
@@ -74,13 +83,22 @@ impl RepositoryCache {
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id))]
-    pub async fn get_repo_list(&self, tenant_id: &str, page: u32) -> CacheResult<Option<Vec<RepositoryListEntry>>> {
+    pub async fn get_repo_list(
+        &self,
+        tenant_id: &str,
+        page: u32,
+    ) -> CacheResult<Option<Vec<RepositoryListEntry>>> {
         let key = CacheKey::repo_list(self.key_prefix(), tenant_id, page);
         self.get_json(&key.to_redis_key()).await
     }
 
     #[instrument(skip(self, repos), fields(tenant_id = %tenant_id, page = %page))]
-    pub async fn set_repo_list(&self, tenant_id: &str, page: u32, repos: &[RepositoryListEntry]) -> CacheResult<()> {
+    pub async fn set_repo_list(
+        &self,
+        tenant_id: &str,
+        page: u32,
+        repos: &[RepositoryListEntry],
+    ) -> CacheResult<()> {
         let key = CacheKey::repo_list(self.key_prefix(), tenant_id, page);
         let ttl = self.pool.config().api_response_ttl();
         self.set_json(&key.to_redis_key(), repos, ttl).await
@@ -94,13 +112,22 @@ impl RepositoryCache {
     }
 
     #[instrument(skip(self), fields(tenant_id = %tenant_id, repo_name = %name))]
-    pub async fn get_branches(&self, tenant_id: &str, name: &str) -> CacheResult<Option<Vec<BranchInfo>>> {
+    pub async fn get_branches(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> CacheResult<Option<Vec<BranchInfo>>> {
         let key = CacheKey::branch_list(self.key_prefix(), tenant_id, name);
         self.get_json(&key.to_redis_key()).await
     }
 
     #[instrument(skip(self, branches), fields(tenant_id = %tenant_id, repo_name = %name))]
-    pub async fn set_branches(&self, tenant_id: &str, name: &str, branches: &[BranchInfo]) -> CacheResult<()> {
+    pub async fn set_branches(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        branches: &[BranchInfo],
+    ) -> CacheResult<()> {
         let key = CacheKey::branch_list(self.key_prefix(), tenant_id, name);
         let ttl = self.pool.config().api_response_ttl();
         self.set_json(&key.to_redis_key(), branches, ttl).await
@@ -135,7 +162,12 @@ impl RepositoryCache {
         }
     }
 
-    async fn set_json<T: Serialize + ?Sized>(&self, key: &str, value: &T, ttl: Duration) -> CacheResult<()> {
+    async fn set_json<T: Serialize + ?Sized>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: Duration,
+    ) -> CacheResult<()> {
         let json = serde_json::to_string(value)?;
         let mut conn = self.pool.get_connection().await?;
         conn.set(key, &json, ttl).await

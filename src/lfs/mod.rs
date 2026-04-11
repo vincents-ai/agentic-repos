@@ -8,9 +8,9 @@ pub mod models;
 pub mod pointer;
 pub mod quota;
 pub mod storage;
+pub mod test_utils;
 pub mod throttle;
 pub mod verify;
-pub mod test_utils;
 
 pub use audit::{
     AuditError, AuditEvent, AuditEventType, AuditLogConfig, AuditLogger, AuditStorage,

@@ -85,7 +85,8 @@ impl SecretScanner {
             ),
             (
                 SecretPattern::AwsSecretAccessKey,
-                Regex::new(r"(?i)aws[_-]?secret[_-]?access[_-]?key[_-]?[=:]\s*[A-Za-z0-9/+=]{40}").unwrap(),
+                Regex::new(r"(?i)aws[_-]?secret[_-]?access[_-]?key[_-]?[=:]\s*[A-Za-z0-9/+=]{40}")
+                    .unwrap(),
                 Severity::Critical,
                 "AWS Secret Access Key".to_string(),
             ),
@@ -210,37 +211,66 @@ mod tests {
     async fn test_scan_detects_aws_key() {
         let scanner = SecretScanner::new();
         let content = "AWS_KEY=AKIAIOSFODNN7EXAMPLE".to_string();
-        let result = scanner.scan(ScanRequest { content, file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content,
+                file_path: None,
+            })
+            .await;
 
         assert!(!result.matches.is_empty());
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::AwsAccessKeyId));
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::AwsAccessKeyId));
     }
 
     #[tokio::test]
     async fn test_scan_detects_github_token() {
         let scanner = SecretScanner::new();
         let content = "GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".to_string();
-        let result = scanner.scan(ScanRequest { content, file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content,
+                file_path: None,
+            })
+            .await;
 
         assert!(!result.matches.is_empty());
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::GithubToken));
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::GithubToken));
     }
 
     #[tokio::test]
     async fn test_scan_detects_private_key() {
         let scanner = SecretScanner::new();
         let content = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...".to_string();
-        let result = scanner.scan(ScanRequest { content, file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content,
+                file_path: None,
+            })
+            .await;
 
         assert!(!result.matches.is_empty());
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::PrivateKey));
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::PrivateKey));
     }
 
     #[tokio::test]
     async fn test_scan_no_false_positives() {
         let scanner = SecretScanner::new();
         let content = "This is a normal line of code without any secrets.".to_string();
-        let result = scanner.scan(ScanRequest { content, file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content,
+                file_path: None,
+            })
+            .await;
 
         assert!(result.matches.is_empty());
     }
@@ -249,7 +279,12 @@ mod tests {
     async fn test_get_result() {
         let scanner = SecretScanner::new();
         let content = "password = 'supersecret123'".to_string();
-        let result = scanner.scan(ScanRequest { content, file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content,
+                file_path: None,
+            })
+            .await;
 
         let retrieved = scanner.get_result(&result.scan_id).await;
         assert!(retrieved.is_some());

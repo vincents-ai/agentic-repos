@@ -51,3 +51,6 @@ temp/
 
 # Internal files
 internal/
+
+# Dispatcher internal state
+.internal/

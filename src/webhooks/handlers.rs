@@ -12,6 +12,9 @@ use uuid::Uuid;
 pub struct CreateWebhookRequest {
     pub url: String,
     pub secret: Option<String>,
+    /// Allowed secret keys for egress. Empty = no secrets accessible, ["*"] = all secrets.
+    #[serde(default)]
+    pub secret_keys: Vec<String>,
     pub events: Vec<WebhookEvent>,
     pub tenant_id: String,
 }
@@ -20,6 +23,9 @@ pub struct CreateWebhookRequest {
 pub struct UpdateWebhookRequest {
     pub url: Option<String>,
     pub secret: Option<String>,
+    /// Allowed secret keys for egress. Empty = no secrets accessible, ["*"] = all secrets.
+    #[serde(default)]
+    pub secret_keys: Option<Vec<String>>,
     pub events: Option<Vec<WebhookEvent>>,
     pub active: Option<bool>,
 }
@@ -28,6 +34,7 @@ pub struct UpdateWebhookRequest {
 pub struct WebhookResponse {
     pub id: String,
     pub url: String,
+    pub secret_keys: Vec<String>,
     pub events: Vec<String>,
     pub tenant_id: String,
     pub active: bool,
@@ -52,6 +59,7 @@ impl From<Webhook> for WebhookResponse {
         Self {
             id: webhook.id.to_string(),
             url: webhook.url,
+            secret_keys: webhook.secret_keys,
             events: webhook.events.iter().map(|e| e.to_string()).collect(),
             tenant_id: webhook.tenant_id,
             active: webhook.active,
@@ -112,6 +120,7 @@ pub async fn create_webhook(
         .register_webhook(
             req.url.clone(),
             req.secret.clone(),
+            req.secret_keys.clone(),
             events,
             req.tenant_id.clone(),
         )

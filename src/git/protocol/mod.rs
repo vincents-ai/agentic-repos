@@ -1,7 +1,7 @@
 //! Git Smart Protocol implementation
 //!
 //! This module provides native implementations of git-upload-pack and git-receive-pack
-//! using libgit2 (via the git2 crate) instead of spawning the system git binary.
+//! using the `gix` crate for repository access and reference management.
 
 mod packetline;
 mod receive_pack;

@@ -162,15 +162,15 @@ impl BackupScheduler {
                                 .unwrap_or_else(|| "default".to_string());
 
                             match backup_service
-                                .create_backup(
-                                    job.backup_type.clone(),
+                                .create_backup(crate::backup::models::CreateBackupParams {
+                                    backup_type: job.backup_type.clone(),
                                     tenant_id,
-                                    job.repository_ids.clone(),
-                                    job.include_lfs,
-                                    job.include_database,
-                                    job.include_config,
-                                    Some(job.retention_days),
-                                )
+                                    repository_ids: job.repository_ids.clone(),
+                                    include_lfs: job.include_lfs,
+                                    include_database: job.include_database,
+                                    include_config: job.include_config,
+                                    retention_days: Some(job.retention_days),
+                                })
                                 .await
                             {
                                 Ok(backup) => {
@@ -265,15 +265,15 @@ impl BackupScheduler {
 
         let backup = self
             .backup_service
-            .create_backup(
-                job.backup_type.clone(),
+            .create_backup(crate::backup::models::CreateBackupParams {
+                backup_type: job.backup_type.clone(),
                 tenant_id,
-                job.repository_ids.clone(),
-                job.include_lfs,
-                job.include_database,
-                job.include_config,
-                Some(job.retention_days),
-            )
+                repository_ids: job.repository_ids.clone(),
+                include_lfs: job.include_lfs,
+                include_database: job.include_database,
+                include_config: job.include_config,
+                retention_days: Some(job.retention_days),
+            })
             .await
             .map_err(|e| e.to_string())?;
 

@@ -162,15 +162,15 @@ pub async fn create_backup(
     }
 
     match backup_service
-        .create_backup(
-            req.backup_type.clone(),
-            req.tenant_id.clone(),
-            req.repository_ids.clone(),
-            req.include_lfs,
-            req.include_database,
-            req.include_config,
-            req.retention_days,
-        )
+        .create_backup(crate::backup::models::CreateBackupParams {
+            backup_type: req.backup_type.clone(),
+            tenant_id: req.tenant_id.clone(),
+            repository_ids: req.repository_ids.clone(),
+            include_lfs: req.include_lfs,
+            include_database: req.include_database,
+            include_config: req.include_config,
+            retention_days: req.retention_days,
+        })
         .await
     {
         Ok(backup) => {

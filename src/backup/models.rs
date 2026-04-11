@@ -4,8 +4,9 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum BackupType {
+    #[default]
     Full,
     Repository,
     LfsObjects,
@@ -292,4 +293,109 @@ pub fn compute_checksum_from_reader<R: std::io::Read>(mut reader: R) -> std::io:
         hasher.update(&buffer[..bytes_read]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Parameters for the `BackupService::create_backup` method.
+/// Groups include flags to avoid an 8-argument function signature.
+#[derive(Debug, Clone, Default)]
+pub struct CreateBackupParams {
+    pub backup_type: BackupType,
+    pub tenant_id: String,
+    pub repository_ids: Vec<String>,
+    pub include_lfs: bool,
+    pub include_database: bool,
+    pub include_config: bool,
+    pub retention_days: Option<u32>,
+}
+
+impl CreateBackupParams {
+    pub fn full(tenant_id: impl Into<String>) -> Self {
+        Self {
+            backup_type: BackupType::Full,
+            tenant_id: tenant_id.into(),
+            ..Default::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backup_lifecycle_complete() {
+        let mut backup = Backup::new(BackupType::Full, "tenant-1".to_string(), 30);
+        assert_eq!(backup.status, BackupStatus::Pending);
+        assert!(backup.started_at.is_none());
+
+        backup.start();
+        assert_eq!(backup.status, BackupStatus::InProgress);
+        assert!(backup.started_at.is_some());
+
+        backup.complete(1024, "/backups/b1.tar.gz".to_string());
+        assert_eq!(backup.status, BackupStatus::Completed);
+        assert_eq!(backup.size_bytes, 1024);
+        assert_eq!(backup.storage_path, Some("/backups/b1.tar.gz".to_string()));
+        assert!(backup.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_backup_lifecycle_failed() {
+        let mut backup = Backup::new(BackupType::Full, "tenant-1".to_string(), 30);
+        backup.start();
+        backup.fail("disk full".to_string());
+        assert_eq!(backup.status, BackupStatus::Failed);
+        assert_eq!(backup.error_message, Some("disk full".to_string()));
+    }
+
+    #[test]
+    fn test_backup_set_checksum() {
+        let mut backup = Backup::new(BackupType::Full, "t1".to_string(), 7);
+        backup.set_checksum("abc123".to_string());
+        assert_eq!(backup.checksum, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn test_backup_is_expired_false() {
+        let backup = Backup::new(BackupType::Full, "t1".to_string(), 30);
+        assert!(!backup.is_expired()); // just created — not expired
+    }
+
+    #[test]
+    fn test_backup_duration_none_when_not_started() {
+        let backup = Backup::new(BackupType::Full, "t1".to_string(), 30);
+        assert!(backup.duration().is_none());
+    }
+
+    #[test]
+    fn test_backup_duration_some_when_completed() {
+        let mut backup = Backup::new(BackupType::Full, "t1".to_string(), 30);
+        backup.start();
+        backup.complete(0, "/path".to_string());
+        assert!(backup.duration().is_some());
+    }
+
+    #[test]
+    fn test_backup_config_default_is_disabled() {
+        let cfg = BackupConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.default_retention_days, 30);
+        assert_eq!(cfg.max_concurrent_backups, 3);
+    }
+
+    #[test]
+    fn test_compute_checksum_deterministic() {
+        let data = b"hello backup";
+        let h1 = compute_checksum(data);
+        let h2 = compute_checksum(data);
+        assert_eq!(h1, h2);
+        assert!(!h1.is_empty());
+    }
+
+    #[test]
+    fn test_compute_checksum_differs_for_different_data() {
+        let h1 = compute_checksum(b"data-a");
+        let h2 = compute_checksum(b"data-b");
+        assert_ne!(h1, h2);
+    }
 }

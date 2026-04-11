@@ -1,6 +1,6 @@
 use crate::backup::models::{
-    compute_checksum, Backup, BackupConfig, BackupStatus, BackupType, RestoreRequest,
-    RestoreResult, RestoreStatus,
+    compute_checksum, Backup, BackupConfig, BackupStatus, BackupType, CreateBackupParams,
+    RestoreRequest, RestoreResult, RestoreStatus,
 };
 use crate::backup::storage::{BackupStorage, BackupStorageError};
 use std::sync::Arc;
@@ -57,22 +57,15 @@ impl BackupService {
         }
     }
 
-    pub async fn create_backup(
-        &self,
-        backup_type: BackupType,
-        tenant_id: String,
-        repository_ids: Vec<String>,
-        include_lfs: bool,
-        include_database: bool,
-        include_config: bool,
-        retention_days: Option<u32>,
-    ) -> BackupResult<Backup> {
-        let retention = retention_days.unwrap_or(self.config.default_retention_days);
-        let mut backup = Backup::new(backup_type.clone(), tenant_id, retention);
-        backup.repository_ids = repository_ids;
-        backup.include_lfs = include_lfs;
-        backup.include_database = include_database;
-        backup.include_config = include_config;
+    pub async fn create_backup(&self, params: CreateBackupParams) -> BackupResult<Backup> {
+        let retention = params
+            .retention_days
+            .unwrap_or(self.config.default_retention_days);
+        let mut backup = Backup::new(params.backup_type.clone(), params.tenant_id, retention);
+        backup.repository_ids = params.repository_ids;
+        backup.include_lfs = params.include_lfs;
+        backup.include_database = params.include_database;
+        backup.include_config = params.include_config;
         backup.compression_enabled = self.config.compression_enabled;
         backup.encryption_enabled = self.config.encryption_enabled;
 
@@ -605,5 +598,135 @@ impl BackupService {
         self.storage.update(backup.clone()).await?;
 
         Ok(checksum)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backup::models::{BackupConfig, BackupType, RestoreRequest};
+    use crate::backup::storage::InMemoryBackupStorage;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    fn make_service_with_storage(dir: &TempDir) -> (BackupService, Arc<InMemoryBackupStorage>) {
+        let storage = Arc::new(InMemoryBackupStorage::new());
+        let config = BackupConfig {
+            enabled: true,
+            ..BackupConfig::default()
+        };
+        let svc = BackupService::new(
+            storage.clone(),
+            config,
+            dir.path().join("git").to_string_lossy().to_string(),
+            dir.path().join("lfs").to_string_lossy().to_string(),
+        );
+        (svc, storage)
+    }
+
+    fn make_service(dir: &TempDir) -> BackupService {
+        make_service_with_storage(dir).0
+    }
+
+    async fn create_test_backup(
+        svc: &BackupService,
+        tenant: &str,
+    ) -> crate::backup::models::Backup {
+        svc.create_backup(CreateBackupParams {
+            backup_type: BackupType::Full,
+            tenant_id: tenant.to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_create_backup_metadata() {
+        let dir = TempDir::new().unwrap();
+        let svc = make_service(&dir);
+        let backup = create_test_backup(&svc, "tenant-1").await;
+        assert_eq!(backup.tenant_id, "tenant-1");
+        assert_eq!(backup.backup_type, BackupType::Full);
+    }
+
+    #[tokio::test]
+    async fn test_get_backup() {
+        let dir = TempDir::new().unwrap();
+        let svc = make_service(&dir);
+        let backup = create_test_backup(&svc, "t1").await;
+        let fetched = svc.get_backup(&backup.id).await.unwrap();
+        assert_eq!(fetched.id, backup.id);
+    }
+
+    #[tokio::test]
+    async fn test_list_backups_empty() {
+        let dir = TempDir::new().unwrap();
+        let svc = make_service(&dir);
+        let all = svc.list_backups().await.unwrap();
+        assert!(all.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_backups_by_tenant() {
+        let dir = TempDir::new().unwrap();
+        let svc = make_service(&dir);
+        create_test_backup(&svc, "alpha").await;
+        create_test_backup(&svc, "alpha").await;
+        create_test_backup(&svc, "beta").await;
+        let alpha = svc.list_backups_by_tenant("alpha").await.unwrap();
+        assert_eq!(alpha.len(), 2);
+        let beta = svc.list_backups_by_tenant("beta").await.unwrap();
+        assert_eq!(beta.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_delete_backup() {
+        let dir = TempDir::new().unwrap();
+        let svc = make_service(&dir);
+        let backup = create_test_backup(&svc, "t1").await;
+        svc.delete_backup(&backup.id).await.unwrap();
+        assert!(matches!(
+            svc.get_backup(&backup.id).await,
+            Err(BackupError::NotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_cancel_pending_backup() {
+        let dir = TempDir::new().unwrap();
+        let svc = make_service(&dir);
+        let backup = create_test_backup(&svc, "t1").await;
+        let cancelled = svc.cancel_backup(&backup.id).await.unwrap();
+        assert_eq!(
+            cancelled.status,
+            crate::backup::models::BackupStatus::Cancelled
+        );
+    }
+
+    #[tokio::test]
+    async fn test_restore_dry_run() {
+        use crate::backup::storage::BackupStorage as _;
+
+        let dir = TempDir::new().unwrap();
+        let (svc, storage) = make_service_with_storage(&dir);
+
+        // Create a backup and manually mark it Completed via storage
+        let mut backup = create_test_backup(&svc, "t1").await;
+        backup.complete(0, "/fake/path".to_string());
+        storage.update(backup.clone()).await.unwrap();
+
+        let req = RestoreRequest {
+            backup_id: backup.id,
+            target_tenant_id: None,
+            target_repository_ids: None,
+            overwrite_existing: false,
+            dry_run: true,
+        };
+        let result = svc.restore_backup(req).await.unwrap();
+        assert_eq!(
+            result.status,
+            crate::backup::models::RestoreStatus::Completed
+        );
     }
 }

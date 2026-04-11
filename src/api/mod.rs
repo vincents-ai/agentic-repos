@@ -56,7 +56,6 @@ impl ApiServer {
         let git_service = Arc::clone(&self.git_service);
         let feature_flags = self.feature_flags.clone();
         let lfs_config = self.lfs_config.clone();
-        let _enable_web_ui = feature_flags.web_ui;
 
         let _rbac_service = if feature_flags.rbac {
             let storage = Arc::new(InMemoryRbacStorage::new());
@@ -154,6 +153,17 @@ impl ApiServer {
                             InMemoryAuditStorage,
                         >,
                     ));
+            }
+
+            // Wire Web UI if feature flag is enabled
+            if feature_flags.web_ui {
+                if let Ok(web_ui) =
+                    crate::web::WebUI::new(git_service.clone(), feature_flags.clone())
+                {
+                    app = app.configure(|cfg| {
+                        crate::web::WebUI::configure(cfg, Arc::new(web_ui));
+                    });
+                }
             }
 
             app

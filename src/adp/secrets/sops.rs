@@ -3,25 +3,12 @@
 //! Implements SOPS-style AGE encryption for secret blobs at refs/secrets/*.
 //! Uses the per-repo public key to encrypt secrets (zero-knowledge submission).
 //! Secrets are stored as JSON with SOPS-compatible format.
-//!
-//! ## SOPS Format
-//!
-//! ```json
-//! {
-//!   "sops": {
-//!     "age": ["age1..."],
-//!     "lastModified": "2026-04-11T12:00:00Z",
-//!     "version": "3.9.0"
-//!   },
-//!   "data": "base64-encoded-encrypted-data"
-//! }
-//! ```
 
-use age::armor::Armored;
-use age::recipient::Recipients;
+use crate::adp::secrets::key_manager::RepoKeyManager;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use thiserror::Error;
 
 /// Errors for SOPS operations.
@@ -77,35 +64,26 @@ pub struct SecretsManager;
 impl SecretsManager {
     /// Create a SOPS-compatible encrypted blob from plaintext.
     ///
-    /// Takes the repo's public key (base64-encoded X25519 key) as the recipient.
+    /// Takes the repo's public key (age bech32 recipient string) as the recipient.
     pub fn encrypt(plaintext: &[u8], recipient_public_key: &str) -> Result<String, SopsError> {
-        // Parse the public key from base64
-        let public_key_bytes = base64::engine::general_purpose::STANDARD
-            .decode(recipient_public_key)
-            .map_err(|e| SopsError::InvalidFormat(format!("invalid public key base64: {}", e)))?;
+        let recipient = RepoKeyManager::parse_recipient(recipient_public_key)
+            .map_err(|e| SopsError::InvalidFormat(e.to_string()))?;
 
-        // Create X25519 public key
-        let public_key = age::x25519::PublicKey::from_slice(&public_key_bytes)
-            .map_err(|e| SopsError::InvalidFormat(format!("invalid public key: {}", e)))?;
-
-        // Create recipient
-        let recipient = age::recipient::Recipient::X25519(public_key);
-
-        // Encrypt using age
-        let encryptor = age::Encryptor::new_recipient(&recipient);
+        let recipients: Vec<Box<dyn age::Recipient>> = vec![Box::new(recipient)];
+        let encryptor = age::Encryptor::with_recipients(recipients.iter().map(|r| r.as_ref()))
+            .map_err(|e| SopsError::Encryption(e.to_string()))?;
 
         let mut ciphertext = Vec::new();
         let mut writer = encryptor
             .wrap_output(&mut ciphertext)
             .map_err(|e| SopsError::Encryption(e.to_string()))?;
 
-        use std::io::Write;
         writer
             .write_all(plaintext)
             .map_err(|e| SopsError::Encryption(e.to_string()))?;
 
         writer
-            .close()
+            .finish()
             .map_err(|e| SopsError::Encryption(e.to_string()))?;
 
         // Encode as base64
@@ -130,60 +108,48 @@ impl SecretsManager {
 
     /// Decrypt a SOPS-compatible encrypted blob.
     ///
-    /// Takes the decrypted private key bytes and the encrypted JSON.
-    pub fn decrypt(encrypted_json: &str, private_key: &[u8]) -> Result<String, SopsError> {
-        // Parse the JSON
+    /// Takes the private key string and the encrypted JSON.
+    pub fn decrypt(encrypted_json: &str, private_key: &str) -> Result<String, SopsError> {
         let sops_file: SopsEncryptedFile = serde_json::from_str(encrypted_json)
             .map_err(|e| SopsError::InvalidFormat(format!("invalid SOPS JSON: {}", e)))?;
 
-        // Check recipients
         if sops_file.sops.age_recipients.is_empty() {
             return Err(SopsError::NoRecipients);
         }
 
-        // Decode the encrypted data
         let ciphertext = base64::engine::general_purpose::STANDARD
             .decode(&sops_file.data)
-            .map_err(|e| SopsError::InvalidFormat(format!("invalid encrypted data base64: {}", e)))?;
+            .map_err(|e| {
+                SopsError::InvalidFormat(format!("invalid encrypted data base64: {}", e))
+            })?;
 
-        // Create identity from private key
-        let secret_key = age::x25519::SecretKey::from_slice(private_key)
-            .map_err(|e| SopsError::InvalidFormat(format!("invalid private key: {}", e)))?;
+        let identity = RepoKeyManager::parse_identity(private_key)
+            .map_err(|e| SopsError::InvalidFormat(e.to_string()))?;
 
-        let identity = age::identity::Identity::from(secret_key);
-
-        // Decrypt
-        let decryptor = age::Decryptor::new(&ciphertext)
+        let decryptor = age::Decryptor::new(std::io::Cursor::new(&ciphertext))
             .map_err(|e| SopsError::Decryption(format!("invalid ciphertext: {}", e)))?;
 
-        match decryptor {
-            age::Decryptor::Recipient(dec) => {
-                let mut output = Vec::new();
-                let mut reader = dec
-                    .decrypt(&identity, None)
-                    .map_err(|e| SopsError::Decryption(e.to_string()))?;
+        let identities: Vec<Box<dyn age::Identity>> = vec![Box::new(identity)];
+        let mut output = Vec::new();
+        let mut reader = decryptor
+            .decrypt(identities.iter().map(|i| i.as_ref()))
+            .map_err(|e| SopsError::Decryption(e.to_string()))?;
 
-                use std::io::Read;
-                reader
-                    .read_to_end(&mut output)
-                    .map_err(|e| SopsError::Decryption(e.to_string()))?;
+        reader
+            .read_to_end(&mut output)
+            .map_err(|e| SopsError::Decryption(e.to_string()))?;
 
-                String::from_utf8(output)
-                    .map_err(|e| SopsError::Decryption(format!("invalid UTF-8: {}", e)))
-            }
-            _ => Err(SopsError::Decryption("unexpected decryptor type".to_string())),
-        }
+        String::from_utf8(output)
+            .map_err(|e| SopsError::Decryption(format!("invalid UTF-8: {}", e)))
     }
 
     /// Encrypt a map of key-value secrets.
-    ///
-    /// Returns a SOPS-encrypted JSON string.
     pub fn encrypt_map(
         secrets: &HashMap<String, String>,
         recipient_public_key: &str,
     ) -> Result<String, SopsError> {
-        let json = serde_json::to_string(secrets)
-            .map_err(|e| SopsError::Encryption(e.to_string()))?;
+        let json =
+            serde_json::to_string(secrets).map_err(|e| SopsError::Encryption(e.to_string()))?;
 
         Self::encrypt(json.as_bytes(), recipient_public_key)
     }
@@ -191,7 +157,7 @@ impl SecretsManager {
     /// Decrypt to a map of key-value secrets.
     pub fn decrypt_map(
         encrypted_json: &str,
-        private_key: &[u8],
+        private_key: &str,
     ) -> Result<HashMap<String, String>, SopsError> {
         let json = Self::decrypt(encrypted_json, private_key)?;
 
@@ -205,16 +171,15 @@ impl SecretsManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use age::x25519::{PublicKey, SecretKey};
+    use age::secrecy::ExposeSecret;
+    use age::x25519::Identity;
 
-    fn generate_test_keypair() -> (String, Vec<u8>) {
-        let secret_key = SecretKey::generate();
-        let public_key = PublicKey::from(&secret_key);
-
-        let public_key_b64 = base64::engine::general_purpose::STANDARD.encode(public_key.as_bytes());
-        let private_key_bytes = secret_key.as_bytes().to_vec();
-
-        (public_key_b64, private_key_bytes)
+    fn generate_test_keypair() -> (String, String) {
+        let identity = Identity::generate();
+        let recipient = identity.to_public();
+        let public_key_str = recipient.to_string();
+        let private_key_str = identity.to_string().expose_secret().to_string();
+        (public_key_str, private_key_str)
     }
 
     #[test]
@@ -222,9 +187,8 @@ mod tests {
         let (public_key, private_key) = generate_test_keypair();
 
         let plaintext = b"my-secret-value";
-        
+
         let encrypted = SecretsManager::encrypt(plaintext, &public_key).unwrap();
-        println!("encrypted: {}", encrypted);
 
         let decrypted = SecretsManager::decrypt(&encrypted, &private_key).unwrap();
         assert_eq!(decrypted, "my-secret-value");
@@ -236,13 +200,18 @@ mod tests {
 
         let mut secrets = HashMap::new();
         secrets.insert("api_key".to_string(), "sk-abc123".to_string());
-        secrets.insert("database_url".to_string(), "postgres://localhost/db".to_string());
+        secrets.insert(
+            "database_url".to_string(),
+            "postgres://localhost/db".to_string(),
+        );
 
         let encrypted = SecretsManager::encrypt_map(&secrets, &public_key).unwrap();
-        println!("encrypted map: {}", encrypted);
 
         let decrypted = SecretsManager::decrypt_map(&encrypted, &private_key).unwrap();
         assert_eq!(decrypted.get("api_key").unwrap(), "sk-abc123");
-        assert_eq!(decrypted.get("database_url").unwrap(), "postgres://localhost/db");
+        assert_eq!(
+            decrypted.get("database_url").unwrap(),
+            "postgres://localhost/db"
+        );
     }
 }

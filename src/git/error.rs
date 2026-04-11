@@ -14,8 +14,6 @@ pub enum GitError {
     #[error("Git protocol error: {0}")]
     ProtocolError(String),
 
-
-
     #[error("Storage error: {0}")]
     StorageError(#[from] crate::storage::StorageError),
 

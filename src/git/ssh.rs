@@ -575,9 +575,14 @@ impl russh::server::Handler for SshHandler {
                                 handle.clone(),
                             );
 
-                            eprintln!("[SSH-SPAWN] Starting native upload-pack for {:?}", repo_path);
+                            eprintln!(
+                                "[SSH-SPAWN] Starting native upload-pack for {:?}",
+                                repo_path
+                            );
                             let protocol_handler = crate::git::protocol::GitProtocolHandler::new();
-                            let result = protocol_handler.handle_upload_pack(reader, writer, &repo_path).await;
+                            let result = protocol_handler
+                                .handle_upload_pack(reader, writer, &repo_path)
+                                .await;
                             eprintln!(
                                 "[SSH-SPAWN] Upload-pack handler completed: {:?}",
                                 result.is_ok()
@@ -928,7 +933,6 @@ impl SshHandler {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -13,9 +13,6 @@ pub enum StorageError {
     #[error("Repository not found: {0}")]
     NotFound(String),
 
-    #[error("Git error: {0}")]
-    Git(#[from] git2::Error),
-
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 

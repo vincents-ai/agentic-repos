@@ -30,9 +30,6 @@ use thiserror::Error;
 /// Errors produced by `AdpStore` operations.
 #[derive(Debug, Error)]
 pub enum AdpStoreError {
-    #[error("git error: {0}")]
-    Git(#[from] git2::Error),
-
     #[error("gix open error: {0}")]
     GixOpen(#[from] gix::open::Error),
 

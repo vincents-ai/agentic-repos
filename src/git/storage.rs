@@ -40,8 +40,8 @@ impl<S: StorageBackend> GitStorageIntegration<S> {
             .tempdir_in(&self.temp_dir)
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
-        let _repo = gix::init_bare(temp_repo.path())
-            .map_err(|e| StorageError::Io(e.to_string()))?;
+        let _repo =
+            gix::init_bare(temp_repo.path()).map_err(|e| StorageError::Io(e.to_string()))?;
 
         self.walk_and_upload(temp_repo.path(), &path).await?;
 

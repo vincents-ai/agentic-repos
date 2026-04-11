@@ -45,7 +45,7 @@ pub use bootstrap::bootstrap_system_repo;
 pub use config::{RepoConfig, ServerConfig};
 pub use identity::CallerIdentity;
 pub use schema::{RefSchema, UiHints};
-pub use secrets::{RepoKeyManager, SecretsManager, PUBLIC_KEY_PREFIX, SECRETS_PREFIX, SECRETS_KEYS_PREFIX};
+pub use secrets::{RepoKeyManager, SecretsManager, SECRETS_KEYS_PREFIX};
 pub use storage::AdpStore;
 
 /// The root namespace for all ADP refs.
@@ -57,8 +57,8 @@ pub const ACCESS_PREFIX: &str = "refs/adp/access/";
 pub const CONFIG_PREFIX: &str = "refs/adp/config/";
 
 /// User-defined namespaces (private, stripped from wire protocol).
-pub const SECRETS_PREFIX: &str = "refs/secrets/";
-pub const PUBLIC_KEY_PREFIX: &str = "refs/meta/public-key";
+pub use secrets::PUBLIC_KEY_PREFIX;
+pub use secrets::SECRETS_PREFIX;
 
 /// The special ref name for the repo ACL blob.
 pub const ACCESS_CONFIG_REF: &str = "refs/adp/access/config";
@@ -72,7 +72,7 @@ pub const SERVER_CONFIG_REF: &str = "refs/adp/config/server";
 /// Returns true if the ref is an ADP private ref (access or config).
 /// These are stripped from the git wire protocol for non-privileged clients.
 pub fn is_private(refname: &str) -> bool {
-    refname.starts_with(ACCESS_PREFIX) 
+    refname.starts_with(ACCESS_PREFIX)
         || refname.starts_with(CONFIG_PREFIX)
         || refname.starts_with(SECRETS_PREFIX)
 }

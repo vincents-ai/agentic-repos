@@ -1,4 +1,15 @@
+use actix_web::HttpResponse;
 use serde::{Deserialize, Serialize};
+
+impl actix_web::ResponseError for ApiError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::build(
+            actix_web::http::StatusCode::from_u16(self.code)
+                .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR),
+        )
+        .json(self)
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repository {
@@ -70,6 +81,12 @@ pub struct Branch {
 pub struct BranchList {
     pub branches: Vec<Branch>,
     pub total: usize,
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.error, self.message)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

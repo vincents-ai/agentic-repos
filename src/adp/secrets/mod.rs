@@ -39,12 +39,12 @@ pub const SECRETS_PREFIX: &str = "refs/secrets/";
 
 /// Returns the system repo key ref for a given repo ID.
 pub fn repo_private_key_ref(repo_id: &str) -> String {
-    format!("{}refs/adp/secrets/keys/{}/private", SECRETS_KEYS_PREFIX, repo_id)
+    format!("{}{}/private", SECRETS_KEYS_PREFIX, repo_id)
 }
 
 /// Returns the system repo public key ref for a given repo ID.
 pub fn repo_public_key_ref(repo_id: &str) -> String {
-    format!("{}refs/adp/secrets/keys/{}/public", SECRETS_KEYS_PREFIX, repo_id)
+    format!("{}{}/public", SECRETS_KEYS_PREFIX, repo_id)
 }
 
 /// Returns the user repo public key ref.

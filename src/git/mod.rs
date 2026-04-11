@@ -115,8 +115,7 @@ impl GitService {
 
         self.storage.create_directory(&repo_path).await?;
 
-        let _repo = gix::init_bare(&repo_path)
-            .map_err(|e| GitServiceError::Git(e.to_string()))?;
+        let _repo = gix::init_bare(&repo_path).map_err(|e| GitServiceError::Git(e.to_string()))?;
 
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -272,12 +271,12 @@ impl GitService {
 
         let mut branches = Vec::new();
 
-            let refs_platform = repo
-                .references()
-                .map_err(|e| GitServiceError::Git(e.to_string()))?;
-            let branch_iter = refs_platform
-                .local_branches()
-                .map_err(|e| GitServiceError::Git(e.to_string()))?;
+        let refs_platform = repo
+            .references()
+            .map_err(|e| GitServiceError::Git(e.to_string()))?;
+        let branch_iter = refs_platform
+            .local_branches()
+            .map_err(|e| GitServiceError::Git(e.to_string()))?;
 
         for reference in branch_iter {
             let r = reference.map_err(|e| GitServiceError::Git(e.to_string()))?;

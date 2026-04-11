@@ -215,23 +215,25 @@ impl BackupService {
     }
 
     async fn create_git_bundle(&self, repo_path: &str, repo_id: &str) -> BackupResult<Vec<u8>> {
-        let repo = git2::Repository::open(repo_path)
+        let gix_repo = gix::open(repo_path)
             .map_err(|e| BackupError::Git(format!("Failed to open repo {}: {}", repo_id, e)))?;
 
         let mut bundle_data = Vec::new();
 
         // Create a simple archive format by listing references
-        // This is a simplified approach since git2 bundle_write may not be available
-        let references = repo
+        let platform = gix_repo
             .references()
             .map_err(|e| BackupError::Git(e.to_string()))?;
+        let iter = platform
+            .all()
+            .map_err(|e| BackupError::Git(e.to_string()))?;
 
-        for reference in references.flatten() {
-            if let Some(name) = reference.shorthand() {
-                if let Some(target) = reference.target() {
-                    bundle_data.extend_from_slice(format!("{}\n", name).as_bytes());
-                    bundle_data.extend_from_slice(format!("{}\n", target).as_bytes());
-                }
+        for reference in iter {
+            let reference = reference.map_err(|e| BackupError::Git(e.to_string()))?;
+            let name = reference.name().as_bstr().to_string();
+            if let Some(target_id) = reference.try_id() {
+                bundle_data.extend_from_slice(format!("{}\n", name).as_bytes());
+                bundle_data.extend_from_slice(format!("{}\n", target_id.to_hex()).as_bytes());
             }
         }
 

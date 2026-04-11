@@ -92,44 +92,45 @@ impl UploadPackHandler {
         let can_see_private = caller_identity
             .map(|id| id.can_see_private_refs())
             .unwrap_or(false);
-        let (head_target, ref_data) = tokio::task::spawn_blocking(move || -> Result<(Option<gix::ObjectId>, Vec<(String, gix::ObjectId)>)> {
-            let repo = gix::open(&repo_path_clone)
-                .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
-
-            let head_target = repo
-                .head_id()
-                .ok()
-                .map(|id| id.detach());
-
-            let refs_platform = repo.references()
-                .map_err(|e| GitError::ProtocolError(format!("Failed to list references: {}", e)))?;
-
-            let mut results = Vec::new();
-            for reference in refs_platform.all().map_err(|e| {
-                GitError::ProtocolError(format!("Failed to iterate references: {}", e))
-            })? {
-                let reference = reference.map_err(|e| {
-                    GitError::ProtocolError(format!("Failed to read reference: {}", e))
+        let (head_target, ref_data) = tokio::task::spawn_blocking(
+            move || -> Result<(Option<gix::ObjectId>, Vec<(String, gix::ObjectId)>)> {
+                let repo = gix::open(&repo_path_clone).map_err(|e| {
+                    GitError::RepoNotFound(format!("Failed to open repository: {}", e))
                 })?;
 
-                let name_bytes = reference.name().as_bstr();
-                let name = String::from_utf8_lossy(name_bytes).into_owned();
+                let head_target = repo.head_id().ok().map(|id| id.detach());
 
-                // Strip refs/adp/access/*, refs/adp/config/*, and refs/secrets/* from non-privileged clients
-                let is_private_ref = name.starts_with(ACCESS_PREFIX) 
-                    || name.starts_with(CONFIG_PREFIX) 
-                    || name.starts_with(SECRETS_PREFIX);
-                
-                if is_private_ref && !can_see_private {
-                    continue;
-                }
+                let refs_platform = repo.references().map_err(|e| {
+                    GitError::ProtocolError(format!("Failed to list references: {}", e))
+                })?;
 
-                if let Some(id) = reference.try_id() {
-                    results.push((name, id.detach()));
+                let mut results = Vec::new();
+                for reference in refs_platform.all().map_err(|e| {
+                    GitError::ProtocolError(format!("Failed to iterate references: {}", e))
+                })? {
+                    let reference = reference.map_err(|e| {
+                        GitError::ProtocolError(format!("Failed to read reference: {}", e))
+                    })?;
+
+                    let name_bytes = reference.name().as_bstr();
+                    let name = String::from_utf8_lossy(name_bytes).into_owned();
+
+                    // Strip refs/adp/access/*, refs/adp/config/*, and refs/secrets/* from non-privileged clients
+                    let is_private_ref = name.starts_with(ACCESS_PREFIX)
+                        || name.starts_with(CONFIG_PREFIX)
+                        || name.starts_with(SECRETS_PREFIX);
+
+                    if is_private_ref && !can_see_private {
+                        continue;
+                    }
+
+                    if let Some(id) = reference.try_id() {
+                        results.push((name, id.detach()));
+                    }
                 }
-            }
-            Ok((head_target, results))
-        })
+                Ok((head_target, results))
+            },
+        )
         .await
         .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
 
@@ -339,8 +340,9 @@ impl UploadPackHandler {
             }
 
             let mut packfile_buf = Vec::new();
-            let input: std::iter::Once<std::result::Result<Vec<output::Entry>, std::convert::Infallible>> =
-                std::iter::once(Ok(entries));
+            let input: std::iter::Once<
+                std::result::Result<Vec<output::Entry>, std::convert::Infallible>,
+            > = std::iter::once(Ok(entries));
 
             let mut pack_writer = output::bytes::FromEntriesIter::new(
                 input,

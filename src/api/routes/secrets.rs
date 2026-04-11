@@ -2,12 +2,10 @@
 //!
 //! REST API endpoints for managing SOPS-encrypted secrets at refs/secrets/*.
 
-use crate::adp::secrets::{SecretsManager, SECRETS_PREFIX};
 use crate::api::models::ApiError;
 use actix_web::{web, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Secrets route configuration.
 pub fn configure_secrets_routes(cfg: &mut web::ServiceConfig) {
@@ -78,15 +76,13 @@ pub async fn list_secrets(
     let secrets: Vec<String> = vec![];
 
     Ok(HttpResponse::Ok().json(SecretListResponse {
-        secrets,
         total: secrets.len(),
+        secrets,
     }))
 }
 
 /// Get a specific secret.
-pub async fn get_secret(
-    path: web::Path<(String, String, String)>,
-) -> ActixResult<HttpResponse> {
+pub async fn get_secret(path: web::Path<(String, String, String)>) -> ActixResult<HttpResponse> {
     let (owner, repo, secret_name) = path.into_inner();
 
     tracing::info!(owner = %owner, repo = %repo, secret_name = %secret_name, "getting secret");
@@ -140,9 +136,7 @@ pub async fn update_secret(
 }
 
 /// Delete a secret.
-pub async fn delete_secret(
-    path: web::Path<(String, String, String)>,
-) -> ActixResult<HttpResponse> {
+pub async fn delete_secret(path: web::Path<(String, String, String)>) -> ActixResult<HttpResponse> {
     let (owner, repo, secret_name) = path.into_inner();
 
     tracing::info!(owner = %owner, repo = %repo, name = %secret_name, "deleting secret");

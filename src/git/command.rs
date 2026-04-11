@@ -257,7 +257,7 @@ mod tests {
             "git-upload-pack ../../../etc/passwd",
             "git-upload-pack tenant/../../../etc/passwd",
             "git-upload-pack tenant/./repo.git",
-            "git-upload-pack /absolute/path/repo.git",
+            "git-upload-pack /etc/shadow",
             "git-upload-pack tenant/repo/../config",
         ];
 

@@ -90,7 +90,7 @@ impl AuthorizedKeysManager {
 
             self.authorized_keys
                 .entry(username.to_string())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(key_part.to_string());
 
             debug!("Added authorized key for user: {}", username);
@@ -101,13 +101,8 @@ impl AuthorizedKeysManager {
 
     /// Validate if a public key is authorized for the given user
     pub fn is_key_authorized(&self, user: &str, public_key: &PublicKey) -> bool {
-        eprintln!("[AUTH] Checking if user '{}' is authorized", user);
+        debug!("Checking if user '{}' is authorized", user);
         let Some(user_keys) = self.authorized_keys.get(user) else {
-            eprintln!(
-                "[AUTH] User '{}' not found in authorized keys. Available users: {:?}",
-                user,
-                self.authorized_keys.keys().collect::<Vec<_>>()
-            );
             debug!("User '{}' not found in authorized keys", user);
             return false;
         };
@@ -115,52 +110,48 @@ impl AuthorizedKeysManager {
         let provided_key = match public_key.to_openssh() {
             Ok(key_str) => key_str,
             Err(e) => {
-                eprintln!(
-                    "[AUTH] Failed to convert public key to OpenSSH format: {}",
-                    e
-                );
                 error!("Failed to convert public key to OpenSSH format: {}", e);
                 return false;
             }
         };
 
-        eprintln!("[AUTH] Provided key: {}", provided_key);
+        debug!("Provided key: {}", provided_key);
         for authorized_key in user_keys {
-            eprintln!("[AUTH] Comparing with authorized key: {}", authorized_key);
+            debug!("Comparing with authorized key: {}", authorized_key);
             if self.keys_match(&provided_key, authorized_key) {
-                eprintln!("[AUTH] Keys MATCH!");
+                debug!("Keys MATCH!");
                 debug!("Public key authorized for user: {}", user);
                 return true;
             }
         }
 
-        eprintln!("[AUTH] No matching key found for user: {}", user);
+        debug!("No matching key found for user: {}", user);
         debug!("Public key not authorized for user: {}", user);
         false
     }
 
     /// Compare two SSH public keys for equality
     fn keys_match(&self, provided_key: &str, authorized_key: &str) -> bool {
-        eprintln!("[AUTH] Comparing keys:");
-        eprintln!("[AUTH]   Provided: '{}'", provided_key);
-        eprintln!("[AUTH]   Authorized: '{}'", authorized_key);
+        debug!("Comparing keys:");
+        debug!("Provided: '{}'", provided_key);
+        debug!("Authorized: '{}'", authorized_key);
 
         let provided_parts: Vec<&str> = provided_key.split_whitespace().collect();
         let authorized_parts: Vec<&str> = authorized_key.split_whitespace().collect();
 
-        eprintln!("[AUTH]   Provided parts: {:?}", provided_parts);
-        eprintln!("[AUTH]   Authorized parts: {:?}", authorized_parts);
+        debug!("Provided parts: {:?}", provided_parts);
+        debug!("Authorized parts: {:?}", authorized_parts);
 
-        if provided_parts.len() < 2 || authorized_parts.len() < 1 {
-            eprintln!("[AUTH]   Not enough parts");
+        if provided_parts.len() < 2 || authorized_parts.len() < 2 {
+            debug!("  Not enough parts");
             return false;
         }
 
         let key_type_match = provided_parts[0] == authorized_parts[0];
         let key_data_match = provided_parts[1] == authorized_parts[1];
 
-        eprintln!("[AUTH]   Key type match: {}", key_type_match);
-        eprintln!("[AUTH]   Key data match: {}", key_data_match);
+        debug!("Key type match: {}", key_type_match);
+        debug!("Key data match: {}", key_data_match);
 
         key_type_match && key_data_match
     }

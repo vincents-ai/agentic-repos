@@ -120,12 +120,12 @@ impl GitOperationService {
     ) -> SkynetPluginResult<Vec<BranchInfo>> {
         debug!("Listing branches from: {}", repo_path.display());
 
-        let git2_repo = git2::Repository::open(repo_path).map_err(|_| {
-            crate::skynet::error::SkynetPluginError::RepositoryNotFound(
-                repo_path.to_string_lossy().to_string(),
-            )
+        let gix_repo = gix::open(repo_path).map_err(|e| {
+            crate::skynet::error::SkynetPluginError::RepositoryNotFound(format!(
+                "Failed to open repo: {}",
+                e
+            ))
         })?;
-        let gix_repo = gix::open(repo_path).map_err(|e| git_err("Failed to open repo with gix", e))?;
 
         let head_name = gix_repo
             .head_name()
@@ -152,9 +152,7 @@ impl GitOperationService {
 
             let name_bstr = reference.name().as_bstr();
             let branch_name = String::from_utf8_lossy(
-                name_bstr
-                    .strip_prefix(b"refs/heads/")
-                    .unwrap_or(name_bstr),
+                name_bstr.strip_prefix(b"refs/heads/").unwrap_or(name_bstr),
             )
             .into_owned();
 
@@ -162,16 +160,16 @@ impl GitOperationService {
 
             if let Some(id) = reference.try_id() {
                 let hex = id.to_hex().to_string();
-                if let Ok(git2_oid) = git2::Oid::from_str(&hex) {
-                    if let Ok(commit) = git2_repo.find_commit(git2_oid) {
-                        let timestamp = commit.time().seconds();
+                if let Ok(obj) = gix_repo.find_object(id) {
+                    if let Ok(commit) = gix::objs::CommitRef::from_bytes(&obj.data) {
+                        let timestamp = commit.committer.time.seconds;
                         branches.push(BranchInfo {
                             name: branch_name,
                             is_head,
                             commit_sha: hex,
-                            commit_message: commit.message().unwrap_or("").to_string(),
-                            author: commit.author().name().unwrap_or("unknown").to_string(),
-                            created_at: chrono::DateTime::from_timestamp(timestamp, 0)
+                            commit_message: commit.message.to_string(),
+                            author: commit.author.name.to_string(),
+                            created_at: chrono::DateTime::from_timestamp(timestamp as i64, 0)
                                 .unwrap_or(chrono::Utc::now())
                                 .to_rfc3339(),
                         });
@@ -185,7 +183,7 @@ impl GitOperationService {
 
     /// Create a new branch.
     ///
-    /// Uses `gix` for ref creation; `git2` for commit object access.
+    /// Uses `gix` for both ref creation and commit object access.
     pub async fn create_branch(
         &self,
         _tenant_id: &str,
@@ -200,25 +198,41 @@ impl GitOperationService {
             repo_path.display()
         );
 
-        let git2_repo = git2::Repository::open(repo_path).map_err(|_| {
-            crate::skynet::error::SkynetPluginError::RepositoryNotFound(
-                repo_path.to_string_lossy().to_string(),
-            )
+        let gix_repo = gix::open(repo_path).map_err(|e| {
+            crate::skynet::error::SkynetPluginError::RepositoryNotFound(format!(
+                "Failed to open repo: {}",
+                e
+            ))
         })?;
 
-        let gix_repo = gix::open(repo_path).map_err(|e| git_err("Failed to open repo with gix", e))?;
-
-        // Resolve start point to a commit OID using git2
-        let obj = git2_repo
-            .revparse_single(start_point)
+        // Resolve start point to a commit OID using gix
+        let ref_result = gix_repo
+            .try_find_reference(start_point)
             .map_err(|e| git_err("Invalid start point", e))?;
-        let commit = git2_repo
-            .find_commit(obj.id())
+
+        let commit_id = if let Some(r) = ref_result {
+            r.try_id()
+                .ok_or_else(|| {
+                    git_err(
+                        "Start point is symbolic ref",
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "symbolic ref"),
+                    )
+                })?
+                .detach()
+        } else {
+            // Try as raw OID
+            gix::hash::ObjectId::from_hex(start_point.as_bytes())
+                .map_err(|e| git_err("Invalid start point OID", e))?
+        };
+
+        // Verify it's a commit
+        let obj = gix_repo
+            .find_object(commit_id)
+            .map_err(|e| git_err("Start point not found", e))?;
+        let commit = gix::objs::CommitRef::from_bytes(&obj.data)
             .map_err(|e| git_err("Start point is not a commit", e))?;
 
-        let commit_hex = commit.id().to_string();
-        let gix_commit_oid = gix::hash::ObjectId::try_from(commit.id().as_bytes())
-            .expect("valid 20-byte sha1 from git2");
+        let commit_hex = commit_id.to_hex().to_string();
 
         // Create the branch ref using gix (fail if already exists)
         let ref_name = format!("refs/heads/{}", branch_name);
@@ -227,7 +241,7 @@ impl GitOperationService {
                 change: Change::Update {
                     log: LogChange::default(),
                     expected: PreviousValue::MustNotExist,
-                    new: Target::Object(gix_commit_oid),
+                    new: Target::Object(commit_id),
                 },
                 name: FullName::try_from(ref_name.as_str())
                     .map_err(|e| git_err("Invalid branch name", e))?,
@@ -235,8 +249,8 @@ impl GitOperationService {
             })
             .map_err(|e| git_err("Failed to create branch", e))?;
 
-        let author_name = commit.author().name().unwrap_or("unknown").to_string();
-        let commit_msg = commit.message().unwrap_or("").to_string();
+        let author_name = commit.author.name.to_string();
+        let commit_msg = commit.message.to_string();
 
         Ok(BranchInfo {
             name: branch_name.to_string(),
@@ -312,7 +326,9 @@ impl GitOperationService {
             .revparse_single(reference)
             .map_err(|e| git_err("Invalid reference", e))?;
 
-        let mut revwalk = repo.revwalk().map_err(|e| git_err("Failed to walk commits", e))?;
+        let mut revwalk = repo
+            .revwalk()
+            .map_err(|e| git_err("Failed to walk commits", e))?;
         revwalk
             .push(obj.id())
             .map_err(|e| git_err("Failed to push object", e))?;
@@ -328,16 +344,8 @@ impl GitOperationService {
                     let timestamp = commit.time().seconds();
                     commits.push(CommitInfo {
                         sha: commit.id().to_string(),
-                        author: commit
-                            .author()
-                            .name()
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        email: commit
-                            .author()
-                            .email()
-                            .unwrap_or("unknown")
-                            .to_string(),
+                        author: commit.author().name().unwrap_or("unknown").to_string(),
+                        email: commit.author().email().unwrap_or("unknown").to_string(),
                         message: commit.message().unwrap_or("").to_string(),
                         timestamp,
                         parent_shas: commit.parent_ids().map(|id| id.to_string()).collect(),

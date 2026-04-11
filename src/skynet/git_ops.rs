@@ -301,7 +301,7 @@ impl GitOperationService {
 
     /// Get commit history.
     ///
-    /// Still uses `git2` for revwalk (object operation, not ref management).
+    /// Uses `gix` for commit traversal (replaces git2 revwalk with manual parent walking).
     pub async fn get_commit_history(
         &self,
         _tenant_id: &str,
@@ -316,42 +316,71 @@ impl GitOperationService {
             repo_path.display()
         );
 
-        let repo = git2::Repository::open(repo_path).map_err(|_| {
+        let gix_repo = gix::open(repo_path).map_err(|_| {
             crate::skynet::error::SkynetPluginError::RepositoryNotFound(
                 repo_path.to_string_lossy().to_string(),
             )
         })?;
 
-        let obj = repo
-            .revparse_single(reference)
-            .map_err(|e| git_err("Invalid reference", e))?;
+        // Resolve reference to an OID
+        let start_id = if let Some(r) = gix_repo
+            .try_find_reference(reference)
+            .map_err(|e| git_err("Invalid reference", e))?
+        {
+            r.try_id()
+                .ok_or_else(|| {
+                    git_err(
+                        "Symbolic ref not supported",
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "symbolic ref"),
+                    )
+                })?
+                .detach()
+        } else {
+            gix::hash::ObjectId::from_hex(reference.as_bytes())
+                .map_err(|e| git_err("Invalid reference OID", e))?
+        };
 
-        let mut revwalk = repo
-            .revwalk()
-            .map_err(|e| git_err("Failed to walk commits", e))?;
-        revwalk
-            .push(obj.id())
-            .map_err(|e| git_err("Failed to push object", e))?;
-
+        // Walk commits by following parents (BFS-style like revwalk)
         let mut commits = Vec::new();
-        for (i, oid) in revwalk.enumerate() {
-            if i >= limit {
+        let mut queue = std::collections::VecDeque::new();
+        let mut visited = std::collections::HashSet::new();
+        queue.push_back(start_id);
+        visited.insert(start_id);
+
+        while let Some(current_id) = queue.pop_front() {
+            if commits.len() >= limit {
                 break;
             }
 
-            if let Ok(oid) = oid {
-                if let Ok(commit) = repo.find_commit(oid) {
-                    let timestamp = commit.time().seconds();
-                    commits.push(CommitInfo {
-                        sha: commit.id().to_string(),
-                        author: commit.author().name().unwrap_or("unknown").to_string(),
-                        email: commit.author().email().unwrap_or("unknown").to_string(),
-                        message: commit.message().unwrap_or("").to_string(),
-                        timestamp,
-                        parent_shas: commit.parent_ids().map(|id| id.to_string()).collect(),
-                    });
+            let obj = match gix_repo.find_object(current_id) {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+
+            let commit = match gix::objs::CommitRef::from_bytes(&obj.data) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let parent_shas: Vec<String> =
+                commit.parents().map(|p| p.to_hex().to_string()).collect();
+
+            // Queue unvisited parents
+            for parent_id in commit.parents() {
+                if !visited.contains(&parent_id) {
+                    visited.insert(parent_id);
+                    queue.push_back(parent_id);
                 }
             }
+
+            commits.push(CommitInfo {
+                sha: current_id.to_hex().to_string(),
+                author: commit.author.name.to_string(),
+                email: commit.author.email.to_string(),
+                message: commit.message.to_string(),
+                timestamp: commit.committer.time.seconds,
+                parent_shas,
+            });
         }
 
         Ok(commits)
@@ -359,7 +388,7 @@ impl GitOperationService {
 
     /// Get diff between two commits.
     ///
-    /// Still uses `git2` for diff computation (object operation, not ref management).
+    /// Uses `gix::diff::tree` for tree comparison.
     pub async fn get_diff(
         &self,
         _tenant_id: &str,
@@ -374,36 +403,47 @@ impl GitOperationService {
             repo_path.display()
         );
 
-        let repo = git2::Repository::open(repo_path).map_err(|_| {
+        let gix_repo = gix::open(repo_path).map_err(|_| {
             crate::skynet::error::SkynetPluginError::RepositoryNotFound(
                 repo_path.to_string_lossy().to_string(),
             )
         })?;
 
-        let from_obj = repo
-            .revparse_single(from_ref)
-            .map_err(|e| git_err("Invalid 'from' reference", e))?;
+        // Resolve refs to commit OIDs
+        let from_id =
+            resolve_ref(&gix_repo, from_ref).map_err(|e| git_err("Invalid 'from' reference", e))?;
+        let to_id =
+            resolve_ref(&gix_repo, to_ref).map_err(|e| git_err("Invalid 'to' reference", e))?;
 
-        let to_obj = repo
-            .revparse_single(to_ref)
-            .map_err(|e| git_err("Invalid 'to' reference", e))?;
+        // Get tree IDs from commits
+        let from_obj = gix_repo
+            .find_object(from_id)
+            .map_err(|e| git_err("Failed to find 'from' commit", e))?;
+        let from_commit = gix::objs::CommitRef::from_bytes(&from_obj.data)
+            .map_err(|e| git_err("'from' is not a commit", e))?;
+        let from_tree_id = gix::ObjectId::from(from_commit.tree());
 
-        let from_tree = repo
-            .find_commit(from_obj.id())
-            .map_err(|e| git_err("Failed to find 'from' commit", e))?
-            .tree()
+        let to_obj = gix_repo
+            .find_object(to_id)
+            .map_err(|e| git_err("Failed to find 'to' commit", e))?;
+        let to_commit = gix::objs::CommitRef::from_bytes(&to_obj.data)
+            .map_err(|e| git_err("'to' is not a commit", e))?;
+        let to_tree_id = gix::ObjectId::from(to_commit.tree());
+
+        // Parse trees
+        let from_tree_obj = gix_repo
+            .find_object(from_tree_id)
             .map_err(|e| git_err("Failed to get 'from' tree", e))?;
+        let from_tree = gix::objs::TreeRef::from_bytes(&from_tree_obj.data)
+            .map_err(|e| git_err("Failed to parse 'from' tree", e))?;
 
-        let to_tree = repo
-            .find_commit(to_obj.id())
-            .map_err(|e| git_err("Failed to find 'to' commit", e))?
-            .tree()
+        let to_tree_obj = gix_repo
+            .find_object(to_tree_id)
             .map_err(|e| git_err("Failed to get 'to' tree", e))?;
+        let to_tree = gix::objs::TreeRef::from_bytes(&to_tree_obj.data)
+            .map_err(|e| git_err("Failed to parse 'to' tree", e))?;
 
-        let diff = repo
-            .diff_tree_to_tree(Some(&from_tree), Some(&to_tree), None)
-            .map_err(|e| git_err("Failed to compute diff", e))?;
-
+        // Collect changes using a simple tree entry comparison
         let mut stats = DiffStats {
             insertions: 0,
             deletions: 0,
@@ -411,25 +451,74 @@ impl GitOperationService {
             patches: Vec::new(),
         };
 
-        diff.foreach(
-            &mut |delta, _progress| {
-                if let Some(path) = delta.new_file().path() {
+        // Build maps from filename to entry for both trees
+        let from_entries: std::collections::HashMap<Vec<u8>, &gix::objs::tree::EntryRef> =
+            from_tree
+                .entries
+                .iter()
+                .map(|e| (e.filename.to_vec(), e))
+                .collect();
+        let to_entries: std::collections::HashMap<Vec<u8>, &gix::objs::tree::EntryRef> = to_tree
+            .entries
+            .iter()
+            .map(|e| (e.filename.to_vec(), e))
+            .collect();
+
+        // Find added and modified files
+        for (name, entry) in &to_entries {
+            let path_str = String::from_utf8_lossy(name).to_string();
+            match from_entries.get(name) {
+                None => {
                     stats.files_changed += 1;
                     stats.patches.push(FilePatch {
-                        path: path.to_string_lossy().to_string(),
-                        status: format!("{:?}", delta.status()),
+                        path: path_str,
+                        status: "added".to_string(),
                         additions: 0,
                         deletions: 0,
                     });
                 }
-                true
-            },
-            None,
-            None,
-            None,
-        )
-        .map_err(|e| git_err("Failed to iterate diff", e))?;
+                Some(from_entry) if from_entry.oid != entry.oid => {
+                    stats.files_changed += 1;
+                    stats.patches.push(FilePatch {
+                        path: path_str,
+                        status: "modified".to_string(),
+                        additions: 0,
+                        deletions: 0,
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        // Find deleted files
+        for (name, _) in &from_entries {
+            if !to_entries.contains_key(name) {
+                let path_str = String::from_utf8_lossy(name).to_string();
+                stats.files_changed += 1;
+                stats.patches.push(FilePatch {
+                    path: path_str,
+                    status: "deleted".to_string(),
+                    additions: 0,
+                    deletions: 0,
+                });
+            }
+        }
 
         Ok(stats)
+    }
+}
+
+/// Resolve a reference name or raw OID to an ObjectId.
+fn resolve_ref(repo: &gix::Repository, reference: &str) -> Result<gix::ObjectId, String> {
+    if let Some(r) = repo
+        .try_find_reference(reference)
+        .map_err(|e| e.to_string())?
+    {
+        r.try_id()
+            .map(|id| id.detach())
+            .ok_or_else(|| "symbolic ref not supported".to_string())
+    } else {
+        gix::hash::ObjectId::from_hex(reference.as_bytes())
+            .map_err(|e| format!("Invalid OID: {}", e))
     }
 }

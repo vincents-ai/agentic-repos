@@ -24,7 +24,6 @@ mime_guess = "2.0"
 tokio = { version = "1.35", features = ["full"] }
 
 # Git operations (legacy — being migrated to gix)
-git2 = { version = "0.19", default-features = false, features = ["vendored-libgit2"] }
 
 # SSH Server (for Git over SSH)
 russh = "0.58"

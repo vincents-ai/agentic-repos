@@ -1,9 +1,34 @@
+//! ADP schema + access REST API routes.
+//!
+//! ## Authentication
+//!
+//! Endpoints that modify access config or schemas require an `X-ADP-User` header
+//! identifying the caller. The caller identity is resolved against the repo's
+//! access config to enforce owner/admin checks.
+//!
+//! ## Endpoint summary
+//!
+//! **Repo-level** (`/repos/{owner}/{repo}/adp`):
+//! - `GET/POST /schemas` — list/create schemas
+//! - `GET/PUT/DELETE /schemas/{id}` — read/update/delete schema
+//! - `GET /schemas/resolve?ref=` — resolve schema by ref name
+//! - `GET /schemas/{id}/versions` — list schema version history
+//! - `GET /refs[?prefix=]` — list ADP refs
+//! - `GET /refs/{ref_path}` — read ref blob
+//! - `GET /blobs/{sha}` — read blob by SHA
+//! - `GET/PUT /access` — read/update access config (owner/admin only)
+//!
+//! **System-level** (`/system/adp`):
+//! - Same schema endpoints as repo-level
+//! - `GET/PUT /access` — read/update system access config (super-admin only)
+
 use crate::adp::glob::resolve_schema;
+use crate::adp::identity::CallerIdentity;
 use crate::adp::storage::{AdpStore, AdpStoreError};
 use crate::adp::{AccessConfig, RefSchema, ADP_REF_PREFIX, SCHEMA_PREFIX};
 use crate::api::models::ApiError;
 use crate::git::GitService;
-use actix_web::{web, HttpResponse, Result as ActixResult};
+use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,6 +43,7 @@ pub fn configure_adp_routes(cfg: &mut web::ServiceConfig) {
                     .route("/{id}", web::get().to(get_schema))
                     .route("/{id}", web::put().to(update_schema))
                     .route("/{id}", web::delete().to(delete_schema))
+                    .route("/{id}/versions", web::get().to(list_schema_versions))
                     .route("/resolve", web::get().to(resolve_schema_handler)),
             )
             .service(
@@ -38,12 +64,17 @@ pub fn configure_adp_routes(cfg: &mut web::ServiceConfig) {
                     .route("/{id}", web::get().to(get_system_schema))
                     .route("/{id}", web::put().to(update_system_schema))
                     .route("/{id}", web::delete().to(delete_system_schema))
+                    .route("/{id}/versions", web::get().to(list_system_schema_versions))
                     .route("/resolve", web::get().to(resolve_system_schema_handler)),
             )
             .route("/access", web::get().to(get_system_access_config))
             .route("/access", web::put().to(update_system_access_config)),
     );
 }
+
+// ---------------------------------------------------------------------------
+// Helper types
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 struct RepoPath(PathBuf);
@@ -74,6 +105,57 @@ fn system_repo_path(git_service: &GitService) -> PathBuf {
     git_service.get_storage_root().join("_adp/system")
 }
 
+/// Extract the authenticated username from the `X-ADP-User` header.
+///
+/// Returns `None` if the header is absent (unauthenticated request).
+fn extract_username(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get("X-ADP-User")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
+/// Resolve a `CallerIdentity` for the given repo path and request.
+///
+/// Returns a `CallerIdentity` with `is_owner`/`is_admin` resolved from the
+/// repo's access config. If no access config exists or the request is
+/// unauthenticated, returns a minimal identity with no privileges.
+fn resolve_caller(repo_path: &std::path::Path, req: &HttpRequest) -> CallerIdentity {
+    let username = match extract_username(req) {
+        Some(u) => u,
+        None => {
+            return CallerIdentity {
+                username: String::new(),
+                is_owner: false,
+                is_admin: false,
+            }
+        }
+    };
+
+    let access_config = AdpStore::read_access_config(repo_path)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    CallerIdentity::resolve(&username, &access_config)
+}
+
+/// Check that the caller has admin access. Returns an HTTP 403 response if not.
+fn require_admin(caller: &CallerIdentity) -> ActixResult<()> {
+    if caller.can_see_private_refs() {
+        Ok(())
+    } else {
+        Err(actix_web::error::ErrorForbidden(
+            serde_json::to_string(&ApiError::new(
+                "forbidden",
+                &format!("User '{}' is not an owner or admin", caller.username),
+                403,
+            ))
+            .unwrap_or_default(),
+        ))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ResolveQuery {
     pub r#ref: String,
@@ -94,6 +176,67 @@ pub struct RefEntry {
 pub struct BlobResponse {
     pub sha: String,
     pub content: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SchemaVersion {
+    pub version: u32,
+    pub ref_name: String,
+}
+
+/// Validate a `RefSchema` before writing.
+fn validate_schema(schema: &RefSchema) -> Result<(), ApiError> {
+    if schema.id.is_empty() {
+        return Err(ApiError::bad_request("Schema ID must not be empty"));
+    }
+    if schema.id.contains('/') || schema.id.contains(' ') {
+        return Err(ApiError::bad_request(
+            "Schema ID must not contain '/' or spaces",
+        ));
+    }
+    if schema.namespace_pattern.is_empty() {
+        return Err(ApiError::bad_request(
+            "Schema namespace_pattern must not be empty",
+        ));
+    }
+    if schema.version.is_empty() {
+        return Err(ApiError::bad_request("Schema version must not be empty"));
+    }
+    Ok(())
+}
+
+/// Validate an `AccessConfig` before writing.
+fn validate_access_config(config: &AccessConfig) -> Result<(), ApiError> {
+    if config.version.is_empty() {
+        return Err(ApiError::bad_request(
+            "Access config version must not be empty",
+        ));
+    }
+    for owner in &config.owners {
+        if owner.is_empty() {
+            return Err(ApiError::bad_request("Owner usernames must not be empty"));
+        }
+    }
+    for admin in &config.admins {
+        if admin.is_empty() {
+            return Err(ApiError::bad_request("Admin usernames must not be empty"));
+        }
+    }
+    for (i, rule) in config.rules.iter().enumerate() {
+        if rule.user.is_empty() {
+            return Err(ApiError::bad_request(&format!(
+                "Rule {} user must not be empty",
+                i
+            )));
+        }
+        if rule.paths.is_empty() {
+            return Err(ApiError::bad_request(&format!(
+                "Rule {} must have at least one path",
+                i
+            )));
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +264,20 @@ pub async fn create_schema(
     let (owner, repo) = path.into_inner();
     let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service));
     let schema = payload.into_inner();
+
+    validate_schema(&schema)?;
+
+    // Check if schema already exists
+    if AdpStore::read_schema(rp.as_path(), &schema.id)
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return Ok(HttpResponse::Conflict().json(ApiError::conflict(&format!(
+            "Schema '{}' already exists",
+            schema.id
+        ))));
+    }
 
     match AdpStore::write_schema(rp.as_path(), &schema) {
         Ok(()) => Ok(HttpResponse::Created().json(schema)),
@@ -158,6 +315,8 @@ pub async fn update_schema(
         )));
     }
 
+    validate_schema(&schema)?;
+
     schema.updated_at = chrono::Utc::now();
 
     match AdpStore::write_schema(rp.as_path(), &schema) {
@@ -183,17 +342,75 @@ pub async fn delete_schema(
             .json(ApiError::not_found(&format!("Schema '{}' not found", id))));
     }
 
-    let repo = match git2::Repository::open(rp.as_path()) {
+    let gix_repo = match gix::open(rp.as_path()) {
         Ok(r) => r,
         Err(_) => {
             return Ok(HttpResponse::NotFound().json(ApiError::not_found("Repository not found")))
         }
     };
 
-    match repo.find_reference(&refname).and_then(|mut r| r.delete()) {
-        Ok(()) => Ok(HttpResponse::NoContent().finish()),
-        Err(e) => Ok(HttpResponse::InternalServerError().json(adp_error(AdpStoreError::Git(e)))),
+    match gix_repo.edit_reference(gix::refs::transaction::RefEdit {
+        change: gix::refs::transaction::Change::Delete {
+            expected: gix::refs::transaction::PreviousValue::MustExist,
+            log: gix::refs::transaction::RefLog::AndReference,
+        },
+        name: gix::refs::FullName::try_from(refname.as_str())
+            .map_err(|_| ApiError::bad_request("Invalid ref name"))?,
+        deref: false,
+    }) {
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(adp_error(AdpStoreError::GixBoxed(e.to_string())))),
     }
+}
+
+/// List all version sidecars for a given schema.
+pub async fn list_schema_versions(
+    git_service: web::Data<Arc<GitService>>,
+    path: web::Path<(String, String, String)>,
+) -> ActixResult<HttpResponse> {
+    let (_owner, _repo, id) = path.into_inner();
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+
+    // Check schema exists
+    if AdpStore::read_schema(rp.as_path(), &id)
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        return Ok(HttpResponse::NotFound()
+            .json(ApiError::not_found(&format!("Schema '{}' not found", id))));
+    }
+
+    // List version sidecar refs
+    let sidecar_prefix = format!("{}v", SCHEMA_PREFIX);
+    let refs = match AdpStore::list_refs(rp.as_path(), &sidecar_prefix) {
+        Ok(r) => r,
+        Err(e) => return Ok(HttpResponse::InternalServerError().json(adp_error(e))),
+    };
+
+    // Parse version numbers from refs matching this schema id
+    let mut versions: Vec<SchemaVersion> = Vec::new();
+    let expected_suffix = format!("/{}", id);
+    for r in refs {
+        if r.ends_with(&expected_suffix) {
+            // Extract version number from refs/adp/schema/v{N}/{id}
+            let after_prefix = r.strip_prefix(SCHEMA_PREFIX).unwrap_or(&r);
+            // after_prefix = "v{N}/{id}"
+            if let Some(v_end) = after_prefix.find('/') {
+                let v_str = &after_prefix[1..v_end]; // skip 'v'
+                if let Ok(version) = v_str.parse::<u32>() {
+                    versions.push(SchemaVersion {
+                        version,
+                        ref_name: r,
+                    });
+                }
+            }
+        }
+    }
+    versions.sort_by_key(|v| v.version);
+
+    Ok(HttpResponse::Ok().json(versions))
 }
 
 pub async fn resolve_schema_handler(
@@ -237,10 +454,7 @@ pub async fn list_refs(
         Err(e) => return Ok(HttpResponse::InternalServerError().json(adp_error(e))),
     };
 
-    let schemas = match AdpStore::list_schemas(rp.as_path()) {
-        Ok(s) => s,
-        Err(_) => Vec::new(),
-    };
+    let schemas = AdpStore::list_schemas(rp.as_path()).unwrap_or_default();
 
     let entries: Vec<RefEntry> = refs
         .into_iter()
@@ -276,29 +490,29 @@ pub async fn read_blob(
     let (_owner, _repo, sha) = path.into_inner();
     let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
 
-    let repo = match git2::Repository::open(rp.as_path()) {
+    let gix_repo = match gix::open(rp.as_path()) {
         Ok(r) => r,
         Err(_) => {
             return Ok(HttpResponse::NotFound().json(ApiError::not_found("Repository not found")))
         }
     };
 
-    let oid = match git2::Oid::from_str(&sha) {
+    let oid = match gix::hash::ObjectId::from_hex(sha.as_bytes()) {
         Ok(o) => o,
         Err(_) => {
             return Ok(HttpResponse::BadRequest().json(ApiError::bad_request("Invalid SHA hash")))
         }
     };
 
-    let blob = match repo.find_blob(oid) {
-        Ok(b) => b,
+    let obj = match gix_repo.find_object(oid) {
+        Ok(o) => o,
         Err(_) => {
             return Ok(HttpResponse::NotFound()
                 .json(ApiError::not_found(&format!("Blob '{}' not found", sha))))
         }
     };
 
-    let content = blob.content().to_vec();
+    let content = obj.data.to_vec();
     let value: serde_json::Value = serde_json::from_slice(&content).unwrap_or_else(|_| {
         serde_json::json!({
             "raw": String::from_utf8_lossy(&content).to_string()
@@ -318,9 +532,13 @@ pub async fn read_blob(
 pub async fn get_access_config(
     git_service: web::Data<Arc<GitService>>,
     path: web::Path<(String, String)>,
+    req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
     let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service));
+
+    let caller = resolve_caller(rp.as_path(), &req);
+    require_admin(&caller)?;
 
     match AdpStore::read_access_config(rp.as_path()) {
         Ok(Some(config)) => Ok(HttpResponse::Ok().json(config)),
@@ -335,10 +553,26 @@ pub async fn update_access_config(
     git_service: web::Data<Arc<GitService>>,
     path: web::Path<(String, String)>,
     payload: web::Json<AccessConfig>,
+    req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo) = path.into_inner();
     let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
     let config = payload.into_inner();
+
+    validate_access_config(&config)?;
+
+    // Only owners can modify access config
+    let caller = resolve_caller(rp.as_path(), &req);
+    if !caller.is_owner {
+        return Err(actix_web::error::ErrorForbidden(
+            serde_json::to_string(&ApiError::new(
+                "forbidden",
+                &format!("User '{}' is not an owner", caller.username),
+                403,
+            ))
+            .unwrap_or_default(),
+        ));
+    }
 
     match AdpStore::write_access_config(rp.as_path(), &config) {
         Ok(()) => Ok(HttpResponse::Ok().json(config)),
@@ -367,6 +601,20 @@ pub async fn create_system_schema(
 ) -> ActixResult<HttpResponse> {
     let rp = system_repo_path(&git_service);
     let schema = payload.into_inner();
+
+    validate_schema(&schema)?;
+
+    // Check if schema already exists
+    if AdpStore::read_schema(&rp, &schema.id)
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return Ok(HttpResponse::Conflict().json(ApiError::conflict(&format!(
+            "Schema '{}' already exists",
+            schema.id
+        ))));
+    }
 
     match AdpStore::write_schema(&rp, &schema) {
         Ok(()) => Ok(HttpResponse::Created().json(schema)),
@@ -404,6 +652,8 @@ pub async fn update_system_schema(
         )));
     }
 
+    validate_schema(&schema)?;
+
     schema.updated_at = chrono::Utc::now();
 
     match AdpStore::write_schema(&rp, &schema) {
@@ -425,17 +675,67 @@ pub async fn delete_system_schema(
             .json(ApiError::not_found(&format!("Schema '{}' not found", id))));
     }
 
-    let repo = match git2::Repository::open(&rp) {
+    let gix_repo = match gix::open(&rp) {
         Ok(r) => r,
         Err(_) => {
             return Ok(HttpResponse::NotFound().json(ApiError::not_found("System repo not found")))
         }
     };
 
-    match repo.find_reference(&refname).and_then(|mut r| r.delete()) {
-        Ok(()) => Ok(HttpResponse::NoContent().finish()),
-        Err(e) => Ok(HttpResponse::InternalServerError().json(adp_error(AdpStoreError::Git(e)))),
+    match gix_repo.edit_reference(gix::refs::transaction::RefEdit {
+        change: gix::refs::transaction::Change::Delete {
+            expected: gix::refs::transaction::PreviousValue::MustExist,
+            log: gix::refs::transaction::RefLog::AndReference,
+        },
+        name: gix::refs::FullName::try_from(refname.as_str())
+            .map_err(|_| ApiError::bad_request("Invalid ref name"))?,
+        deref: false,
+    }) {
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(adp_error(AdpStoreError::GixBoxed(e.to_string())))),
     }
+}
+
+/// List all version sidecars for a given system-level schema.
+pub async fn list_system_schema_versions(
+    git_service: web::Data<Arc<GitService>>,
+    path: web::Path<String>,
+) -> ActixResult<HttpResponse> {
+    let id = path.into_inner();
+    let rp = system_repo_path(&git_service);
+
+    // Check schema exists
+    if AdpStore::read_schema(&rp, &id).ok().flatten().is_none() {
+        return Ok(HttpResponse::NotFound()
+            .json(ApiError::not_found(&format!("Schema '{}' not found", id))));
+    }
+
+    let sidecar_prefix = format!("{}v", SCHEMA_PREFIX);
+    let refs = match AdpStore::list_refs(&rp, &sidecar_prefix) {
+        Ok(r) => r,
+        Err(e) => return Ok(HttpResponse::InternalServerError().json(adp_error(e))),
+    };
+
+    let mut versions: Vec<SchemaVersion> = Vec::new();
+    let expected_suffix = format!("/{}", id);
+    for r in refs {
+        if r.ends_with(&expected_suffix) {
+            let after_prefix = r.strip_prefix(SCHEMA_PREFIX).unwrap_or(&r);
+            if let Some(v_end) = after_prefix.find('/') {
+                let v_str = &after_prefix[1..v_end];
+                if let Ok(version) = v_str.parse::<u32>() {
+                    versions.push(SchemaVersion {
+                        version,
+                        ref_name: r,
+                    });
+                }
+            }
+        }
+    }
+    versions.sort_by_key(|v| v.version);
+
+    Ok(HttpResponse::Ok().json(versions))
 }
 
 pub async fn resolve_system_schema_handler(
@@ -464,8 +764,12 @@ pub async fn resolve_system_schema_handler(
 
 pub async fn get_system_access_config(
     git_service: web::Data<Arc<GitService>>,
+    req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
     let rp = system_repo_path(&git_service);
+
+    let caller = resolve_caller(&rp, &req);
+    require_admin(&caller)?;
 
     match AdpStore::read_access_config(&rp) {
         Ok(Some(config)) => Ok(HttpResponse::Ok().json(config)),
@@ -479,9 +783,24 @@ pub async fn get_system_access_config(
 pub async fn update_system_access_config(
     git_service: web::Data<Arc<GitService>>,
     payload: web::Json<AccessConfig>,
+    req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
     let rp = system_repo_path(&git_service);
+
+    let caller = resolve_caller(&rp, &req);
+    if !caller.is_owner {
+        return Err(actix_web::error::ErrorForbidden(
+            serde_json::to_string(&ApiError::new(
+                "forbidden",
+                &format!("User '{}' is not a system owner", caller.username),
+                403,
+            ))
+            .unwrap_or_default(),
+        ));
+    }
+
     let config = payload.into_inner();
+    validate_access_config(&config)?;
 
     match AdpStore::write_access_config(&rp, &config) {
         Ok(()) => Ok(HttpResponse::Ok().json(config)),

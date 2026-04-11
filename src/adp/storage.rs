@@ -19,7 +19,6 @@ use crate::adp::access::AccessConfig;
 use crate::adp::is_version_sidecar;
 use crate::adp::schema::RefSchema;
 use crate::adp::{ACCESS_CONFIG_REF, SCHEMA_PREFIX};
-use git2::{Repository, Signature};
 use gix::bstr::ByteSlice;
 use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit};
 use gix::refs::FullName;
@@ -31,7 +30,7 @@ use thiserror::Error;
 /// Errors produced by `AdpStore` operations.
 #[derive(Debug, Error)]
 pub enum AdpStoreError {
-    #[error("git2 error: {0}")]
+    #[error("git error: {0}")]
     Git(#[from] git2::Error),
 
     #[error("gix open error: {0}")]
@@ -94,7 +93,6 @@ impl AdpStore {
     ///
     /// Returns the parsed `serde_json::Value`.
     pub fn read_ref_blob(repo_path: &Path, refname: &str) -> Result<Value> {
-        let git2_repo = Repository::open(repo_path)?;
         let gix_repo = gix::open(repo_path)?;
 
         let reference = gix_repo
@@ -106,23 +104,37 @@ impl AdpStore {
             .try_id()
             .ok_or_else(|| AdpStoreError::NotFound(format!("{}: symbolic ref", refname)))?;
 
-        let hex = target_id.to_hex().to_string();
-        let git2_oid = git2::Oid::from_str(&hex)
-            .map_err(|e| AdpStoreError::NotFound(format!("invalid oid: {}", e)))?;
+        let obj = gix_repo
+            .find_object(target_id)
+            .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;
 
-        let blob_content: Vec<u8> = if let Ok(commit) = git2_repo.find_commit(git2_oid) {
-            let tree = commit.tree()?;
-            let entry = tree
-                .get_name("data")
-                .ok_or_else(|| AdpStoreError::NotFound(format!("{}/tree/data", refname)))?;
-            let obj = entry.to_object(&git2_repo)?;
-            let blob = obj
-                .as_blob()
-                .ok_or_else(|| AdpStoreError::NotFound(format!("{}/data not a blob", refname)))?;
-            blob.content().to_vec()
-        } else {
-            let blob = git2_repo.find_blob(git2_oid).map_err(AdpStoreError::Git)?;
-            blob.content().to_vec()
+        let blob_content: Vec<u8> = match &obj.kind {
+            gix::objs::Kind::Commit => {
+                let commit = gix::objs::CommitRef::from_bytes(&obj.data)
+                    .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;
+                let tree_id = commit.tree();
+                let tree_obj = gix_repo
+                    .find_object(tree_id)
+                    .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;
+                let tree = gix::objs::TreeRef::from_bytes(&tree_obj.data)
+                    .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;
+                let data_entry = tree
+                    .entries
+                    .iter()
+                    .find(|e| e.filename == "data")
+                    .ok_or_else(|| AdpStoreError::NotFound(format!("{}/tree/data", refname)))?;
+                let blob_obj = gix_repo
+                    .find_object(data_entry.oid)
+                    .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;
+                blob_obj.data.to_vec()
+            }
+            gix::objs::Kind::Blob => obj.data.to_vec(),
+            _ => {
+                return Err(AdpStoreError::NotFound(format!(
+                    "{}: expected commit or blob, got {:?}",
+                    refname, obj.kind
+                )))
+            }
         };
 
         let value = serde_json::from_slice(&blob_content)?;
@@ -135,55 +147,76 @@ impl AdpStore {
     /// The primary ref is always force-updated.  An immutable version sidecar
     /// is also created (see module docs).
     pub fn write_ref_blob(repo_path: &Path, refname: &str, value: &Value) -> Result<()> {
-        let git2_repo = Repository::open(repo_path)?;
         let gix_repo = gix::open(repo_path)?;
         let json_bytes = serde_json::to_vec_pretty(value)?;
 
-        let blob_oid = git2_repo.blob(&json_bytes)?;
+        // Create blob
+        let blob = gix::objs::Blob {
+            data: json_bytes.into(),
+        };
+        let blob_id = gix_repo
+            .write_object(&blob)
+            .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;
 
-        let sig = adp_signature();
-        let mut tb = git2_repo.treebuilder(None)?;
-        tb.insert("data", blob_oid, 0o100644)?;
-        let tree_oid = tb.write()?;
-        let tree = git2_repo.find_tree(tree_oid)?;
+        // Create tree with "data" entry pointing to blob
+        let tree = gix::objs::Tree {
+            entries: vec![gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryMode::from(gix::objs::tree::EntryKind::Blob),
+                filename: "data".into(),
+                oid: blob_id.detach(),
+            }],
+        };
+        let tree_id = gix_repo
+            .write_object(&tree)
+            .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;
 
-        let parent_commit = gix_repo
+        // Find parent commit if ref already exists
+        let parent_commit_id = gix_repo
             .try_find_reference(refname)
             .map_err(AdpStoreError::GixRefFind)?
-            .and_then(|r| r.try_id().map(|id| id.to_hex().to_string()))
-            .and_then(|hex| git2::Oid::from_str(&hex).ok())
-            .and_then(|oid| git2_repo.find_commit(oid).ok());
+            .and_then(|r| r.try_id().map(|id| id.detach()));
 
-        let parents: Vec<&git2::Commit<'_>> = parent_commit.iter().collect();
+        let parent_ids: Vec<gix::hash::ObjectId> = parent_commit_id.into_iter().collect();
 
-        let commit_oid = git2_repo.commit(
-            None,
-            &sig,
-            &sig,
-            &format!("adp: update {}", refname),
-            &tree,
-            &parents,
-        )?;
+        // Create signature
+        let sig = gix::actor::Signature {
+            name: "ADP Bot".into(),
+            email: "adp@localhost".into(),
+            time: gix::date::Time::now_utc(),
+        };
 
-        let gix_commit_oid =
-            gix::hash::ObjectId::try_from(commit_oid.as_bytes()).expect("valid 20-byte sha1");
+        // Create commit
+        let commit = gix::objs::Commit {
+            tree: tree_id.detach(),
+            parents: parent_ids.into(),
+            author: sig.clone(),
+            committer: sig,
+            message: format!("adp: update {}\n", refname).into(),
+            encoding: None,
+            extra_headers: Default::default(),
+        };
+        let commit_id = gix_repo
+            .write_object(&commit)
+            .map_err(|e: gix::object::write::Error| AdpStoreError::GixBoxed(e.to_string()))?;
 
+        // Update primary ref
         gix_repo.edit_reference(RefEdit {
             change: Change::Update {
                 log: LogChange::default(),
                 expected: PreviousValue::Any,
-                new: Target::Object(gix_commit_oid),
+                new: Target::Object(commit_id.detach()),
             },
             name: FullName::try_from(refname)?,
             deref: false,
         })?;
 
+        // Create immutable version sidecar
         let sidecar = next_sidecar_ref(&gix_repo, refname)?;
         gix_repo.edit_reference(RefEdit {
             change: Change::Update {
                 log: LogChange::default(),
                 expected: PreviousValue::MustNotExist,
-                new: Target::Object(gix_commit_oid),
+                new: Target::Object(commit_id.detach()),
             },
             name: FullName::try_from(sidecar.as_str())?,
             deref: false,
@@ -290,10 +323,6 @@ impl Default for AdpStore {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-fn adp_signature() -> Signature<'static> {
-    Signature::now("ADP Bot", "adp@localhost").expect("valid signature")
-}
-
 fn next_sidecar_ref(gix_repo: &gix::Repository, primary_ref: &str) -> Result<String> {
     let after_prefix = primary_ref.strip_prefix("refs/adp/").unwrap_or(primary_ref);
 
@@ -345,8 +374,8 @@ mod tests {
     use chrono::Utc;
     use tempfile::TempDir;
 
-    fn init_bare_repo(dir: &Path) -> Repository {
-        Repository::init_bare(dir).expect("init bare repo")
+    fn init_bare_repo(dir: &Path) -> gix::Repository {
+        gix::init(dir).expect("init bare repo")
     }
 
     fn make_schema(id: &str) -> RefSchema {

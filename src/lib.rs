@@ -5,6 +5,7 @@ pub mod api;
 pub mod auth;
 pub mod backup;
 pub mod cache;
+pub mod cicd;
 pub mod compliance;
 pub mod config;
 pub mod error;

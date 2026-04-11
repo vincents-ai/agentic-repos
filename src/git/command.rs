@@ -60,15 +60,26 @@ impl CommandValidator {
 
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
 
-        if parts.len() < 2 || parts.len() > 3 {
+        if parts.len() < 2 {
+            warn!("Invalid command format: too few parts ({})", parts.len());
+            return Err(CommandValidationError::InvalidFormat);
+        }
+
+        let git_command = parts[0];
+
+        // upload-pack / receive-pack take exactly one argument (the repo path).
+        // Extra tokens could be shell injection — reject them immediately.
+        if (git_command == "git-upload-pack" || git_command == "git-receive-pack")
+            && parts.len() != 2
+        {
             warn!(
-                "Invalid command format: expected 2-3 parts, got {}",
+                "Invalid command format for {}: expected 2 parts, got {}",
+                git_command,
                 parts.len()
             );
             return Err(CommandValidationError::InvalidFormat);
         }
 
-        let git_command = parts[0];
         let repo_arg = parts[1];
 
         let repository = Self::validate_repository_path(repo_arg)?;
@@ -125,7 +136,17 @@ impl CommandValidator {
         Ok(cleaned.to_string())
     }
 
-    /// Check if repository name is safe (no path traversal)
+    /// System directories that are never valid repository roots.
+    fn is_system_path(name: &str) -> bool {
+        const SYSTEM_DIRS: &[&str] = &[
+            "etc", "bin", "sbin", "usr", "var", "root", "home", "tmp", "proc", "sys", "dev", "opt",
+            "lib", "lib64", "boot", "run", "srv", "mnt", "media",
+        ];
+        let first = name.split('/').next().unwrap_or("");
+        SYSTEM_DIRS.contains(&first)
+    }
+
+    /// Check if repository name is safe (no path traversal, no system paths)
     fn is_safe_repository_name(name: &str) -> bool {
         let path = Path::new(name);
 
@@ -135,7 +156,12 @@ impl CommandValidator {
                 std::path::Component::CurDir => return false,
                 std::path::Component::RootDir if path.components().count() > 1 => return false,
                 std::path::Component::Normal(s) => {
-                    if s.to_string_lossy().contains("..") {
+                    let seg = s.to_string_lossy();
+                    if seg.contains("..") {
+                        return false;
+                    }
+                    // Block dotfiles and "..." tricks
+                    if seg.starts_with('.') {
                         return false;
                     }
                 }
@@ -148,6 +174,7 @@ impl CommandValidator {
             && !name.contains("/../")
             && !name.contains("/./")
             && !name.ends_with("/..")
+            && !Self::is_system_path(name)
     }
 
     /// Validate characters in repository name

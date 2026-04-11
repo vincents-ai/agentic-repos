@@ -4128,6 +4128,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "lber"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2df7f9fd9f64cf8f59e1a4a0753fe7d575a5b38d3d7ac5758dcee9357d83ef0a"
+dependencies = [
+ "bytes",
+ "nom",
+]
+
+[[package]]
+name = "ldap3"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "166199a8207874a275144c8a94ff6eed5fcbf5c52303e4d9b4d53a0c7ac76554"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "futures-util",
+ "lazy_static",
+ "lber",
+ "log",
+ "native-tls",
+ "nom",
+ "percent-encoding",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-native-tls",
+ "tokio-stream",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5225,6 +5259,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
+name = "quick-xml"
+version = "0.36.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5431,6 +5474,7 @@ dependencies = [
  "chrono",
  "config",
  "deadpool-redis",
+ "flate2",
  "futures-util",
  "gix",
  "gix-pack",
@@ -5442,11 +5486,13 @@ dependencies = [
  "http 1.4.0",
  "jsonwebtoken",
  "lazy_static",
+ "ldap3",
  "mime_guess",
  "mockall",
  "oauth2",
  "parking_lot",
  "prometheus",
+ "quick-xml",
  "rand_core 0.6.4",
  "regex",
  "reqwest 0.11.27",

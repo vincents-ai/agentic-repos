@@ -209,7 +209,7 @@ impl WebhookService {
                 let status_code = response.status().as_u16();
                 let response_body = response.text().await.ok();
 
-                if status_code >= 200 && status_code < 300 {
+                if (200..300).contains(&status_code) {
                     info!(
                         "Webhook {} delivered successfully ({}ms)",
                         webhook.id, duration_ms
@@ -283,8 +283,7 @@ impl WebhookService {
     ) -> WebhookResult<bool> {
         let expected = self.compute_signature(body, Some(secret))?;
 
-        if signature.starts_with("sha256=") {
-            let provided = &signature[7..];
+        if let Some(provided) = signature.strip_prefix("sha256=") {
             Ok(hex::decode(provided)
                 .map(|decoded| {
                     let expected_bytes = hex::decode(&expected).unwrap_or_default();
@@ -317,5 +316,185 @@ impl WebhookService {
             .get_deliveries(webhook_id, limit)
             .await
             .map_err(WebhookError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::webhooks::models::WebhookEvent;
+    use crate::webhooks::storage::InMemoryWebhookStorage;
+    use std::collections::HashSet;
+
+    fn make_service() -> WebhookService {
+        let storage = Arc::new(InMemoryWebhookStorage::new());
+        WebhookService::new(storage)
+    }
+
+    #[tokio::test]
+    async fn test_register_webhook_success() {
+        let svc = make_service();
+        let wh = svc
+            .register_webhook(
+                "https://example.com/hook".to_string(),
+                Some("mysecret".to_string()),
+                vec![],
+                HashSet::from([WebhookEvent::Push]),
+                "tenant-1".to_string(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(wh.tenant_id, "tenant-1");
+        assert!(wh.active);
+    }
+
+    #[tokio::test]
+    async fn test_register_webhook_invalid_url() {
+        let svc = make_service();
+        let result = svc
+            .register_webhook(
+                "not-a-url".to_string(),
+                None,
+                vec![],
+                HashSet::from([WebhookEvent::Push]),
+                "tenant-1".to_string(),
+            )
+            .await;
+        assert!(matches!(result, Err(WebhookError::InvalidUrl(_))));
+    }
+
+    #[tokio::test]
+    async fn test_get_webhook() {
+        let svc = make_service();
+        let wh = svc
+            .register_webhook(
+                "https://example.com/hook".to_string(),
+                None,
+                vec![],
+                HashSet::from([WebhookEvent::Push]),
+                "t1".to_string(),
+            )
+            .await
+            .unwrap();
+        let found = svc.get_webhook(&wh.id).await.unwrap();
+        assert_eq!(found.id, wh.id);
+    }
+
+    #[tokio::test]
+    async fn test_activate_deactivate() {
+        let svc = make_service();
+        let wh = svc
+            .register_webhook(
+                "https://example.com/hook".to_string(),
+                None,
+                vec![],
+                HashSet::from([WebhookEvent::Push]),
+                "t1".to_string(),
+            )
+            .await
+            .unwrap();
+
+        svc.deactivate_webhook(&wh.id).await.unwrap();
+        let deactivated = svc.get_webhook(&wh.id).await.unwrap();
+        assert!(!deactivated.active);
+
+        svc.activate_webhook(&wh.id).await.unwrap();
+        let reactivated = svc.get_webhook(&wh.id).await.unwrap();
+        assert!(reactivated.active);
+    }
+
+    #[tokio::test]
+    async fn test_delete_webhook() {
+        let svc = make_service();
+        let wh = svc
+            .register_webhook(
+                "https://example.com/hook".to_string(),
+                None,
+                vec![],
+                HashSet::from([WebhookEvent::Push]),
+                "t1".to_string(),
+            )
+            .await
+            .unwrap();
+        svc.delete_webhook(&wh.id).await.unwrap();
+        let result = svc.get_webhook(&wh.id).await;
+        assert!(matches!(result, Err(WebhookError::NotFound(_))));
+    }
+
+    #[test]
+    fn test_compute_signature() {
+        let svc = make_service();
+        let sig = svc
+            .compute_signature("hello world", Some("my-secret"))
+            .unwrap();
+        // HMAC-SHA256 of "hello world" with key "my-secret" is deterministic
+        assert!(!sig.is_empty());
+        // Same input → same output
+        let sig2 = svc
+            .compute_signature("hello world", Some("my-secret"))
+            .unwrap();
+        assert_eq!(sig, sig2);
+    }
+
+    #[test]
+    fn test_compute_signature_requires_secret() {
+        let svc = make_service();
+        let result = svc.compute_signature("hello", None);
+        assert!(matches!(result, Err(WebhookError::InvalidSignature(_))));
+    }
+
+    #[test]
+    fn test_verify_signature_valid() {
+        let svc = make_service();
+        let body = r#"{"event":"push"}"#;
+        let secret = "webhook-secret";
+        let raw_sig = svc.compute_signature(body, Some(secret)).unwrap();
+        let sig_header = format!("sha256={}", raw_sig);
+        assert!(svc.verify_signature(body, &sig_header, secret).unwrap());
+    }
+
+    #[test]
+    fn test_verify_signature_wrong_secret() {
+        let svc = make_service();
+        let body = r#"{"event":"push"}"#;
+        let raw_sig = svc.compute_signature(body, Some("correct-secret")).unwrap();
+        let sig_header = format!("sha256={}", raw_sig);
+        assert!(!svc
+            .verify_signature(body, &sig_header, "wrong-secret")
+            .unwrap());
+    }
+
+    #[test]
+    fn test_verify_signature_missing_prefix() {
+        let svc = make_service();
+        // Without "sha256=" prefix the verifier should return false
+        let body = "test";
+        let raw = svc.compute_signature(body, Some("s")).unwrap();
+        assert!(!svc.verify_signature(body, &raw, "s").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_validate_url_rejects_non_http() {
+        let svc = make_service();
+        let r1 = svc
+            .register_webhook(
+                "ftp://example.com/hook".to_string(),
+                None,
+                vec![],
+                HashSet::from([WebhookEvent::Push]),
+                "t".to_string(),
+            )
+            .await;
+        assert!(matches!(r1, Err(WebhookError::InvalidUrl(_))));
+        let r2 = svc
+            .register_webhook(
+                "file:///etc/passwd".to_string(),
+                None,
+                vec![],
+                HashSet::from([WebhookEvent::Push]),
+                "t".to_string(),
+            )
+            .await;
+        assert!(matches!(r2, Err(WebhookError::InvalidUrl(_))));
     }
 }

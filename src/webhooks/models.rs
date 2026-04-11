@@ -245,3 +245,99 @@ impl WebhookDelivery {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_webhook() -> Webhook {
+        Webhook::new(
+            "https://example.com/hook".to_string(),
+            Some("secret123".to_string()),
+            HashSet::from([WebhookEvent::Push, WebhookEvent::BranchCreate]),
+            "tenant-1".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_webhook_subscribes_to_matching_event() {
+        let wh = test_webhook();
+        assert!(wh.subscribes_to(&WebhookEvent::Push));
+        assert!(wh.subscribes_to(&WebhookEvent::BranchCreate));
+    }
+
+    #[test]
+    fn test_webhook_does_not_subscribe_to_other_events() {
+        let wh = test_webhook();
+        assert!(!wh.subscribes_to(&WebhookEvent::Fork));
+        assert!(!wh.subscribes_to(&WebhookEvent::TagCreate));
+    }
+
+    #[test]
+    fn test_inactive_webhook_does_not_subscribe() {
+        let mut wh = test_webhook();
+        wh.deactivate();
+        assert!(!wh.subscribes_to(&WebhookEvent::Push));
+    }
+
+    #[test]
+    fn test_activate_deactivate_round_trip() {
+        let mut wh = test_webhook();
+        wh.deactivate();
+        assert!(!wh.active);
+        wh.activate();
+        assert!(wh.active);
+    }
+
+    #[test]
+    fn test_secret_access_empty_allowlist_denies_all() {
+        let wh = test_webhook(); // secret_keys is empty by default
+        assert!(!wh.can_access_secret("MY_DB_PASSWORD"));
+    }
+
+    #[test]
+    fn test_secret_access_wildcard_allows_all() {
+        let mut wh = test_webhook();
+        wh.secret_keys = vec!["*".to_string()];
+        assert!(wh.can_access_secret("anything"));
+    }
+
+    #[test]
+    fn test_secret_access_specific_key_allowlist() {
+        let mut wh = test_webhook();
+        wh.secret_keys = vec!["ALLOWED_KEY".to_string()];
+        assert!(wh.can_access_secret("ALLOWED_KEY"));
+        assert!(!wh.can_access_secret("OTHER_KEY"));
+    }
+
+    #[test]
+    fn test_webhook_event_display() {
+        assert_eq!(WebhookEvent::Push.to_string(), "push");
+        assert_eq!(WebhookEvent::BranchCreate.to_string(), "branch.create");
+        assert_eq!(WebhookEvent::LfsUpload.to_string(), "lfs.upload");
+    }
+
+    #[test]
+    fn test_webhook_event_from_str() {
+        use std::str::FromStr;
+        assert_eq!(WebhookEvent::from_str("push").unwrap(), WebhookEvent::Push);
+        assert_eq!(
+            WebhookEvent::from_str("tag.create").unwrap(),
+            WebhookEvent::TagCreate
+        );
+        assert!(WebhookEvent::from_str("unknown.event").is_err());
+    }
+
+    #[test]
+    fn test_webhook_payload_new() {
+        let payload = WebhookPayload::new(
+            WebhookEvent::Push,
+            "tenant-1".to_string(),
+            Some("repo-abc".to_string()),
+            serde_json::json!({"ref": "refs/heads/main", "commits": 3}),
+        );
+        assert_eq!(payload.event, WebhookEvent::Push);
+        assert_eq!(payload.tenant_id, "tenant-1");
+        assert_eq!(payload.repository_id.as_deref(), Some("repo-abc"));
+    }
+}

@@ -607,6 +607,6 @@ where
 }
 
 #[derive(Debug, Deserialize)]
-struct VerifyLocksQuery {
+pub struct VerifyLocksQuery {
     username: Option<String>,
 }

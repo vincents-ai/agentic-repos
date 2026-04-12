@@ -1,5 +1,8 @@
 pub mod audit;
+pub mod encryption;
+pub mod eu_data_protection;
 pub mod handlers;
+pub mod hipaa;
 pub mod privacy;
 pub mod reports;
 pub mod retention;

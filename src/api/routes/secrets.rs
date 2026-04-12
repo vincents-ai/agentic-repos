@@ -1,11 +1,15 @@
-//! Secrets API routes
+//! Secrets API routes — wired to git ref storage with AES-256-GCM encryption.
 //!
 //! REST API endpoints for managing SOPS-encrypted secrets at refs/secrets/*.
+//! Implements ADR-024 secrets infrastructure with egress control.
 
+use crate::api::routes::secrets_service::SecretsService;
 use crate::api::models::ApiError;
 use actix_web::{web, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Secrets route configuration.
 pub fn configure_secrets_routes(cfg: &mut web::ServiceConfig) {
@@ -59,89 +63,133 @@ pub struct SecretResponse {
     pub data: HashMap<String, String>,
 }
 
+/// Resolve owner/repo to a filesystem path.
+/// In production this would look up the tenant's storage root.
+fn repo_path(owner: &str, repo: &str) -> PathBuf {
+    PathBuf::from(format!("/var/lib/repos/{}/{}", owner, repo))
+}
+
 // === Handlers ===
 
 /// List all secrets for a repository.
 pub async fn list_secrets(
+    service: web::Data<Arc<SecretsService>>,
     path: web::Path<(String, String)>,
     query: web::Query<ListSecretsQuery>,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
-    let prefix = query.prefix.as_deref().unwrap_or("");
+    let repo_path = repo_path(&owner, &repo);
 
-    tracing::info!(owner = %owner, repo = %repo, prefix = %prefix, "listing secrets");
-
-    // TODO: Actually query the git refs to get the list of secrets
-    // For now, return an empty list
-    let secrets: Vec<String> = vec![];
-
-    Ok(HttpResponse::Ok().json(SecretListResponse {
-        total: secrets.len(),
-        secrets,
-    }))
+    match service.list_secrets(&repo_path, query.prefix.as_deref()) {
+        Ok(secrets) => Ok(HttpResponse::Ok().json(SecretListResponse {
+            total: secrets.len(),
+            secrets,
+        })),
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": e.to_string()}))),
+    }
 }
 
-/// Get a specific secret.
-pub async fn get_secret(path: web::Path<(String, String, String)>) -> ActixResult<HttpResponse> {
+/// Get a specific secret (decrypted).
+pub async fn get_secret(
+    service: web::Data<Arc<SecretsService>>,
+    path: web::Path<(String, String, String)>,
+) -> ActixResult<HttpResponse> {
     let (owner, repo, secret_name) = path.into_inner();
+    let repo_path = repo_path(&owner, &repo);
 
-    tracing::info!(owner = %owner, repo = %repo, secret_name = %secret_name, "getting secret");
-
-    // TODO: Read the secret from refs/secrets/{secret_name} and decrypt
-    let error = ApiError::not_found(&format!("Secret '{}' not found", secret_name));
-    Ok(HttpResponse::NotFound().json(error))
+    match service.get_secret(&repo_path, &secret_name) {
+        Ok(stored) => Ok(HttpResponse::Ok().json(SecretResponse {
+            name: stored.name,
+            data: stored.data,
+        })),
+        Err(e) => match e {
+            super::secrets_service::SecretError::NotFound(_) => {
+                Ok(HttpResponse::NotFound()
+                    .json(ApiError::not_found(&format!("Secret '{}' not found", secret_name))))
+            }
+            _ => Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()}))),
+        },
+    }
 }
 
 /// Create a new secret.
 pub async fn create_secret(
+    service: web::Data<Arc<SecretsService>>,
     path: web::Path<(String, String)>,
     payload: web::Json<CreateSecretRequest>,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
+    let repo_path = repo_path(&owner, &repo);
     let request = payload.into_inner();
 
-    tracing::info!(owner = %owner, repo = %repo, name = %request.name, "creating secret");
-
-    // Validate secret name
-    if request.name.is_empty() || request.name.contains('/') {
-        let error = ApiError::bad_request("Invalid secret name");
-        return Ok(HttpResponse::BadRequest().json(error));
+    match service.create_secret(&repo_path, &request.name, request.data) {
+        Ok(stored) => Ok(HttpResponse::Created().json(SecretResponse {
+            name: stored.name,
+            data: stored.data,
+        })),
+        Err(e) => match e {
+            super::secrets_service::SecretError::InvalidName(msg) => {
+                Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)))
+            }
+            _ => Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()}))),
+        },
     }
-
-    // TODO: Get the repo's public key and encrypt the secret
-    // TODO: Write to refs/secrets/{name}
-
-    Ok(HttpResponse::Created().json(SecretResponse {
-        name: request.name,
-        data: request.data,
-    }))
 }
 
 /// Update an existing secret.
 pub async fn update_secret(
+    service: web::Data<Arc<SecretsService>>,
     path: web::Path<(String, String, String)>,
     payload: web::Json<UpdateSecretRequest>,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo, secret_name) = path.into_inner();
+    let repo_path = repo_path(&owner, &repo);
     let request = payload.into_inner();
 
-    tracing::info!(owner = %owner, repo = %repo, name = %secret_name, replace = request.replace, "updating secret");
-
-    // TODO: Read existing secret, merge or replace, encrypt, write back
-
-    Ok(HttpResponse::Ok().json(SecretResponse {
-        name: secret_name,
-        data: request.data,
-    }))
+    match service.update_secret(
+        &repo_path,
+        &secret_name,
+        request.data,
+        request.replace,
+    ) {
+        Ok(stored) => Ok(HttpResponse::Ok().json(SecretResponse {
+            name: stored.name,
+            data: stored.data,
+        })),
+        Err(e) => match e {
+            super::secrets_service::SecretError::NotFound(_) => {
+                Ok(HttpResponse::NotFound()
+                    .json(ApiError::not_found(&format!("Secret '{}' not found", secret_name))))
+            }
+            super::secrets_service::SecretError::InvalidName(msg) => {
+                Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)))
+            }
+            _ => Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()}))),
+        },
+    }
 }
 
 /// Delete a secret.
-pub async fn delete_secret(path: web::Path<(String, String, String)>) -> ActixResult<HttpResponse> {
+pub async fn delete_secret(
+    service: web::Data<Arc<SecretsService>>,
+    path: web::Path<(String, String, String)>,
+) -> ActixResult<HttpResponse> {
     let (owner, repo, secret_name) = path.into_inner();
+    let repo_path = repo_path(&owner, &repo);
 
-    tracing::info!(owner = %owner, repo = %repo, name = %secret_name, "deleting secret");
-
-    // TODO: Delete refs/secrets/{secret_name}
-
-    Ok(HttpResponse::NoContent().finish())
+    match service.delete_secret(&repo_path, &secret_name) {
+        Ok(()) => Ok(HttpResponse::NoContent().finish()),
+        Err(e) => match e {
+            super::secrets_service::SecretError::NotFound(_) => {
+                Ok(HttpResponse::NotFound()
+                    .json(ApiError::not_found(&format!("Secret '{}' not found", secret_name))))
+            }
+            _ => Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()}))),
+        },
+    }
 }

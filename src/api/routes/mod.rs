@@ -6,6 +6,7 @@ pub mod auth;
 pub mod cluster;
 pub mod repositories;
 pub mod secrets;
+pub mod secrets_service;
 pub mod users;
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {

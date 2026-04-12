@@ -1,7 +1,7 @@
 //! Git operations service for Skynet v2 plugin
 //!
 //! Reference management uses `gix`; object operations (commit lookup, revwalk,
-//! diff) still use `git2` (object migration is a separate phase).
+//! diff) use `gix` for all operations (git2 fully removed).
 
 use crate::config::AppConfig;
 use crate::skynet::error::SkynetPluginResult;
@@ -111,7 +111,7 @@ impl GitOperationService {
 
     /// List branches in a repository.
     ///
-    /// Uses `gix` for ref iteration and HEAD resolution; `git2` for commit
+    /// Uses `gix` for ref iteration and HEAD resolution.
     /// object data (author, message, timestamp).
     pub async fn list_branches(
         &self,
@@ -301,7 +301,7 @@ impl GitOperationService {
 
     /// Get commit history.
     ///
-    /// Uses `gix` for commit traversal (replaces git2 revwalk with manual parent walking).
+    /// Uses `gix` for commit traversal.
     pub async fn get_commit_history(
         &self,
         _tenant_id: &str,

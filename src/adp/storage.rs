@@ -13,7 +13,7 @@
 //! ## Implementation note
 //!
 //! Ref management uses the `gix` high-level Repository API; object operations
-//! (blob/tree/commit creation) still use `git2` (object migration is separate).
+//! (blob/tree/commit creation) use `gix` (git2 fully removed).
 
 use crate::adp::access::AccessConfig;
 use crate::adp::is_version_sidecar;

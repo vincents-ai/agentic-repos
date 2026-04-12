@@ -407,6 +407,31 @@ The `.internal/` directory contains runtime state (concurrency counters, session
 
 ---
 
+## Working Conventions
+
+### One Task at a Time
+
+**Never create more than one task without completing it first.**
+
+1. Create the task
+2. Mark it `in_progress`
+3. Do the actual work (code, test, commit)
+4. Store findings in engram (`context_create` + `relationship_create`)
+5. Mark it `done` with outcome
+6. Only then pick or create the next task
+
+**Anti-pattern:** Creating a backlog of tasks in `todo` status and then leaving them. If you haven't started the work, don't create the task. Engram tasks represent work in flight, not a backlog — use the project roadmap in `../AGENTS.md` for planning.
+
+### Build-Test-Commit Cycle
+
+Every unit of work must pass through:
+```
+cargo check  →  cargo clippy -- -D warnings  →  cargo test --lib  →  git commit
+```
+Use tmux sessions for long-running builds and tests (2-5 min each). Don't wait synchronously.
+
+---
+
 ## Documentation
 
 - `docs/SKYLET_PLUGIN_VALIDATION.md` — plugin validation walkthrough

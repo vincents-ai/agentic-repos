@@ -235,6 +235,12 @@ impl GitService {
         Ok(repositories)
     }
 
+    /// Count repositories for a given owner.
+    pub async fn count_repositories(&self, owner: &str) -> GitServiceResult<usize> {
+        let repos = self.list_repositories(Some(owner)).await?;
+        Ok(repos.len())
+    }
+
     /// Delete a repository
     pub async fn delete_repository(&self, owner: &str, name: &str) -> GitServiceResult<()> {
         let repo_path = self.get_repository_path(owner, name);

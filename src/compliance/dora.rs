@@ -868,7 +868,7 @@ impl DoraService {
             .into_iter()
             .filter(|p| {
                 p.criticality >= ProviderCriticality::High
-                    && p.last_audited_at.map_or(true, |d| d < ninety_days_ago)
+                    && p.last_audited_at.is_none_or(|d| d < ninety_days_ago)
             })
             .collect())
     }
@@ -902,7 +902,7 @@ impl DoraService {
 
         DoraComplianceStatus {
             has_framework: framework.is_some(),
-            framework_review_overdue: framework.as_ref().map_or(true, |f| f.is_review_overdue()),
+            framework_review_overdue: framework.as_ref().is_none_or(|f| f.is_review_overdue()),
             total_incidents: incidents.len(),
             open_incidents,
             overdue_reports,

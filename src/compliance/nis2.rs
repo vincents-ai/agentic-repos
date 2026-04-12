@@ -194,7 +194,7 @@ impl Default for BusinessContinuityMeasures {
 }
 
 /// Supply chain security measures (Article 21(2)(d)).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SupplyChainSecurity {
     /// Supplier security assessment programme in place.
     pub has_supplier_assessment: bool,
@@ -206,18 +206,6 @@ pub struct SupplyChainSecurity {
     pub total_critical_suppliers: u32,
     /// Security levels required for suppliers.
     pub supplier_security_levels: HashMap<String, SupplierSecurityLevel>,
-}
-
-impl Default for SupplyChainSecurity {
-    fn default() -> Self {
-        Self {
-            has_supplier_assessment: false,
-            contracts_include_security: false,
-            audited_suppliers: 0,
-            total_critical_suppliers: 0,
-            supplier_security_levels: HashMap::new(),
-        }
-    }
 }
 
 /// Security level required of suppliers.

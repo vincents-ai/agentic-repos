@@ -1,4 +1,5 @@
 pub mod audit;
+pub mod dora;
 pub mod encryption;
 pub mod eu_data_protection;
 pub mod handlers;

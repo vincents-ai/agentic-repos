@@ -16,6 +16,7 @@ pub mod lfs;
 pub mod mcp;
 pub mod models;
 pub mod rbac;
+pub mod replication;
 pub mod scaling;
 pub mod security;
 pub mod server;

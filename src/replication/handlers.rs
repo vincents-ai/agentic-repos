@@ -1,0 +1,365 @@
+//! Replication REST API handlers.
+
+use crate::features::FeatureFlags;
+use crate::replication::models::*;
+use crate::replication::monitor::ReplicationMonitor;
+use crate::replication::service::ReplicationService;
+use actix_web::{web, HttpResponse, Result as ActixResult};
+use std::sync::Arc;
+use uuid::Uuid;
+
+pub fn configure_replication_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/replication")
+            .route("/targets", web::get().to(list_targets))
+            .route("/targets", web::post().to(add_target))
+            .route("/targets/{id}", web::get().to(get_target))
+            .route("/targets/{id}", web::delete().to(remove_target))
+            .route("/targets/{id}/enable", web::post().to(enable_target))
+            .route("/targets/{id}/disable", web::post().to(disable_target))
+            .route("/health", web::get().to(list_health))
+            .route("/health/{id}", web::get().to(get_health))
+            .route("/dashboard", web::get().to(get_dashboard))
+            .route("/conflicts", web::get().to(list_conflicts))
+            .route("/conflicts/{id}/resolve", web::post().to(resolve_conflict))
+            .route("/alerts", web::get().to(check_alerts)),
+    );
+}
+
+async fn list_targets(
+    service: web::Data<Arc<ReplicationService>>,
+    flags: web::Data<FeatureFlags>,
+) -> ActixResult<HttpResponse> {
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
+    match service.list_targets() {
+        Ok(targets) => Ok(HttpResponse::Ok().json(targets)),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
+    }
+}
+
+async fn add_target(
+    service: web::Data<Arc<ReplicationService>>,
+    _flags: web::Data<FeatureFlags>,
+    body: web::Json<ReplicationTarget>,
+) -> ActixResult<HttpResponse> {
+    match service.register_target(body.into_inner()) {
+        Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "created"}))),
+        Err(e) => Ok(HttpResponse::Conflict().json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+async fn get_target(
+    service: web::Data<Arc<ReplicationService>>,
+    _flags: web::Data<FeatureFlags>,
+    path: web::Path<Uuid>,
+) -> ActixResult<HttpResponse> {
+    let id = path.into_inner();
+    match service.get_target(id) {
+        Ok(Some(t)) => Ok(HttpResponse::Ok().json(t)),
+        Ok(None) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": "not found"}))),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
+    }
+}
+
+async fn remove_target(
+    service: web::Data<Arc<ReplicationService>>,
+    _flags: web::Data<FeatureFlags>,
+    path: web::Path<Uuid>,
+) -> ActixResult<HttpResponse> {
+    let id = path.into_inner();
+    match service.remove_target(id) {
+        Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "removed"}))),
+        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+async fn enable_target(
+    service: web::Data<Arc<ReplicationService>>,
+    _flags: web::Data<FeatureFlags>,
+    path: web::Path<Uuid>,
+) -> ActixResult<HttpResponse> {
+    let id = path.into_inner();
+    match service.enable_target(id) {
+        Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "enabled"}))),
+        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+async fn disable_target(
+    service: web::Data<Arc<ReplicationService>>,
+    _flags: web::Data<FeatureFlags>,
+    path: web::Path<Uuid>,
+) -> ActixResult<HttpResponse> {
+    let id = path.into_inner();
+    match service.disable_target(id) {
+        Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "disabled"}))),
+        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+async fn list_health(
+    service: web::Data<Arc<ReplicationService>>,
+    flags: web::Data<FeatureFlags>,
+) -> ActixResult<HttpResponse> {
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
+    match service.get_all_health() {
+        Ok(health) => Ok(HttpResponse::Ok().json(health)),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
+    }
+}
+
+async fn get_health(
+    service: web::Data<Arc<ReplicationService>>,
+    _flags: web::Data<FeatureFlags>,
+    path: web::Path<Uuid>,
+) -> ActixResult<HttpResponse> {
+    let id = path.into_inner();
+    match service.get_target_health(id) {
+        Ok(Some(h)) => Ok(HttpResponse::Ok().json(h)),
+        Ok(None) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": "not found"}))),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
+    }
+}
+
+async fn get_dashboard(
+    monitor: web::Data<Arc<ReplicationMonitor>>,
+    flags: web::Data<FeatureFlags>,
+) -> ActixResult<HttpResponse> {
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
+    match monitor.dashboard() {
+        Ok(dash) => Ok(HttpResponse::Ok().json(dash)),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
+    }
+}
+
+async fn list_conflicts(
+    service: web::Data<Arc<ReplicationService>>,
+    flags: web::Data<FeatureFlags>,
+) -> ActixResult<HttpResponse> {
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
+    match service.list_conflicts() {
+        Ok(conflicts) => Ok(HttpResponse::Ok().json(conflicts)),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ResolveRequest {
+    resolution: ConflictResolution,
+}
+
+async fn resolve_conflict(
+    service: web::Data<Arc<ReplicationService>>,
+    _flags: web::Data<FeatureFlags>,
+    path: web::Path<Uuid>,
+    body: web::Json<ResolveRequest>,
+) -> ActixResult<HttpResponse> {
+    let id = path.into_inner();
+    match service.resolve_conflict(id, body.resolution) {
+        Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "resolved"}))),
+        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+async fn check_alerts(
+    monitor: web::Data<Arc<ReplicationMonitor>>,
+    flags: web::Data<FeatureFlags>,
+) -> ActixResult<HttpResponse> {
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
+    match monitor.check_alerts() {
+        Ok(alerts) => Ok(HttpResponse::Ok().json(alerts)),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::replication::monitor::{AlertThresholds, ReplicationMonitor};
+    use crate::replication::InMemoryReplicationStore;
+    use actix_web::{test, App};
+
+    #[actix_web::test]
+    async fn test_list_targets_empty() {
+        let svc = Arc::new(ReplicationService::new(InMemoryReplicationStore::shared()));
+        let monitor = Arc::new(ReplicationMonitor::new(
+            svc.clone(),
+            AlertThresholds::default(),
+        ));
+        let flags = FeatureFlags {
+            multi_region: true,
+            ..FeatureFlags::default()
+        };
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(svc))
+                .app_data(web::Data::new(monitor))
+                .app_data(web::Data::new(flags))
+                .configure(configure_replication_routes),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/replication/targets")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Vec<ReplicationTarget> = test::read_body_json(resp).await;
+        assert!(body.is_empty());
+    }
+
+    #[actix_web::test]
+    async fn test_add_and_get_target() {
+        let svc = Arc::new(ReplicationService::new(InMemoryReplicationStore::shared()));
+        let monitor = Arc::new(ReplicationMonitor::new(
+            svc.clone(),
+            AlertThresholds::default(),
+        ));
+        let flags = FeatureFlags {
+            multi_region: true,
+            ..FeatureFlags::default()
+        };
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(svc))
+                .app_data(web::Data::new(monitor))
+                .app_data(web::Data::new(flags))
+                .configure(configure_replication_routes),
+        )
+        .await;
+        let target = ReplicationTarget::new("test-mirror", "eu-west-1", "my-bucket");
+        let req = test::TestRequest::post()
+            .uri("/replication/targets")
+            .set_json(&target)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let req = test::TestRequest::get()
+            .uri(&format!("/replication/targets/{}", target.id))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    #[actix_web::test]
+    async fn test_feature_disabled() {
+        let svc = Arc::new(ReplicationService::new(InMemoryReplicationStore::shared()));
+        let monitor = Arc::new(ReplicationMonitor::new(
+            svc.clone(),
+            AlertThresholds::default(),
+        ));
+        let flags = FeatureFlags {
+            multi_region: false,
+            ..FeatureFlags::default()
+        };
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(svc))
+                .app_data(web::Data::new(monitor))
+                .app_data(web::Data::new(flags))
+                .configure(configure_replication_routes),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/replication/targets")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 403);
+    }
+
+    #[actix_web::test]
+    async fn test_remove_target() {
+        let svc = Arc::new(ReplicationService::new(InMemoryReplicationStore::shared()));
+        let monitor = Arc::new(ReplicationMonitor::new(
+            svc.clone(),
+            AlertThresholds::default(),
+        ));
+        let flags = FeatureFlags {
+            multi_region: true,
+            ..FeatureFlags::default()
+        };
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(svc))
+                .app_data(web::Data::new(monitor))
+                .app_data(web::Data::new(flags))
+                .configure(configure_replication_routes),
+        )
+        .await;
+        let target = ReplicationTarget::new("removeme", "us-west-2", "bucket");
+        let req = test::TestRequest::post()
+            .uri("/replication/targets")
+            .set_json(&target)
+            .to_request();
+        let _ = test::call_service(&app, req).await;
+        let req = test::TestRequest::delete()
+            .uri(&format!("/replication/targets/{}", target.id))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+    }
+
+    #[actix_web::test]
+    async fn test_dashboard_empty() {
+        let svc = Arc::new(ReplicationService::new(InMemoryReplicationStore::shared()));
+        let monitor = Arc::new(ReplicationMonitor::new(
+            svc.clone(),
+            AlertThresholds::default(),
+        ));
+        let flags = FeatureFlags {
+            multi_region: true,
+            ..FeatureFlags::default()
+        };
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(svc))
+                .app_data(web::Data::new(monitor))
+                .app_data(web::Data::new(flags))
+                .configure(configure_replication_routes),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/replication/dashboard")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: crate::replication::monitor::ReplicationDashboard =
+            test::read_body_json(resp).await;
+        assert_eq!(body.total_targets, 0);
+    }
+}

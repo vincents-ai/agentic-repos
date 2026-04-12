@@ -1,5 +1,7 @@
 //! repos-mcp - Multi-tenant Git server with SSH protocol support
 
+#![allow(clippy::result_large_err)]
+
 pub mod adp;
 pub mod analytics;
 pub mod api;
@@ -18,6 +20,7 @@ pub mod models;
 pub mod rbac;
 pub mod replication;
 pub mod scaling;
+pub mod sdlc;
 pub mod security;
 pub mod server;
 pub mod skynet;

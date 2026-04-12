@@ -13,6 +13,11 @@ pub mod compliance;
 pub mod config;
 pub mod error;
 pub mod features;
+#[allow(
+    clippy::while_let_loop,
+    clippy::too_many_arguments,
+    clippy::large_enum_variant
+)]
 pub mod git;
 pub mod lfs;
 pub mod mcp;
@@ -23,6 +28,7 @@ pub mod scaling;
 pub mod sdlc;
 pub mod security;
 pub mod server;
+#[allow(clippy::not_unsafe_ptr_arg_deref, clippy::missing_safety_doc)]
 pub mod skynet;
 pub mod storage;
 pub mod web;

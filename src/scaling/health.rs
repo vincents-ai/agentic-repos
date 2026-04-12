@@ -135,12 +135,10 @@ impl HealthChecker {
             let latency = start.elapsed();
 
             let health_check = match result {
-                Ok(message) => HealthCheck::healthy(&check.name())
+                Ok(message) => HealthCheck::healthy(check.name())
                     .with_latency(latency)
                     .with_message_opt(message),
-                Err(message) => {
-                    HealthCheck::unhealthy(&check.name(), message).with_latency(latency)
-                }
+                Err(message) => HealthCheck::unhealthy(check.name(), message).with_latency(latency),
             };
             checks.push(health_check);
         }

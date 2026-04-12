@@ -109,7 +109,7 @@ impl UserRepository {
         .bind(username)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| UserStorageError::Database(e))?;
+        .map_err(UserStorageError::Database)?;
 
         Ok(result)
     }
@@ -125,7 +125,7 @@ impl UserRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| UserStorageError::Database(e))?;
+        .map_err(UserStorageError::Database)?;
 
         Ok(result)
     }
@@ -141,7 +141,7 @@ impl UserRepository {
         .bind(email)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| UserStorageError::Database(e))?;
+        .map_err(UserStorageError::Database)?;
 
         Ok(result)
     }
@@ -217,7 +217,7 @@ impl UserRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| UserStorageError::Database(e))?;
+        .map_err(UserStorageError::Database)?;
 
         Ok(users)
     }

@@ -148,9 +148,7 @@ impl AdpStore {
         let json_bytes = serde_json::to_vec_pretty(value)?;
 
         // Create blob
-        let blob = gix::objs::Blob {
-            data: json_bytes.into(),
-        };
+        let blob = gix::objs::Blob { data: json_bytes };
         let blob_id = gix_repo
             .write_object(&blob)
             .map_err(|e| AdpStoreError::GixBoxed(e.to_string()))?;

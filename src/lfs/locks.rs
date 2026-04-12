@@ -92,6 +92,7 @@ impl LfsLockManager {
         Ok(CreateLockResponse { lock })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_locks(
         &self,
         tenant: &str,

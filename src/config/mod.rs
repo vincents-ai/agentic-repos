@@ -3,7 +3,7 @@ use config::{Config as ConfigBuilder, File};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct AppConfig {
     pub server: ServerConfig,
     #[serde(default)]
@@ -186,16 +186,6 @@ impl AppConfig {
                 }
             }
             None => FeatureFlags::load_from_env(),
-        }
-    }
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            features: None,
-            lfs: LfsConfig::default(),
         }
     }
 }

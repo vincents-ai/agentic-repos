@@ -227,13 +227,11 @@ pub async fn delete_lock(
         {
             return response;
         }
-    } else {
-        if let Err(response) = handler
-            .check_permission(&username, Permission::LfsLockDelete)
-            .await
-        {
-            return response;
-        }
+    } else if let Err(response) = handler
+        .check_permission(&username, Permission::LfsLockDelete)
+        .await
+    {
+        return response;
     }
 
     let lock_id = match Uuid::parse_str(&lock_id_str) {

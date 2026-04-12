@@ -56,13 +56,13 @@ impl UploadPackHandler {
         W: AsyncWrite + Unpin,
     {
         info!("Starting upload-pack protocol handler");
-        eprintln!("[UPLOAD-PACK] Starting handler");
+        tracing::debug!("[UPLOAD-PACK] Starting handler");
 
         Self::advertise_refs_impl(&repo_path, &mut writer, caller_identity.as_ref()).await?;
-        eprintln!("[UPLOAD-PACK] Advertised refs");
+        tracing::debug!("[UPLOAD-PACK] Advertised refs");
 
         let (wants, haves, capabilities) = Self::read_negotiation_impl(&mut reader).await?;
-        eprintln!(
+        tracing::debug!(
             "[UPLOAD-PACK] Read negotiation: {} wants, capabilities: {:?}",
             wants.len(),
             capabilities
@@ -70,14 +70,14 @@ impl UploadPackHandler {
 
         if wants.is_empty() {
             info!("Client wants nothing, ending connection");
-            eprintln!("[UPLOAD-PACK] No wants, returning Ok");
+            tracing::debug!("[UPLOAD-PACK] No wants, returning Ok");
             return Ok(());
         }
 
         Self::send_packfile_impl(&repo_path, &mut writer, &wants, &haves, &capabilities).await?;
 
         info!("Upload-pack completed successfully");
-        eprintln!("[UPLOAD-PACK] Completed successfully");
+        tracing::debug!("[UPLOAD-PACK] Completed successfully");
         Ok(())
     }
 
@@ -93,6 +93,7 @@ impl UploadPackHandler {
             .map(|id| id.can_see_private_refs())
             .unwrap_or(false);
         let (head_target, ref_data) = tokio::task::spawn_blocking(
+            #[allow(clippy::type_complexity)]
             move || -> Result<(Option<gix::ObjectId>, Vec<(String, gix::ObjectId)>)> {
                 let repo = gix::open(&repo_path_clone).map_err(|e| {
                     GitError::RepoNotFound(format!("Failed to open repository: {}", e))
@@ -134,7 +135,7 @@ impl UploadPackHandler {
         .await
         .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
 
-        let capabilities = vec![
+        let capabilities = [
             "multi_ack",
             "side-band-64k",
             "ofs-delta",
@@ -178,25 +179,25 @@ impl UploadPackHandler {
         let mut haves = Vec::new();
         let mut capabilities = HashSet::new();
 
-        eprintln!("[UPLOAD-PACK] Starting negotiation read");
+        tracing::debug!("[UPLOAD-PACK] Starting negotiation read");
         loop {
-            eprintln!("[UPLOAD-PACK] Reading packet...");
+            tracing::debug!("[UPLOAD-PACK] Reading packet...");
             let packet = match read_packet(reader).await? {
                 Some(data) if !data.is_empty() => data,
                 Some(_) => {
-                    eprintln!("[UPLOAD-PACK] Got flush/delim packet, ending negotiation");
+                    tracing::debug!("[UPLOAD-PACK] Got flush/delim packet, ending negotiation");
                     break;
                 }
                 None => {
-                    eprintln!("[UPLOAD-PACK] Got EOF from client");
+                    tracing::debug!("[UPLOAD-PACK] Got EOF from client");
                     break;
                 }
             };
 
-            eprintln!("[UPLOAD-PACK] Got packet: {} bytes", packet.len());
+            tracing::debug!("[UPLOAD-PACK] Got packet: {} bytes", packet.len());
             let line = String::from_utf8_lossy(&packet);
             let line = line.trim_end_matches('\n');
-            eprintln!("[UPLOAD-PACK] Packet content: {:?}", line);
+            tracing::debug!("[UPLOAD-PACK] Packet content: {:?}", line);
 
             if line.starts_with("want ") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
@@ -204,18 +205,18 @@ impl UploadPackHandler {
                     let oid_str = parts[1];
                     match gix::ObjectId::from_hex(oid_str.as_bytes()) {
                         Ok(oid) => {
-                            eprintln!("[UPLOAD-PACK] Client wants: {}", oid.to_hex());
+                            tracing::debug!("[UPLOAD-PACK] Client wants: {}", oid.to_hex());
                             wants.push(oid);
 
                             if capabilities.is_empty() && parts.len() > 2 {
                                 for cap in &parts[2..] {
-                                    eprintln!("[UPLOAD-PACK] Client capability: {}", cap);
+                                    tracing::debug!("[UPLOAD-PACK] Client capability: {}", cap);
                                     capabilities.insert(cap.to_string());
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!("[UPLOAD-PACK] Invalid want OID {}: {}", oid_str, e);
+                            tracing::debug!("[UPLOAD-PACK] Invalid want OID {}: {}", oid_str, e);
                         }
                     }
                 }
@@ -225,21 +226,21 @@ impl UploadPackHandler {
                     let oid_str = parts[1];
                     match gix::ObjectId::from_hex(oid_str.as_bytes()) {
                         Ok(oid) => {
-                            eprintln!("[UPLOAD-PACK] Client has: {}", oid.to_hex());
+                            tracing::debug!("[UPLOAD-PACK] Client has: {}", oid.to_hex());
                             haves.push(oid);
                         }
                         Err(e) => {
-                            eprintln!("[UPLOAD-PACK] Invalid have OID {}: {}", oid_str, e);
+                            tracing::debug!("[UPLOAD-PACK] Invalid have OID {}: {}", oid_str, e);
                         }
                     }
                 }
             } else if line == "done" {
-                eprintln!("[UPLOAD-PACK] Client sent done");
+                tracing::debug!("[UPLOAD-PACK] Client sent done");
                 break;
             }
         }
 
-        eprintln!(
+        tracing::debug!(
             "[UPLOAD-PACK] Negotiation complete: {} wants, {} haves, {} capabilities",
             wants.len(),
             haves.len(),
@@ -294,12 +295,12 @@ impl UploadPackHandler {
                             GitError::ProtocolError(format!("Failed to parse commit: {}", e))
                         })?;
                         for parent_id in commit.parents() {
-                            let parent_owned = gix::ObjectId::from(parent_id);
+                            let parent_owned = parent_id;
                             if !have_set.contains(&parent_owned) {
                                 queue.push_back(parent_owned);
                             }
                         }
-                        let tree_id = gix::ObjectId::from(commit.tree());
+                        let tree_id = commit.tree();
                         if !have_set.contains(&tree_id) {
                             queue.push_back(tree_id);
                         }
@@ -344,7 +345,7 @@ impl UploadPackHandler {
                 std::result::Result<Vec<output::Entry>, std::convert::Infallible>,
             > = std::iter::once(Ok(entries));
 
-            let mut pack_writer = output::bytes::FromEntriesIter::new(
+            let pack_writer = output::bytes::FromEntriesIter::new(
                 input,
                 &mut packfile_buf,
                 num_entries,
@@ -352,7 +353,7 @@ impl UploadPackHandler {
                 gix::hash::Kind::Sha1,
             );
 
-            while let Some(result) = pack_writer.next() {
+            for result in pack_writer {
                 result.map_err(|e: output::bytes::Error<std::convert::Infallible>| {
                     GitError::ProtocolError(format!("Pack write error: {}", e))
                 })?;
@@ -367,7 +368,7 @@ impl UploadPackHandler {
         debug!("Generated packfile: {} bytes", packfile_data.len());
 
         let use_sideband = capabilities.contains("side-band-64k");
-        eprintln!("[UPLOAD-PACK] Using side-band: {}", use_sideband);
+        tracing::debug!("[UPLOAD-PACK] Using side-band: {}", use_sideband);
 
         const CHUNK_SIZE: usize = 65000;
 

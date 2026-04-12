@@ -73,49 +73,48 @@ fn init_capabilities() -> *const [CapabilityInfo; 9] {
     if CAPABILITIES_STORAGE.load(Ordering::SeqCst).is_null() {
         let caps = Box::new([
             CapabilityInfo {
-                name: b"repo.create\0".as_ptr() as *const c_char,
-                description: b"Create a new Git repository\0".as_ptr() as *const c_char,
+                name: c"repo.create".as_ptr(),
+                description: c"Create a new Git repository".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"repo.delete\0".as_ptr() as *const c_char,
-                description: b"Delete a Git repository\0".as_ptr() as *const c_char,
+                name: c"repo.delete".as_ptr(),
+                description: c"Delete a Git repository".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"repo.list\0".as_ptr() as *const c_char,
-                description: b"List repositories for a tenant\0".as_ptr() as *const c_char,
+                name: c"repo.list".as_ptr(),
+                description: c"List repositories for a tenant".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"repo.info\0".as_ptr() as *const c_char,
-                description: b"Get repository information\0".as_ptr() as *const c_char,
+                name: c"repo.info".as_ptr(),
+                description: c"Get repository information".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"lfs.operation\0".as_ptr() as *const c_char,
-                description: b"Perform LFS operations\0".as_ptr() as *const c_char,
+                name: c"lfs.operation".as_ptr(),
+                description: c"Perform LFS operations".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"ssh.manage\0".as_ptr() as *const c_char,
-                description: b"Manage SSH keys for repository access\0".as_ptr() as *const c_char,
+                name: c"ssh.manage".as_ptr(),
+                description: c"Manage SSH keys for repository access".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"storage.list\0".as_ptr() as *const c_char,
-                description: b"List available storage backends\0".as_ptr() as *const c_char,
+                name: c"storage.list".as_ptr(),
+                description: c"List available storage backends".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"storage.bucket\0".as_ptr() as *const c_char,
-                description: b"Manage storage buckets\0".as_ptr() as *const c_char,
+                name: c"storage.bucket".as_ptr(),
+                description: c"Manage storage buckets".as_ptr(),
                 required_permission: ptr::null(),
             },
             CapabilityInfo {
-                name: b"tenant.mapping\0".as_ptr() as *const c_char,
-                description: b"Configure tenant to storage backend mappings\0".as_ptr()
-                    as *const c_char,
+                name: c"tenant.mapping".as_ptr(),
+                description: c"Configure tenant to storage backend mappings".as_ptr(),
                 required_permission: ptr::null(),
             },
         ]);
@@ -196,8 +195,8 @@ fn init_plugin_info() -> *const PluginInfoV2 {
 }
 
 #[no_mangle]
-pub extern "C" fn plugin_get_info_v2() -> *const PluginInfoV2 {
-    init_plugin_info() as *const PluginInfoV2
+pub unsafe extern "C" fn plugin_get_info_v2() -> *const PluginInfoV2 {
+    init_plugin_info()
 }
 
 #[derive(Clone, Copy)]
@@ -322,7 +321,7 @@ fn discover_storage_services(registry: *const ServiceRegistryV2, context: *const
 
                 let is_default = storage_backends.is_empty();
 
-                let backend_ptr = Arc::new(storage_service.clone());
+                let backend_ptr = Arc::new(*storage_service);
                 global_registry().register(
                     backend_ptr,
                     None,
@@ -386,7 +385,7 @@ fn register_storage_from_env() {
 }
 
 #[no_mangle]
-pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResultV2 {
+pub unsafe extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResultV2 {
     if context.is_null() {
         return PluginResultV2::InvalidRequest;
     }
@@ -462,7 +461,7 @@ pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResul
                 let s3_result = (s3_service.initialize)(&s3_config);
                 if s3_result.success {
                     if let Ok(mut guard) = S3_OPS_SERVICE.lock() {
-                        *guard = Some(Arc::new(s3_service.clone()));
+                        *guard = Some(Arc::new(*s3_service));
                     }
                     info!("S3 storage service initialized for LFS");
                 } else {
@@ -563,7 +562,7 @@ pub extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> PluginResul
 }
 
 #[no_mangle]
-pub extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) -> PluginResultV2 {
+pub unsafe extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) -> PluginResultV2 {
     // Stop SSH server
     if let Ok(mut guard) = SSH_TASK.lock() {
         if let Some(task) = guard.take() {
@@ -606,7 +605,7 @@ pub extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) -> Plugin
 }
 
 #[no_mangle]
-pub extern "C" fn plugin_health_check_v2(_context: *const PluginContextV2) -> HealthStatus {
+pub unsafe extern "C" fn plugin_health_check_v2(_context: *const PluginContextV2) -> HealthStatus {
     HealthStatus::Healthy
 }
 
@@ -859,7 +858,7 @@ fn build_tool_schemas() -> Vec<ToolSchema> {
 }
 
 #[no_mangle]
-pub extern "C" fn plugin_get_tools() -> *const c_char {
+pub unsafe extern "C" fn plugin_get_tools() -> *const c_char {
     let schemas = build_tool_schemas();
     match serde_json::to_string(&schemas) {
         Ok(json) => match CString::new(json) {
@@ -904,7 +903,7 @@ pub extern "C" fn plugin_execute_v2(
 
     let result = match action_str.as_str() {
         "health" | "health_check" => {
-            let status = plugin_health_check_v2(_context);
+            let status = unsafe { plugin_health_check_v2(_context) };
             serde_json::json!({
                 "success": true,
                 "status": format!("{:?}", status),
@@ -912,7 +911,7 @@ pub extern "C" fn plugin_execute_v2(
             })
         }
         "info" | "get_info" => {
-            let info_ptr = plugin_get_info_v2();
+            let info_ptr = unsafe { plugin_get_info_v2() };
             if info_ptr.is_null() {
                 serde_json::json!({
                     "success": false,
@@ -933,7 +932,7 @@ pub extern "C" fn plugin_execute_v2(
             }
         }
         "tools" | "get_tools" => {
-            let tools_ptr = plugin_get_tools();
+            let tools_ptr = unsafe { plugin_get_tools() };
             if tools_ptr.is_null() {
                 serde_json::json!({
                     "success": false,
@@ -1027,7 +1026,7 @@ mod tests {
 
     #[test]
     fn test_plugin_get_info_v2_returns_valid_pointer() {
-        let info_ptr = plugin_get_info_v2();
+        let info_ptr = unsafe { plugin_get_info_v2() };
         assert!(!info_ptr.is_null());
 
         unsafe {
@@ -1047,8 +1046,8 @@ mod tests {
 
     #[test]
     fn test_plugin_get_info_v2_idempotent() {
-        let p1 = plugin_get_info_v2();
-        let p2 = plugin_get_info_v2();
+        let p1 = unsafe { plugin_get_info_v2() };
+        let p2 = unsafe { plugin_get_info_v2() };
         assert_eq!(p1, p2);
     }
 
@@ -1072,7 +1071,7 @@ mod tests {
 
     #[test]
     fn test_plugin_get_tools_returns_valid_json() {
-        let ptr = plugin_get_tools();
+        let ptr = unsafe { plugin_get_tools() };
         assert!(!ptr.is_null());
 
         unsafe {
@@ -1088,7 +1087,7 @@ mod tests {
 
     #[test]
     fn test_plugin_health_check_v2() {
-        let status = plugin_health_check_v2(ptr::null());
+        let status = unsafe { plugin_health_check_v2(ptr::null()) };
         assert_eq!(status, HealthStatus::Healthy);
     }
 

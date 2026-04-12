@@ -146,7 +146,7 @@ impl<S: StorageBackend> GitStorageIntegration<S> {
                 std::fs::create_dir_all(parent).map_err(|e| StorageError::Io(e.to_string()))?;
             }
 
-            let data = self.storage.read(&Path::new(&file_path)).await?;
+            let data = self.storage.read(Path::new(&file_path)).await?;
             std::fs::write(&local_path, data).map_err(|e| StorageError::Io(e.to_string()))?;
         }
 

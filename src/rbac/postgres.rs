@@ -32,8 +32,8 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(&user.email)
         // domain User doesn't carry password_hash; store NULL
         .bind(None::<String>)
-        .bind(&user.created_at)
-        .bind(&user.updated_at)
+        .bind(user.created_at)
+        .bind(user.updated_at)
         .bind(user.is_active)
         .execute(&self.pool)
         .await
@@ -86,7 +86,7 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(&user.email)
         // domain User doesn't carry password_hash; do not change it
         .bind(None::<String>)
-        .bind(&user.updated_at)
+        .bind(user.updated_at)
         .bind(user.is_active)
         .execute(&self.pool)
         .await
@@ -152,8 +152,8 @@ impl RbacStorage for PostgresRbacStorage {
         .bind(role.id)
         .bind(&role.name)
         .bind(&role.description)
-        .bind(&role.created_at)
-        .bind(&role.updated_at)
+        .bind(role.created_at)
+        .bind(role.updated_at)
         .execute(&self.pool)
         .await
         .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
@@ -203,7 +203,7 @@ impl RbacStorage for PostgresRbacStorage {
         )
         .bind(&role.name)
         .bind(&role.description)
-        .bind(&role.updated_at)
+        .bind(role.updated_at)
         .execute(&self.pool)
         .await
         .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
@@ -273,10 +273,10 @@ impl RbacStorage for PostgresRbacStorage {
             )
             .bind(Uuid::new_v4())
             .bind(&permission.repository_id)
-            .bind(&permission.user_id)
+            .bind(permission.user_id)
             .bind((*perm).to_string())
             .bind(chrono::Utc::now())
-            .bind(permission.granted_by.clone())
+            .bind(permission.granted_by)
             .execute(&self.pool)
             .await
             .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
@@ -330,7 +330,7 @@ impl RbacStorage for PostgresRbacStorage {
                 });
         }
 
-        Ok(map.into_iter().map(|(_, v)| v).collect())
+        Ok(map.into_values().collect())
     }
 
     async fn delete_repository_permission(

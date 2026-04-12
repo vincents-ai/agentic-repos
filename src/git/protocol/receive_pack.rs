@@ -85,7 +85,7 @@ impl ReceivePackHandler {
     ) -> Result<()> {
         debug!("Advertising references for receive-pack");
 
-        let capabilities = vec![
+        let capabilities = [
             "report-status",
             "delete-refs",
             "ofs-delta",
@@ -270,10 +270,10 @@ impl ReceivePackHandler {
             tokio::task::spawn_blocking(move || -> Result<()> {
                 let pack_dir = repo_path_clone.join("objects").join("pack");
                 std::fs::create_dir_all(&pack_dir).map_err(|e| {
-                    GitError::IoError(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to create pack directory: {}", e),
-                    ))
+                    GitError::IoError(std::io::Error::other(format!(
+                        "Failed to create pack directory: {}",
+                        e
+                    )))
                 })?;
 
                 let repo = gix::open(&repo_path_clone).map_err(|e| {

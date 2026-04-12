@@ -239,16 +239,14 @@ impl BranchLimitService {
 
     /// Get current branch count for a repo
     pub fn get_branch_count(&self, repo_id: &str) -> u32 {
-        self.branch_counts.get(repo_id).unwrap_or(&0).clone()
+        *self.branch_counts.get(repo_id).unwrap_or(&0)
     }
 
     /// Check pattern matching
     fn matches_pattern(&self, pattern: &str, name: &str) -> bool {
-        if pattern.ends_with("/**") {
-            let prefix = &pattern[..pattern.len() - 3];
+        if let Some(prefix) = pattern.strip_suffix("/**") {
             name.starts_with(prefix) || name.contains(&format!("{}/", prefix))
-        } else if pattern.ends_with('*') {
-            let prefix = &pattern[..pattern.len() - 1];
+        } else if let Some(prefix) = pattern.strip_suffix('*') {
             name.starts_with(prefix)
         } else {
             name == pattern

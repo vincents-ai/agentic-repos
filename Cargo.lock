@@ -5464,6 +5464,7 @@ dependencies = [
  "actix-cors",
  "actix-files",
  "actix-web",
+ "aes-gcm",
  "age",
  "async-trait",
  "aws-config",

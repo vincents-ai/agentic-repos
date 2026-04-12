@@ -64,12 +64,8 @@ impl TokenBucket {
     }
 
     async fn consume(&mut self, bytes: u64) {
-        loop {
-            if let Some(wait_duration) = self.try_consume(bytes) {
-                sleep(wait_duration).await;
-            } else {
-                break;
-            }
+        while let Some(wait_duration) = self.try_consume(bytes) {
+            sleep(wait_duration).await;
         }
     }
 }

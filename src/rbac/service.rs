@@ -225,11 +225,10 @@ impl RbacService {
         for repo_perm in repo_permissions {
             if repo_perm
                 .expires_at
-                .map_or(true, |expires| expires > chrono::Utc::now())
+                .is_none_or(|expires| expires > chrono::Utc::now())
+                && repo_perm.permissions.contains(permission)
             {
-                if repo_perm.permissions.contains(permission) {
-                    return Ok(true);
-                }
+                return Ok(true);
             }
         }
 

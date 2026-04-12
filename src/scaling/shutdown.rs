@@ -27,6 +27,12 @@ pub struct ShutdownSignal {
     tx: broadcast::Sender<ShutdownPhase>,
 }
 
+impl Default for ShutdownSignal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShutdownSignal {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(16);

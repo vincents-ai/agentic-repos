@@ -398,7 +398,6 @@ impl RateLimiter {
             .or(headers.get("x-real-ip").and_then(|v| v.to_str().ok()))
             .or(headers.get("remote-addr").and_then(|v| v.to_str().ok()))
             .unwrap_or("unknown")
-            .to_string()
             .split(',')
             .next()
             .unwrap_or("unknown")

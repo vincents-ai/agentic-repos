@@ -181,6 +181,7 @@ impl ComplianceAuditEvent {
     }
 }
 
+#[allow(clippy::needless_borrows_for_generic_args, clippy::too_many_arguments)]
 #[async_trait::async_trait]
 pub trait ComplianceAuditStorage: Send + Sync {
     async fn store(&self, event: ComplianceAuditEvent) -> Result<(), AuditAggregationError>;
@@ -425,9 +426,11 @@ impl<S: ComplianceAuditStorage> AuditAggregator<S> {
             )
             .await?;
 
-        let mut summary = UserActivitySummary::default();
-        summary.user_id = user_id.to_string();
-        summary.total_events = events.len() as u64;
+        let mut summary = UserActivitySummary {
+            user_id: user_id.to_string(),
+            total_events: events.len() as u64,
+            ..Default::default()
+        };
 
         for event in &events {
             match event.outcome {
@@ -472,9 +475,11 @@ impl<S: ComplianceAuditStorage> AuditAggregator<S> {
             )
             .await?;
 
-        let mut summary = TenantAuditSummary::default();
-        summary.tenant_id = tenant_id.to_string();
-        summary.total_events = events.len() as u64;
+        let mut summary = TenantAuditSummary {
+            tenant_id: tenant_id.to_string(),
+            total_events: events.len() as u64,
+            ..Default::default()
+        };
 
         let mut unique_users = std::collections::HashSet::new();
         for event in &events {

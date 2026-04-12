@@ -218,7 +218,7 @@ pub mod s3 {
 
             // Step 2: Calculate parts
             let total_size = data.len();
-            let num_parts = (total_size + self.part_size - 1) / self.part_size;
+            let num_parts = total_size.div_ceil(self.part_size);
 
             // Step 3: Upload parts concurrently
             let mut part_futures = FuturesUnordered::new();

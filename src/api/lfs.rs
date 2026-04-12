@@ -325,7 +325,7 @@ where
                     .log(
                         AuditEvent::new(AuditEventType::LfsError, tenant.clone(), repo.clone())
                             .with_oid(&oid)
-                            .with_error(&e.to_string()),
+                            .with_error(e.to_string()),
                     )
                     .await;
             }
@@ -416,7 +416,7 @@ where
                     .log(
                         AuditEvent::new(AuditEventType::LfsError, tenant.clone(), repo.clone())
                             .with_oid(&oid)
-                            .with_error(&e.to_string()),
+                            .with_error(e.to_string()),
                     )
                     .await;
             }

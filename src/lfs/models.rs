@@ -40,7 +40,9 @@ pub struct BatchResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Transfer {
+    #[default]
     Basic,
 }
 
@@ -72,12 +74,6 @@ pub struct Action {
 pub struct ObjectError {
     pub code: u16,
     pub message: String,
-}
-
-impl Default for Transfer {
-    fn default() -> Self {
-        Transfer::Basic
-    }
 }
 
 impl BatchResponse {

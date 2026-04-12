@@ -70,7 +70,7 @@ impl SshKeyManager {
     pub fn validate_public_key(key_str: &str) -> SkynetPluginResult<SshKeyType> {
         debug!("Validating SSH public key");
 
-        let parts: Vec<&str> = key_str.trim().split_whitespace().collect();
+        let parts: Vec<&str> = key_str.split_whitespace().collect();
         if parts.is_empty() {
             error!("Invalid SSH public key format: empty");
             return Err(crate::skynet::error::SkynetPluginError::InvalidSshKey(
@@ -114,7 +114,7 @@ impl SshKeyManager {
     pub fn compute_fingerprint(public_key: &str) -> SkynetPluginResult<String> {
         debug!("Computing SSH key fingerprint");
 
-        let parts: Vec<&str> = public_key.trim().split_whitespace().collect();
+        let parts: Vec<&str> = public_key.split_whitespace().collect();
         if parts.len() < 2 {
             error!("Invalid SSH public key format for fingerprint");
             return Err(crate::skynet::error::SkynetPluginError::InvalidSshKey(

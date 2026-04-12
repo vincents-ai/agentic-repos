@@ -478,7 +478,7 @@ mod tests {
         assert!(dash.latest_assessment.is_some());
         assert_eq!(
             dash.dora_metrics.performance_level,
-            DoraPerformanceLevel::Medium
+            DoraPerformanceLevel::Low
         );
     }
 

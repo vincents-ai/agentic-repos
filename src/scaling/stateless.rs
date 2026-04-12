@@ -143,11 +143,7 @@ impl<T: Clone + Send + Sync + 'static> DistributedSet<T> {
         F: Fn(&T) -> bool,
     {
         let mut set = self.local.write().await;
-        if let Some(pos) = set.iter().position(|v| predicate(v)) {
-            Some(set.remove(pos))
-        } else {
-            None
-        }
+        set.iter().position(predicate).map(|pos| set.remove(pos))
     }
 
     pub async fn contains<F>(&self, predicate: F) -> bool

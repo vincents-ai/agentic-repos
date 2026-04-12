@@ -230,7 +230,7 @@ impl GitOperationsPlugin {
                 self.metrics
                     .record_error(&request.method, &err.error_code());
                 error!("Request failed: {}", err);
-                PluginResponse::error(&request.id, &err.error_code(), err.to_string())
+                PluginResponse::error(&request.id, err.error_code(), err.to_string())
             }
         }
     }
@@ -366,7 +366,7 @@ impl GitOperationsPlugin {
         &self,
         request: &PluginRequest,
     ) -> SkynetPluginResult<Value> {
-        let include_details = request
+        let _include_details = request
             .params
             .get("include_details")
             .and_then(|v| v.as_bool())
@@ -376,19 +376,11 @@ impl GitOperationsPlugin {
 
         Ok(json!({
             "backends": backends.iter().map(|(name, backend_type, is_default)| {
-                if include_details {
-                    json!({
-                        "name": name,
-                        "type": backend_type,
-                        "is_default": is_default,
-                    })
-                } else {
-                    json!({
-                        "name": name,
-                        "type": backend_type,
-                        "is_default": is_default,
-                    })
-                }
+                json!({
+                    "name": name,
+                    "type": backend_type,
+                    "is_default": is_default,
+                })
             }).collect::<Vec<_>>(),
             "count": backends.len(),
         }))

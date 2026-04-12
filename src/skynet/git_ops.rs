@@ -169,7 +169,7 @@ impl GitOperationService {
                             commit_sha: hex,
                             commit_message: commit.message.to_string(),
                             author: commit.author.name.to_string(),
-                            created_at: chrono::DateTime::from_timestamp(timestamp as i64, 0)
+                            created_at: chrono::DateTime::from_timestamp(timestamp, 0)
                                 .unwrap_or(chrono::Utc::now())
                                 .to_rfc3339(),
                         });
@@ -421,14 +421,14 @@ impl GitOperationService {
             .map_err(|e| git_err("Failed to find 'from' commit", e))?;
         let from_commit = gix::objs::CommitRef::from_bytes(&from_obj.data)
             .map_err(|e| git_err("'from' is not a commit", e))?;
-        let from_tree_id = gix::ObjectId::from(from_commit.tree());
+        let from_tree_id = from_commit.tree();
 
         let to_obj = gix_repo
             .find_object(to_id)
             .map_err(|e| git_err("Failed to find 'to' commit", e))?;
         let to_commit = gix::objs::CommitRef::from_bytes(&to_obj.data)
             .map_err(|e| git_err("'to' is not a commit", e))?;
-        let to_tree_id = gix::ObjectId::from(to_commit.tree());
+        let to_tree_id = to_commit.tree();
 
         // Parse trees
         let from_tree_obj = gix_repo
@@ -491,7 +491,7 @@ impl GitOperationService {
         }
 
         // Find deleted files
-        for (name, _) in &from_entries {
+        for name in from_entries.keys() {
             if !to_entries.contains_key(name) {
                 let path_str = String::from_utf8_lossy(name).to_string();
                 stats.files_changed += 1;

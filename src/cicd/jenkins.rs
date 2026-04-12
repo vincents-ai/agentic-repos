@@ -127,7 +127,10 @@ fn scm_url_to_repo(url: &str) -> String {
     }
 
     // HTTP(S) style: take last two path segments after the authority
-    let path_part = stripped.split_once("://").map(|(_, p)| p).unwrap_or(stripped);
+    let path_part = stripped
+        .split_once("://")
+        .map(|(_, p)| p)
+        .unwrap_or(stripped);
     // Skip the host — split on `/` and take last two non-empty parts
     let parts: Vec<&str> = path_part.split('/').filter(|s| !s.is_empty()).collect();
     let n = parts.len();

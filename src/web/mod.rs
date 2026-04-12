@@ -71,7 +71,7 @@ impl WebUI {
         let html = data
             .templates
             .render("dashboard.html", &context)
-            .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
+            .map_err(actix_web::error::ErrorInternalServerError)?;
 
         Ok(HttpResponse::Ok().content_type("text/html").body(html))
     }
@@ -93,7 +93,7 @@ impl WebUI {
         let html = data
             .templates
             .render("repositories.html", &context)
-            .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
+            .map_err(actix_web::error::ErrorInternalServerError)?;
 
         Ok(HttpResponse::Ok().content_type("text/html").body(html))
     }
@@ -132,7 +132,7 @@ impl WebUI {
         let html = data
             .templates
             .render("repository.html", &context)
-            .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
+            .map_err(actix_web::error::ErrorInternalServerError)?;
 
         Ok(HttpResponse::Ok().content_type("text/html").body(html))
     }

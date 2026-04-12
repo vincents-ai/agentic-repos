@@ -658,7 +658,7 @@ pub extern "C" fn s3_storage_registry_get_for_tenant(
     let tenant = unsafe { CStr::from_ptr(tenant_id).to_string_lossy().into_owned() };
 
     match global_registry().get_for_tenant(&tenant) {
-        Some(backend) => Arc::into_raw(backend) as *const S3CompatibleStorageV1,
+        Some(backend) => Arc::into_raw(backend),
         None => ptr::null(),
     }
 }
@@ -666,7 +666,7 @@ pub extern "C" fn s3_storage_registry_get_for_tenant(
 #[no_mangle]
 pub extern "C" fn s3_storage_registry_get_default() -> *const S3CompatibleStorageV1 {
     match global_registry().get_default() {
-        Some(backend) => Arc::into_raw(backend) as *const S3CompatibleStorageV1,
+        Some(backend) => Arc::into_raw(backend),
         None => ptr::null(),
     }
 }

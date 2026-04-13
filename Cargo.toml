@@ -109,3 +109,9 @@ flate2 = "1.1.9"
 tokio-test = "0.4"
 mockall = "0.14"
 serial_test = "3.0"
+cucumber = "0.22"
+futures = "0.3"
+
+[[test]]
+name = "bdd"
+harness = false

@@ -52,12 +52,12 @@ impl UserStorage for SqliteUserStorage {
         })?;
 
         Ok(User {
-            id: Uuid::parse_str(&row.get("id")).unwrap(),
+            id: Uuid::parse_str(&row.get::<String, _>("id")).map_err(|e| UserStorageError::Database(format!("Invalid UUID: {}", e)))?,
             username: row.get("username"),
             email: row.get("email"),
             password_hash: row.get("password_hash"),
-            created_at: chrono::DateTime::parse_from_rfc3339(&row.get("created_at")).unwrap(),
-            updated_at: chrono::DateTime::parse_from_rfc3339(&row.get("updated_at")).unwrap(),
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at")).map_err(|e| UserStorageError::Database(format!("Invalid created_at: {}", e)))?.into(),
+            updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at")).map_err(|e| UserStorageError::Database(format!("Invalid updated_at: {}", e)))?.into(),
             is_active: row.get("is_active") == 1,
         })
     }
@@ -139,12 +139,12 @@ impl UserStorage for SqliteUserStorage {
         })?;
 
         Ok(User {
-            id: Uuid::parse_str(&row.get("id")).unwrap(),
+            id: Uuid::parse_str(&row.get::<String, _>("id")).map_err(|e| UserStorageError::Database(format!("Invalid UUID: {}", e)))?,
             username: row.get("username"),
             email: row.get("email"),
             password_hash: row.get("password_hash"),
-            created_at: chrono::DateTime::parse_from_rfc3339(&row.get("created_at")).unwrap(),
-            updated_at: chrono::DateTime::parse_from_rfc3339(&row.get("updated_at")).unwrap(),
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("created_at")).map_err(|e| UserStorageError::Database(format!("Invalid created_at: {}", e)))?.into(),
+            updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<String, _>("updated_at")).map_err(|e| UserStorageError::Database(format!("Invalid updated_at: {}", e)))?.into(),
             is_active: row.get("is_active") == 1,
         })
     }

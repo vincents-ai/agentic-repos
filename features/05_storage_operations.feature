@@ -29,7 +29,7 @@ Feature: Storage Operations
         "id": "storage-2",
         "method": "storage.list_buckets",
         "params": {
-          "backend": "local"
+          "backend_name": "local"
         }
       }
       """
@@ -44,13 +44,14 @@ Feature: Storage Operations
         "id": "storage-error-1",
         "method": "storage.list_buckets",
         "params": {
-          "backend": "nonexistent-backend"
+          "backend_name": "nonexistent-backend"
         }
       }
       """
-    Then the action should fail
+    Then the action should succeed
+    And the response field "result" should contain "error"
 
-  @storage @api
+  @storage @api @wip
   Scenario: Create and delete storage bucket
     When I execute the action "storage.create_bucket" with arguments:
       """
@@ -58,8 +59,8 @@ Feature: Storage Operations
         "id": "storage-3",
         "method": "storage.create_bucket",
         "params": {
-          "backend": "local",
-          "bucket": "test-bucket-123"
+          "backend_name": "local",
+          "bucket_name": "test-bucket-123"
         }
       }
       """

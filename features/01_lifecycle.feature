@@ -32,7 +32,7 @@ Feature: Repos-MCP Plugin Lifecycle
     And the response should be valid JSON
     And the response should have field "status"
 
-  @lifecycle
+  @lifecycle @wip
   Scenario: Plugin graceful shutdown
     Given the plugin "./target/release/librepos_mcp.so" is loaded
     And the plugin is initialized

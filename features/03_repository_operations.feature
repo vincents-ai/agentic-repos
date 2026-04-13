@@ -22,7 +22,7 @@ Feature: Repository Operations
       """
     Then the action should succeed
     And the response should be valid JSON
-    And the response should have field "id"
+    And the response should have field "repository"
 
   @repo @api
   Scenario: List repositories

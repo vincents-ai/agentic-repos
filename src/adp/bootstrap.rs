@@ -11,6 +11,7 @@
 
 use crate::adp::access::AccessConfig;
 use crate::adp::config::ServerConfig;
+use crate::adp::lfs_config::{LfsConfig, LFS_CONFIG_REF};
 use crate::adp::storage::{AdpStore, AdpStoreError};
 use crate::adp::SERVER_CONFIG_REF;
 use std::path::Path;
@@ -79,6 +80,16 @@ pub fn bootstrap_system_repo(storage_root: &Path) -> Result<()> {
         debug!("refs/adp/config/server already exists, skipping");
     }
 
+    // Write default LFS config if not already present
+    if AdpStore::read_ref_blob(&system_repo_path, LFS_CONFIG_REF).is_err() {
+        info!("Writing default refs/adp/config/lfs");
+        let lfs_cfg = LfsConfig::default();
+        let value = serde_json::to_value(&lfs_cfg).map_err(AdpStoreError::Json)?;
+        AdpStore::write_ref_blob(&system_repo_path, LFS_CONFIG_REF, &value)?;
+    } else {
+        debug!("refs/adp/config/lfs already exists, skipping");
+    }
+
     // Write default access config if not already present
     if AdpStore::read_access_config(&system_repo_path)?.is_none() {
         info!("Writing default refs/adp/access/config");
@@ -115,6 +126,10 @@ mod tests {
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
 
         let server_cfg = AdpStore::read_ref_blob(&system_path, SERVER_CONFIG_REF).unwrap();
+        assert!(server_cfg.is_object());
+
+        let lfs_cfg = AdpStore::read_ref_blob(&system_path, LFS_CONFIG_REF).unwrap();
+        assert!(lfs_cfg.is_object());();
         assert!(server_cfg.is_object());
 
         let access_cfg = AdpStore::read_access_config(&system_path).unwrap();

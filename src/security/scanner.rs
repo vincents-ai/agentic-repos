@@ -290,4 +290,146 @@ mod tests {
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().scan_id, result.scan_id);
     }
+
+    // ── All 9 pattern types ──
+
+    #[tokio::test]
+    async fn test_detect_aws_access_key() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest { content: "key=AKIAIOSFODNN7EXAMPLE".into(), file_path: None }).await;
+        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::AwsAccessKeyId));
+        assert_eq!(result.matches[0].severity, Severity::Critical);
+    }
+
+    #[tokio::test]
+    async fn test_detect_aws_secret_key() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest {
+            content: "aws_secret_access_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd".into(),
+            file_path: None,
+        }).await;
+        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::AwsSecretAccessKey));
+    }
+
+    #[tokio::test]
+    async fn test_detect_gitlab_token() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest {
+            content: "token=glpat-ABCDEFGHIJKLMNOPQRST".into(),
+            file_path: None,
+        }).await;
+        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::GitlabToken));
+    }
+
+    #[tokio::test]
+    async fn test_detect_jwt() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest {
+            content: "auth=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signaturehere".into(),
+            file_path: None,
+        }).await;
+        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::JwtToken));
+        assert_eq!(result.matches[0].severity, Severity::High);
+    }
+
+    #[tokio::test]
+    async fn test_detect_password() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest {
+            content: "password=hunter2supersecret".into(),
+            file_path: None,
+        }).await;
+        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::Password));
+    }
+
+    #[tokio::test]
+    async fn test_detect_api_key() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest {
+            content: "api_key=ABCDEFGHIJKLMNOPQRST1234567890".into(),
+            file_path: None,
+        }).await;
+        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::ApiKey));
+    }
+
+    #[tokio::test]
+    async fn test_detect_generic_secret() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest {
+            content: "secret=ABCDEFGHIJKLMNOP".into(),
+            file_path: None,
+        }).await;
+        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::GenericSecret));
+        assert_eq!(result.matches[0].severity, Severity::Medium);
+    }
+
+    // ── Multiline scanning ──
+
+    #[tokio::test]
+    async fn test_multiline_multiple_findings() {
+        let scanner = SecretScanner::new();
+        let content = r#"
+AKIAIOSFODNN7EXAMPLE
+this line is clean
+ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
+another clean line
+-----BEGIN RSA PRIVATE KEY-----
+"#;
+        let result = scanner.scan(ScanRequest { content: content.into(), file_path: None }).await;
+        assert!(result.total_matches >= 3);
+    }
+
+    // ── Line and column positions ──
+
+    #[tokio::test]
+    async fn test_line_number_correct() {
+        let scanner = SecretScanner::new();
+        let content = "clean line\nAKIAIOSFODNN7EXAMPLE";
+        let result = scanner.scan(ScanRequest { content: content.into(), file_path: None }).await;
+        let aws_match = result.matches.iter().find(|m| m.pattern_type == SecretPattern::AwsAccessKeyId).unwrap();
+        assert_eq!(aws_match.line_number, 2);
+    }
+
+    #[tokio::test]
+    async fn test_column_positions_set() {
+        let scanner = SecretScanner::new();
+        let content = "prefix AKIAIOSFODNN7EXAMPLE suffix";
+        let result = scanner.scan(ScanRequest { content: content.into(), file_path: None }).await;
+        let m = &result.matches[0];
+        assert!(m.column_start > 0);
+        assert!(m.column_end > m.column_start);
+    }
+
+    // ── Scan result metadata ──
+
+    #[tokio::test]
+    async fn test_scan_result_fields() {
+        let scanner = SecretScanner::new();
+        let result = scanner.scan(ScanRequest { content: "AKIAIOSFODNN7EXAMPLE".into(), file_path: None }).await;
+        assert!(!result.scan_id.is_empty());
+        assert_eq!(result.status, ScanStatus::Completed);
+        assert_eq!(result.files_scanned, 1);
+        assert!(result.scan_duration_ms < 1000); // Should be fast
+    }
+
+    #[tokio::test]
+    async fn test_scan_nonexistent_result() {
+        let scanner = SecretScanner::new();
+        let result = scanner.get_result("nonexistent").await;
+        assert!(result.is_none());
+    }
+
+    // ── Long value truncation ──
+
+    #[tokio::test]
+    async fn test_long_match_truncated() {
+        let scanner = SecretScanner::new();
+        // Create a very long API key that exceeds 50 chars
+        let long_key = "api_key=".to_string() + &"A".repeat(60);
+        let result = scanner.scan(ScanRequest { content: long_key, file_path: None }).await;
+        let api_match = result.matches.iter().find(|m| m.pattern_type == SecretPattern::ApiKey);
+        if let Some(m) = api_match {
+            assert!(m.match_value.len() <= 53); // 50 + "..."
+        }
+    }
 }

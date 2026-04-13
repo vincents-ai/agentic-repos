@@ -22,5 +22,10 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(web::scope("/cluster").configure(cluster::configure_cluster_routes))
         .service(web::scope("/adp").configure(adp::configure_adp_routes))
         .service(web::scope("/secrets").configure(secrets::configure_secrets_routes))
+        .service(web::scope("/rbac").configure(crate::rbac::handlers::configure_rbac_routes))
+        .service(web::scope("/security").configure(crate::security::handlers::configure_security_routes))
+        .service(web::scope("/sdlc").configure(crate::sdlc::configure_sdlc_routes))
+        .service(web::scope("/analytics").configure(crate::analytics::handlers::configure_analytics_routes))
+        .service(web::scope("/replication").configure(crate::replication::handlers::configure_replication_routes))
         .default_service(web::route().to(handlers::not_found));
 }

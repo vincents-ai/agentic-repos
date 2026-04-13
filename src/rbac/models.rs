@@ -270,3 +270,233 @@ pub fn create_default_roles() -> Vec<Role> {
         ),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::str::FromStr;
+
+    // ── Permission Display / FromStr roundtrip ──
+
+    #[test]
+    fn permission_display_from_str_roundtrip() {
+        let all = vec![
+            Permission::RepositoryCreate,
+            Permission::RepositoryRead,
+            Permission::RepositoryWrite,
+            Permission::RepositoryDelete,
+            Permission::RepositoryAdmin,
+            Permission::BranchCreate,
+            Permission::BranchDelete,
+            Permission::BranchProtect,
+            Permission::UserManage,
+            Permission::RoleManage,
+            Permission::SystemAdmin,
+            Permission::WebhookManage,
+            Permission::SettingsManage,
+            Permission::LfsLockCreate,
+            Permission::LfsLockRead,
+            Permission::LfsLockDelete,
+            Permission::LfsLockForce,
+        ];
+        for p in &all {
+            let s = p.to_string();
+            assert_eq!(Permission::from_str(&s).unwrap(), *p);
+        }
+    }
+
+    #[test]
+    fn permission_from_str_unknown() {
+        assert!(Permission::from_str("NotARealPermission").is_err());
+    }
+
+    // ── Role ──
+
+    #[test]
+    fn role_new_is_not_system() {
+        let role = Role::new(
+            "custom".into(),
+            "desc".into(),
+            HashSet::from([Permission::RepositoryRead]),
+        );
+        assert!(!role.is_system_role);
+        assert_eq!(role.name, "custom");
+        assert!(role.has_permission(&Permission::RepositoryRead));
+        assert!(!role.has_permission(&Permission::SystemAdmin));
+    }
+
+    #[test]
+    fn role_system_role_is_system() {
+        let role = Role::system_role(
+            "admin".into(),
+            "desc".into(),
+            HashSet::from([Permission::SystemAdmin]),
+        );
+        assert!(role.is_system_role);
+    }
+
+    #[test]
+    fn role_add_remove_permission() {
+        let mut role = Role::new("r".into(), "d".into(), HashSet::new());
+        assert!(!role.has_permission(&Permission::RepositoryWrite));
+
+        role.add_permission(Permission::RepositoryWrite);
+        assert!(role.has_permission(&Permission::RepositoryWrite));
+
+        role.remove_permission(&Permission::RepositoryWrite);
+        assert!(!role.has_permission(&Permission::RepositoryWrite));
+    }
+
+    #[test]
+    fn role_id_unique() {
+        let a = Role::new("a".into(), "d".into(), HashSet::new());
+        let b = Role::new("b".into(), "d".into(), HashSet::new());
+        assert_ne!(a.id, b.id);
+    }
+
+    // ── User ──
+
+    #[test]
+    fn user_new_defaults() {
+        let user = User::new("alice".into(), Some("alice@example.com".into()));
+        assert_eq!(user.username, "alice");
+        assert_eq!(user.email.as_deref(), Some("alice@example.com"));
+        assert!(user.is_active);
+        assert!(user.ssh_keys.is_empty());
+        assert!(user.roles.is_empty());
+        assert!(user.last_login.is_none());
+    }
+
+    #[test]
+    fn user_assign_revoke_role() {
+        let mut user = User::new("bob".into(), None);
+        let role_id = Uuid::new_v4();
+
+        assert!(!user.has_role(&role_id));
+        user.assign_role(role_id);
+        assert!(user.has_role(&role_id));
+
+        user.revoke_role(&role_id);
+        assert!(!user.has_role(&role_id));
+    }
+
+    #[test]
+    fn user_ssh_key_management() {
+        let mut user = User::new("carol".into(), None);
+        let key = "ssh-ed25519 AAAA...".to_string();
+
+        user.add_ssh_key(key.clone());
+        assert_eq!(user.ssh_keys.len(), 1);
+
+        // Duplicate insert is a no-op
+        user.add_ssh_key(key.clone());
+        assert_eq!(user.ssh_keys.len(), 1);
+
+        user.remove_ssh_key(&key);
+        assert!(user.ssh_keys.is_empty());
+    }
+
+    #[test]
+    fn user_activate_deactivate() {
+        let mut user = User::new("dave".into(), None);
+        assert!(user.is_active);
+
+        user.deactivate();
+        assert!(!user.is_active);
+
+        user.activate();
+        assert!(user.is_active);
+    }
+
+    #[test]
+    fn user_set_last_login() {
+        let mut user = User::new("eve".into(), None);
+        assert!(user.last_login.is_none());
+        user.set_last_login();
+        assert!(user.last_login.is_some());
+    }
+
+    // ── Default roles ──
+
+    #[test]
+    fn default_roles_are_system_roles() {
+        let roles = create_default_roles();
+        assert_eq!(roles.len(), 3);
+
+        let names: Vec<&str> = roles.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"Administrator"));
+        assert!(names.contains(&"Developer"));
+        assert!(names.contains(&"ReadOnly"));
+
+        for role in &roles {
+            assert!(role.is_system_role);
+        }
+    }
+
+    #[test]
+    fn admin_has_all_permissions() {
+        let roles = create_default_roles();
+        let admin = roles.iter().find(|r| r.name == "Administrator").unwrap();
+        // Admin should have every variant
+        assert!(admin.has_permission(&Permission::SystemAdmin));
+        assert!(admin.has_permission(&Permission::RepositoryDelete));
+        assert!(admin.has_permission(&Permission::LfsLockForce));
+    }
+
+    #[test]
+    fn developer_has_no_admin() {
+        let roles = create_default_roles();
+        let dev = roles.iter().find(|r| r.name == "Developer").unwrap();
+        assert!(!dev.has_permission(&Permission::SystemAdmin));
+        assert!(!dev.has_permission(&Permission::UserManage));
+        assert!(dev.has_permission(&Permission::RepositoryWrite));
+    }
+
+    #[test]
+    fn readonly_minimal() {
+        let roles = create_default_roles();
+        let ro = roles.iter().find(|r| r.name == "ReadOnly").unwrap();
+        assert!(ro.has_permission(&Permission::RepositoryRead));
+        assert!(ro.has_permission(&Permission::LfsLockRead));
+        assert!(!ro.has_permission(&Permission::RepositoryWrite));
+        assert!(!ro.has_permission(&Permission::LfsLockCreate));
+    }
+
+    // ── Serialization ──
+
+    #[test]
+    fn permission_json_roundtrip() {
+        let p = Permission::RepositoryWrite;
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Permission = serde_json::from_str(&json).unwrap();
+        assert_eq!(p, back);
+    }
+
+    #[test]
+    fn role_json_roundtrip() {
+        let role = Role::new(
+            "test".into(),
+            "desc".into(),
+            HashSet::from([Permission::RepositoryRead, Permission::RepositoryWrite]),
+        );
+        let json = serde_json::to_string(&role).unwrap();
+        let back: Role = serde_json::from_str(&json).unwrap();
+        assert_eq!(role.id, back.id);
+        assert_eq!(role.name, back.name);
+        assert_eq!(role.permissions, back.permissions);
+    }
+
+    #[test]
+    fn user_json_roundtrip() {
+        let mut user = User::new("alice".into(), Some("a@b.com".into()));
+        user.assign_role(Uuid::new_v4());
+        user.add_ssh_key("ssh-key".into());
+        let json = serde_json::to_string(&user).unwrap();
+        let back: User = serde_json::from_str(&json).unwrap();
+        assert_eq!(user.id, back.id);
+        assert_eq!(user.username, back.username);
+        assert_eq!(user.roles, back.roles);
+        assert_eq!(user.ssh_keys, back.ssh_keys);
+    }
+}

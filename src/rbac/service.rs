@@ -370,3 +370,375 @@ impl RbacService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rbac::storage::InMemoryRbacStorage;
+    use std::collections::HashSet;
+
+    async fn make_service() -> RbacService {
+        let storage = Arc::new(InMemoryRbacStorage::new());
+        let svc = RbacService::new(storage);
+        svc.initialize().await.unwrap();
+        svc
+    }
+
+    // ── User CRUD ──
+
+    #[tokio::test]
+    async fn create_user_basic() {
+        let svc = make_service().await;
+        let user = svc.create_user("alice".into(), Some("alice@test.com".into())).await.unwrap();
+        assert_eq!(user.username, "alice");
+        assert!(user.is_active);
+    }
+
+    #[tokio::test]
+    async fn create_user_duplicate_rejected() {
+        let svc = make_service().await;
+        svc.create_user("bob".into(), None).await.unwrap();
+        let err = svc.create_user("bob".into(), None).await.unwrap_err();
+        assert!(matches!(err, RbacError::UserExists(_)));
+    }
+
+    #[tokio::test]
+    async fn get_user_not_found() {
+        let svc = make_service().await;
+        let err = svc.get_user("nobody").await.unwrap_err();
+        assert!(matches!(err, RbacError::UserNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn get_user_by_id() {
+        let svc = make_service().await;
+        let user = svc.create_user("charlie".into(), None).await.unwrap();
+        let found = svc.get_user_by_id(&user.id).await.unwrap();
+        assert_eq!(found.username, "charlie");
+    }
+
+    #[tokio::test]
+    async fn get_user_by_id_not_found() {
+        let svc = make_service().await;
+        let err = svc.get_user_by_id(&Uuid::new_v4()).await.unwrap_err();
+        assert!(matches!(err, RbacError::UserNotFound(_)));
+    }
+
+    // ── Role CRUD ──
+
+    #[tokio::test]
+    async fn create_custom_role() {
+        let svc = make_service().await;
+        let role = svc
+            .create_role(
+                "custom".into(),
+                "Custom role".into(),
+                HashSet::from([Permission::RepositoryRead]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(role.name, "custom");
+        assert!(!role.is_system_role);
+    }
+
+    #[tokio::test]
+    async fn create_role_duplicate_rejected() {
+        let svc = make_service().await;
+        svc.create_role("dup".into(), "d".into(), HashSet::new())
+            .await
+            .unwrap();
+        let err = svc
+            .create_role("dup".into(), "d".into(), HashSet::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RbacError::RoleExists(_)));
+    }
+
+    #[tokio::test]
+    async fn update_system_role_rejected() {
+        let svc = make_service().await;
+        let admin_role = svc.get_role("Administrator").await.unwrap();
+        let err = svc.update_role(admin_role).await.unwrap_err();
+        assert!(matches!(err, RbacError::InvalidOperation(_)));
+    }
+
+    #[tokio::test]
+    async fn delete_system_role_rejected() {
+        let svc = make_service().await;
+        let err = svc.delete_role("Administrator").await.unwrap_err();
+        assert!(matches!(err, RbacError::InvalidOperation(_)));
+    }
+
+    #[tokio::test]
+    async fn delete_custom_role() {
+        let svc = make_service().await;
+        svc.create_role("temp".into(), "d".into(), HashSet::new())
+            .await
+            .unwrap();
+        svc.delete_role("temp").await.unwrap();
+        assert!(svc.get_role("temp").await.unwrap_err().to_string().contains("not found"));
+    }
+
+    // ── Role assignment ──
+
+    #[tokio::test]
+    async fn assign_revoke_role() {
+        let svc = make_service().await;
+        svc.create_user("dave".into(), None).await.unwrap();
+
+        svc.assign_role_to_user("dave", "Developer").await.unwrap();
+        let user = svc.get_user("dave").await.unwrap();
+        assert!(user.has_role(
+            &svc.get_role("Developer").await.unwrap().id
+        ));
+
+        svc.revoke_role_from_user("dave", "Developer").await.unwrap();
+        let user = svc.get_user("dave").await.unwrap();
+        assert!(!user.has_role(
+            &svc.get_role("Developer").await.unwrap().id
+        ));
+    }
+
+    #[tokio::test]
+    async fn assign_nonexistent_role() {
+        let svc = make_service().await;
+        svc.create_user("eve".into(), None).await.unwrap();
+        let err = svc.assign_role_to_user("eve", "NoSuchRole").await.unwrap_err();
+        assert!(matches!(err, RbacError::RoleNotFound(_)));
+    }
+
+    // ── Permission checking ──
+
+    #[tokio::test]
+    async fn admin_has_all_permissions() {
+        let svc = make_service().await;
+        svc.create_user("admin".into(), None).await.unwrap();
+        svc.assign_role_to_user("admin", "Administrator").await.unwrap();
+
+        assert!(svc.user_has_permission("admin", &Permission::SystemAdmin).await.unwrap());
+        assert!(svc.user_has_permission("admin", &Permission::RepositoryRead).await.unwrap());
+        assert!(svc.user_has_permission("admin", &Permission::LfsLockForce).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn developer_limited_permissions() {
+        let svc = make_service().await;
+        svc.create_user("dev".into(), None).await.unwrap();
+        svc.assign_role_to_user("dev", "Developer").await.unwrap();
+
+        assert!(svc.user_has_permission("dev", &Permission::RepositoryRead).await.unwrap());
+        assert!(svc.user_has_permission("dev", &Permission::RepositoryWrite).await.unwrap());
+        assert!(!svc.user_has_permission("dev", &Permission::SystemAdmin).await.unwrap());
+        assert!(!svc.user_has_permission("dev", &Permission::UserManage).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn readonly_user_cannot_write() {
+        let svc = make_service().await;
+        svc.create_user("reader".into(), None).await.unwrap();
+        svc.assign_role_to_user("reader", "ReadOnly").await.unwrap();
+
+        assert!(svc.user_has_permission("reader", &Permission::RepositoryRead).await.unwrap());
+        assert!(!svc.user_has_permission("reader", &Permission::RepositoryWrite).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn inactive_user_has_no_permissions() {
+        let svc = make_service().await;
+        svc.create_user("suspended".into(), None).await.unwrap();
+        svc.assign_role_to_user("suspended", "Administrator").await.unwrap();
+        svc.deactivate_user("suspended").await.unwrap();
+
+        assert!(!svc.user_has_permission("suspended", &Permission::SystemAdmin).await.unwrap());
+        assert!(!svc.user_has_permission("suspended", &Permission::RepositoryRead).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn user_no_roles_has_no_permissions() {
+        let svc = make_service().await;
+        svc.create_user("newbie".into(), None).await.unwrap();
+        assert!(!svc.user_has_permission("newbie", &Permission::RepositoryRead).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn permission_check_unknown_user() {
+        let svc = make_service().await;
+        let err = svc.user_has_permission("ghost", &Permission::RepositoryRead).await.unwrap_err();
+        assert!(matches!(err, RbacError::UserNotFound(_)));
+    }
+
+    // ── Repository permissions ──
+
+    #[tokio::test]
+    async fn repo_permission_grant_and_check() {
+        let svc = make_service().await;
+        svc.create_user("owner".into(), None).await.unwrap();
+        svc.assign_role_to_user("owner", "Administrator").await.unwrap();
+        svc.create_user("collab".into(), None).await.unwrap();
+
+        // owner grants collab write access to repo
+        svc.grant_repository_permission(
+            "collab",
+            "repo1",
+            Permission::RepositoryWrite,
+            "owner",
+            None,
+        )
+        .await
+        .unwrap();
+
+        // collab can now write (via repo-level override, no role-based permission)
+        assert!(svc
+            .user_has_repository_permission("collab", "repo1", &Permission::RepositoryWrite)
+            .await
+            .unwrap());
+        // collab still can't read other repos via role
+        assert!(!svc
+            .user_has_permission("collab", &Permission::RepositoryRead)
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn repo_permission_non_admin_cannot_grant() {
+        let svc = make_service().await;
+        svc.create_user("dev".into(), None).await.unwrap();
+        svc.assign_role_to_user("dev", "Developer").await.unwrap();
+        svc.create_user("target".into(), None).await.unwrap();
+
+        let err = svc
+            .grant_repository_permission("target", "repo1", Permission::RepositoryWrite, "dev", None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RbacError::PermissionDenied(_)));
+    }
+
+    #[tokio::test]
+    async fn repo_permission_expired_is_ignored() {
+        let svc = make_service().await;
+        svc.create_user("owner".into(), None).await.unwrap();
+        svc.assign_role_to_user("owner", "Administrator").await.unwrap();
+        svc.create_user("temp".into(), None).await.unwrap();
+
+        // Grant with past expiry
+        svc.grant_repository_permission(
+            "temp",
+            "repo1",
+            Permission::RepositoryWrite,
+            "owner",
+            Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        )
+        .await
+        .unwrap();
+
+        assert!(!svc
+            .user_has_repository_permission("temp", "repo1", &Permission::RepositoryWrite)
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn repo_permission_revoke() {
+        let svc = make_service().await;
+        svc.create_user("owner".into(), None).await.unwrap();
+        svc.assign_role_to_user("owner", "Administrator").await.unwrap();
+        svc.create_user("collab".into(), None).await.unwrap();
+
+        svc.grant_repository_permission(
+            "collab", "repo1", Permission::RepositoryWrite, "owner", None,
+        )
+        .await
+        .unwrap();
+
+        svc.revoke_repository_permission("collab", "repo1", &Permission::RepositoryWrite, "owner")
+            .await
+            .unwrap();
+
+        assert!(!svc
+            .user_has_repository_permission("collab", "repo1", &Permission::RepositoryWrite)
+            .await
+            .unwrap());
+    }
+
+    // ── SSH key auth ──
+
+    #[tokio::test]
+    async fn ssh_key_auth_success() {
+        let svc = make_service().await;
+        svc.create_user("sshuser".into(), None).await.unwrap();
+        let key = "ssh-ed25519 AAAA...";
+        svc.add_ssh_key_to_user("sshuser", key.into()).await.unwrap();
+
+        let found = svc.authenticate_user_by_ssh_key(key).await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().username, "sshuser");
+    }
+
+    #[tokio::test]
+    async fn ssh_key_auth_unknown_key() {
+        let svc = make_service().await;
+        let found = svc
+            .authenticate_user_by_ssh_key("ssh-ed25519 NOPE")
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn ssh_key_auth_inactive_user_rejected() {
+        let svc = make_service().await;
+        svc.create_user("disabled".into(), None).await.unwrap();
+        let key = "ssh-ed25519 DISABLED";
+        svc.add_ssh_key_to_user("disabled", key.into()).await.unwrap();
+        svc.deactivate_user("disabled").await.unwrap();
+
+        let found = svc.authenticate_user_by_ssh_key(key).await.unwrap();
+        assert!(found.is_none());
+    }
+
+    // ── User lifecycle ──
+
+    #[tokio::test]
+    async fn deactivate_activate_user() {
+        let svc = make_service().await;
+        svc.create_user("lifecycle".into(), None).await.unwrap();
+
+        let user = svc.get_user("lifecycle").await.unwrap();
+        assert!(user.is_active);
+
+        svc.deactivate_user("lifecycle").await.unwrap();
+        let user = svc.get_user("lifecycle").await.unwrap();
+        assert!(!user.is_active);
+
+        svc.activate_user("lifecycle").await.unwrap();
+        let user = svc.get_user("lifecycle").await.unwrap();
+        assert!(user.is_active);
+    }
+
+    #[tokio::test]
+    async fn list_users() {
+        let svc = make_service().await;
+        svc.create_user("u1".into(), None).await.unwrap();
+        svc.create_user("u2".into(), None).await.unwrap();
+        let users = svc.list_users().await.unwrap();
+        assert_eq!(users.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn list_roles_includes_defaults() {
+        let svc = make_service().await;
+        let roles = svc.list_roles().await.unwrap();
+        assert!(roles.len() >= 3); // Administrator, Developer, ReadOnly
+    }
+
+    // ── Initialize idempotent ──
+
+    #[tokio::test]
+    async fn initialize_is_idempotent() {
+        let svc = make_service().await;
+        // Second initialize should not fail
+        svc.initialize().await.unwrap();
+        let roles = svc.list_roles().await.unwrap();
+        assert_eq!(roles.len(), 3); // Still exactly 3 defaults, no duplicates
+    }
+}

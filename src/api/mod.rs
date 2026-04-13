@@ -9,12 +9,19 @@ use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
 use crate::scaling::{ClusterManager, HealthChecker, ScalingConfig};
+use crate::sdlc::{InMemorySdlcStore, SdlcService};
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
 use routes::cluster::ClusterState;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-async fn metrics_endpoint() -> HttpResponse {
+async fn metrics_endpoint(sdlc: Option<web::Data<Arc<SdlcService>>>) -> HttpResponse {
+    // Export SDLC metrics to prometheus gauges before gathering
+    if let Some(svc) = sdlc {
+        if let Err(e) = crate::sdlc::export_sdlc_metrics(&svc) {
+            tracing::warn!("Failed to export SDLC metrics: {}", e);
+        }
+    }
     match crate::lfs::encode_metrics() {
         Ok(metrics) => HttpResponse::Ok()
             .content_type("text/plain; version=0.0.4")
@@ -90,11 +97,13 @@ impl ApiServer {
         });
 
         let config_clone = config.clone();
+        let sdlc_service = web::Data::new(Arc::new(SdlcService::new(Arc::new(InMemorySdlcStore::new()))));
         HttpServer::new(move || {
             let mut app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
                 .app_data(web::Data::new(lfs_config.clone()))
                 .app_data(cluster_state.clone())
+                .app_data(sdlc_service.clone())
                 .wrap(Logger::default())
                 .route("/metrics", web::get().to(metrics_endpoint))
                 .service(web::scope("/api/v1").configure(routes::configure_routes));

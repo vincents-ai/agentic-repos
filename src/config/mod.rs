@@ -112,7 +112,117 @@ impl AppConfig {
             }
         }
 
+        // Try git-refs config from system repo
+        if let Some(storage_root) = Self::detect_storage_root() {
+            if let Ok(config) = Self::from_git_refs(&storage_root) {
+                return Ok(config);
+            }
+        }
+
         Self::from_file("config.yaml")
+    }
+
+    /// Detect the storage root from environment or CLI flags.
+    fn detect_storage_root() -> Option<std::path::PathBuf> {
+        // 1. REPOS_MCP_STORAGE_ROOT env var
+        if let Ok(path) = std::env::var("REPOS_MCP_STORAGE_ROOT") {
+            return Some(std::path::PathBuf::from(path));
+        }
+
+        // 2. --storage CLI flag
+        let args: Vec<String> = std::env::args().collect();
+        for i in 0..args.len().saturating_sub(1) {
+            if args[i] == "--storage" {
+                return Some(std::path::PathBuf::from(&args[i + 1]));
+            }
+        }
+
+        // 3. Default
+        None
+    }
+
+    /// Read configuration from the ADP system repo git refs.
+    ///
+    /// Falls back to defaults for any ref that doesn't exist yet.
+    pub fn from_git_refs(
+        storage_root: &std::path::Path,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::adp::bootstrap::SYSTEM_REPO_PATH;
+        use crate::adp::lfs_config::LFS_CONFIG_REF;
+        use crate::adp::storage::AdpStore;
+        use crate::adp::SERVER_CONFIG_REF;
+
+        let system_repo_path = storage_root.join(SYSTEM_REPO_PATH);
+
+        // Read server config from git ref
+        let server_cfg: crate::adp::config::ServerConfig =
+            match AdpStore::read_ref_blob(&system_repo_path, SERVER_CONFIG_REF) {
+                Ok(value) => serde_json::from_value(value).unwrap_or_default(),
+                Err(_) => crate::adp::config::ServerConfig::default(),
+            };
+
+        // Read LFS config from git ref
+        let lfs_cfg: crate::adp::lfs_config::LfsConfig =
+            match AdpStore::read_ref_blob(&system_repo_path, LFS_CONFIG_REF) {
+                Ok(value) => serde_json::from_value(value).unwrap_or_default(),
+                Err(_) => crate::adp::lfs_config::LfsConfig::default(),
+            };
+
+        // Map ADP config → legacy AppConfig
+        let config = AppConfig {
+            server: ServerConfig {
+                host: server_cfg.http_host,
+                port: server_cfg.http_port,
+            },
+            features: if server_cfg.feature_flags.is_empty() {
+                None
+            } else {
+                Some(server_cfg.feature_flags)
+            },
+            lfs: LfsConfig {
+                enabled: lfs_cfg.enabled,
+                max_object_size: lfs_cfg.max_object_size,
+                token_expiration_secs: lfs_cfg.token_expiration_secs,
+                jwt_secret: lfs_cfg.jwt_secret,
+                base_url: lfs_cfg.base_url,
+                storage_path_pattern: lfs_cfg.storage_path_pattern,
+                locking_enabled: lfs_cfg.locking_enabled,
+                lock_expiration_secs: lfs_cfg.lock_expiration_secs,
+                gc: LfsGcConfig {
+                    enabled: lfs_cfg.gc.enabled,
+                    grace_period_days: lfs_cfg.gc.grace_period_days,
+                    schedule: lfs_cfg.gc.schedule,
+                    max_deletions_per_run: lfs_cfg.gc.max_deletions_per_run,
+                },
+                quota: LfsQuotaConfig {
+                    enabled: lfs_cfg.quota.enabled,
+                    default_quota_bytes: lfs_cfg.quota.default_quota_bytes,
+                    per_tenant_quotas: lfs_cfg.quota.per_tenant_quotas,
+                    per_repo_quotas: lfs_cfg.quota.per_repo_quotas,
+                },
+                audit: LfsAuditConfig {
+                    enabled: lfs_cfg.audit.enabled,
+                    retention_days: lfs_cfg.audit.retention_days,
+                    include_ip_addresses: lfs_cfg.audit.include_ip_addresses,
+                    log_successful_operations: lfs_cfg.audit.log_successful_operations,
+                    log_failed_operations: lfs_cfg.audit.log_failed_operations,
+                },
+                throttle: LfsThrottleConfig {
+                    enabled: lfs_cfg.throttle.enabled,
+                    default_bytes_per_second: lfs_cfg.throttle.default_bytes_per_second,
+                    per_tenant_limits: lfs_cfg.throttle.per_tenant_limits,
+                    per_repo_limits: lfs_cfg.throttle.per_repo_limits,
+                    burst_size: lfs_cfg.throttle.burst_size,
+                },
+            },
+        };
+
+        tracing::info!(
+            "Loaded config from git refs: host={}, port={}",
+            config.server.host, config.server.port
+        );
+
+        Ok(config)
     }
 
     pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {

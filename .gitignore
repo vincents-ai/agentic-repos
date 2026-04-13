@@ -17,6 +17,7 @@ Thumbs.db
 *.pem
 /config.yaml
 /test-config.yaml
+/config/
 .envrc
 
 # Credentials

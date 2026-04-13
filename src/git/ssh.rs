@@ -534,7 +534,8 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root();
+                        let storage_root = self.git_service.get_storage_root()
+                            .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
 
                         if !full_path.exists() {
@@ -618,7 +619,8 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root();
+                        let storage_root = self.git_service.get_storage_root()
+                            .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
 
                         if !full_path.exists() {

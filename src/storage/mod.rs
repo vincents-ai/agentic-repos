@@ -57,7 +57,7 @@ pub trait StorageBackend: Send + Sync {
     async fn delete(&self, path: &Path) -> Result<(), StorageError>;
     async fn list(&self, prefix: &Path) -> Result<Vec<String>, StorageError>;
     async fn create_directory(&self, path: &Path) -> Result<(), StorageError>;
-    fn root(&self) -> &Path;
+    fn root(&self) -> Option<&Path>;
 }
 
 pub mod users;
@@ -149,8 +149,8 @@ pub mod local {
                 .map_err(|e| StorageError::Io(e.to_string()))
         }
 
-        fn root(&self) -> &Path {
-            &self.root
+        fn root(&self) -> Option<&Path> {
+            Some(&self.root)
         }
     }
 }
@@ -433,8 +433,8 @@ pub mod s3 {
             Ok(())
         }
 
-        fn root(&self) -> &Path {
-            unimplemented!("S3 storage does not have a local root path");
+        fn root(&self) -> Option<&Path> {
+            None
         }
     }
 

@@ -344,8 +344,8 @@ impl GitService {
         self.get_repository_path(owner, name)
     }
 
-    pub fn get_storage_root(&self) -> PathBuf {
-        self.storage.root().to_path_buf()
+    pub fn get_storage_root(&self) -> Option<PathBuf> {
+        self.storage.root().map(|p| p.to_path_buf())
     }
 
     fn validate_repository_name(&self, name: &str) -> GitServiceResult<()> {

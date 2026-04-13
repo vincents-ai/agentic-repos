@@ -39,7 +39,13 @@ impl Server {
 
         // Bootstrap the system repo before accepting any connections.
         // This is idempotent and safe to call on every start.
-        let storage_root = self.git_service.get_storage_root();
+        let storage_root = match self.git_service.get_storage_root() {
+            Some(p) => p,
+            None => {
+                error!("Cannot bootstrap system repo: no local storage root (S3 storage?)");
+                return Ok(());
+            }
+        };
         match bootstrap_system_repo(&storage_root) {
             Ok(()) => info!("System repo bootstrap OK"),
             Err(e) => error!("System repo bootstrap failed (non-fatal): {}", e),

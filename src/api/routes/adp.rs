@@ -89,8 +89,8 @@ impl RepoPath {
     }
 }
 
-fn storage_root(git_service: &GitService) -> PathBuf {
-    git_service.get_storage_root()
+fn storage_root(git_service: &GitService) -> Result<PathBuf, ApiError> {
+    git_service.get_storage_root().ok_or_else(|| ApiError::internal_error("No local storage root available (S3 storage?)"))
 }
 
 fn adp_error(e: AdpStoreError) -> ApiError {
@@ -101,8 +101,8 @@ fn adp_error(e: AdpStoreError) -> ApiError {
     }
 }
 
-fn system_repo_path(git_service: &GitService) -> PathBuf {
-    git_service.get_storage_root().join("_adp/system")
+fn system_repo_path(git_service: &GitService) -> Result<PathBuf, ApiError> {
+    Ok(storage_root(git_service)?.join("_adp/system"))
 }
 
 /// Extract the authenticated username from the `X-ADP-User` header.
@@ -248,7 +248,7 @@ pub async fn list_schemas(
     path: web::Path<(String, String)>,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
-    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service)?);
 
     match AdpStore::list_schemas(rp.as_path()) {
         Ok(schemas) => Ok(HttpResponse::Ok().json(schemas)),
@@ -262,7 +262,7 @@ pub async fn create_schema(
     payload: web::Json<RefSchema>,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
-    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service)?);
     let schema = payload.into_inner();
 
     validate_schema(&schema)?;
@@ -290,7 +290,7 @@ pub async fn get_schema(
     path: web::Path<(String, String, String)>,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo, id) = path.into_inner();
-    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service)?);
 
     match AdpStore::read_schema(rp.as_path(), &id) {
         Ok(Some(schema)) => Ok(HttpResponse::Ok().json(schema)),
@@ -306,7 +306,7 @@ pub async fn update_schema(
     payload: web::Json<RefSchema>,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo, id) = path.into_inner();
-    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service)?);
     let mut schema = payload.into_inner();
 
     if schema.id != id {
@@ -330,7 +330,7 @@ pub async fn delete_schema(
     path: web::Path<(String, String, String)>,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo, id) = path.into_inner();
-    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service)?);
     let refname = format!("{}{}", SCHEMA_PREFIX, id);
 
     if AdpStore::read_schema(rp.as_path(), &id)
@@ -370,7 +370,7 @@ pub async fn list_schema_versions(
     path: web::Path<(String, String, String)>,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo, id) = path.into_inner();
-    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service)?);
 
     // Check schema exists
     if AdpStore::read_schema(rp.as_path(), &id)
@@ -419,7 +419,7 @@ pub async fn resolve_schema_handler(
     query: web::Query<ResolveQuery>,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
-    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service)?);
 
     let schemas = match AdpStore::list_schemas(rp.as_path()) {
         Ok(s) => s,
@@ -445,7 +445,7 @@ pub async fn list_refs(
     query: web::Query<ListRefsQuery>,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
-    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service)?);
 
     let prefix = query.prefix.as_deref().unwrap_or(ADP_REF_PREFIX);
 
@@ -472,7 +472,7 @@ pub async fn read_ref(
     path: web::Path<(String, String, String)>,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo, ref_path) = path.into_inner();
-    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service)?);
 
     match AdpStore::read_ref_blob(rp.as_path(), &ref_path) {
         Ok(value) => Ok(HttpResponse::Ok().json(value)),
@@ -488,7 +488,7 @@ pub async fn read_blob(
     path: web::Path<(String, String, String)>,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo, sha) = path.into_inner();
-    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service)?);
 
     let gix_repo = match gix::open(rp.as_path()) {
         Ok(r) => r,
@@ -535,7 +535,7 @@ pub async fn get_access_config(
     req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
     let (owner, repo) = path.into_inner();
-    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&owner, &repo, &storage_root(&git_service)?);
 
     let caller = resolve_caller(rp.as_path(), &req);
     require_admin(&caller)?;
@@ -556,7 +556,7 @@ pub async fn update_access_config(
     req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
     let (_owner, _repo) = path.into_inner();
-    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service));
+    let rp = RepoPath::new(&_owner, &_repo, &storage_root(&git_service)?);
     let config = payload.into_inner();
 
     validate_access_config(&config)?;
@@ -587,7 +587,7 @@ pub async fn update_access_config(
 pub async fn list_system_schemas(
     git_service: web::Data<Arc<GitService>>,
 ) -> ActixResult<HttpResponse> {
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
 
     match AdpStore::list_schemas(&rp) {
         Ok(schemas) => Ok(HttpResponse::Ok().json(schemas)),
@@ -599,7 +599,7 @@ pub async fn create_system_schema(
     git_service: web::Data<Arc<GitService>>,
     payload: web::Json<RefSchema>,
 ) -> ActixResult<HttpResponse> {
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
     let schema = payload.into_inner();
 
     validate_schema(&schema)?;
@@ -627,7 +627,7 @@ pub async fn get_system_schema(
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
     let id = path.into_inner();
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
 
     match AdpStore::read_schema(&rp, &id) {
         Ok(Some(schema)) => Ok(HttpResponse::Ok().json(schema)),
@@ -643,7 +643,7 @@ pub async fn update_system_schema(
     payload: web::Json<RefSchema>,
 ) -> ActixResult<HttpResponse> {
     let id = path.into_inner();
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
     let mut schema = payload.into_inner();
 
     if schema.id != id {
@@ -667,7 +667,7 @@ pub async fn delete_system_schema(
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
     let id = path.into_inner();
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
     let refname = format!("{}{}", SCHEMA_PREFIX, id);
 
     if AdpStore::read_schema(&rp, &id).ok().flatten().is_none() {
@@ -703,7 +703,7 @@ pub async fn list_system_schema_versions(
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
     let id = path.into_inner();
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
 
     // Check schema exists
     if AdpStore::read_schema(&rp, &id).ok().flatten().is_none() {
@@ -742,7 +742,7 @@ pub async fn resolve_system_schema_handler(
     git_service: web::Data<Arc<GitService>>,
     query: web::Query<ResolveQuery>,
 ) -> ActixResult<HttpResponse> {
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
 
     let schemas = match AdpStore::list_schemas(&rp) {
         Ok(s) => s,
@@ -766,7 +766,7 @@ pub async fn get_system_access_config(
     git_service: web::Data<Arc<GitService>>,
     req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
 
     let caller = resolve_caller(&rp, &req);
     require_admin(&caller)?;
@@ -785,7 +785,7 @@ pub async fn update_system_access_config(
     payload: web::Json<AccessConfig>,
     req: HttpRequest,
 ) -> ActixResult<HttpResponse> {
-    let rp = system_repo_path(&git_service);
+    let rp = system_repo_path(&git_service)?;
 
     let caller = resolve_caller(&rp, &req);
     if !caller.is_owner {

@@ -428,7 +428,7 @@ impl EuComplianceService {
 
         dpia.status = DpiaStatus::Approved;
         dpia.approved_at = Some(Utc::now());
-        Ok(dpias.get(&id).unwrap().clone())
+        Ok(dpia.clone())
     }
 
     // ── DPO (Article 37-39) ──

@@ -182,7 +182,7 @@ impl LeaderHandle {
         self.distributed_lock
             .extend(&mut self.lock_handle, additional_ttl)
             .await?;
-        self.leader_info.expires_at += chrono::Duration::from_std(additional_ttl).unwrap();
+        self.leader_info.expires_at += chrono::Duration::from_std(additional_ttl).unwrap_or(chrono::Duration::seconds(30));
         Ok(())
     }
 }

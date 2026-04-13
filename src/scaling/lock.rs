@@ -99,7 +99,7 @@ impl DistributedLock {
     pub async fn acquire(&self, options: LockOptions) -> LockResult<LockHandle> {
         let lock_value = format!("{}:{}", self.instance_id, uuid::Uuid::new_v4());
         let now = chrono::Utc::now();
-        let expires_at = now + chrono::Duration::from_std(options.ttl).unwrap();
+        let expires_at = now + chrono::Duration::from_std(options.ttl).unwrap_or(chrono::Duration::seconds(30));
 
         if let Some(ref redis_url) = self.redis_url {
             self.acquire_redis(redis_url, &options, &lock_value, now, expires_at)
@@ -249,7 +249,7 @@ impl DistributedLock {
         }
 
         let new_expires_at =
-            handle.expires_at + chrono::Duration::from_std(additional_ttl).unwrap();
+            handle.expires_at + chrono::Duration::from_std(additional_ttl).unwrap_or(chrono::Duration::seconds(30));
         handle.expires_at = new_expires_at;
 
         debug!(

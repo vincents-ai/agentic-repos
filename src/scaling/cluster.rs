@@ -238,7 +238,7 @@ impl ClusterManager {
     }
 
     pub fn shutdown_signal(&self) -> tokio::sync::broadcast::Receiver<()> {
-        self.shutdown_tx.as_ref().unwrap().subscribe()
+        self.shutdown_tx.as_ref().expect("shutdown_tx not initialized").subscribe()
     }
 
     pub async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

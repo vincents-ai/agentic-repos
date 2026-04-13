@@ -296,16 +296,18 @@ mod tests {
     #[test]
     fn test_export_with_metrics() {
         let svc = make_service();
+        let metric_name = format!("test_export_cov_{}", std::process::id());
         svc.record_metric(QualityMetric::new(
-            "test_coverage",
+            &metric_name,
             MetricCategory::TestCoverage,
             87.5,
             80.0,
             "%",
         ))
         .unwrap();
+        let build_name = format!("test_export_build_{}", std::process::id());
         svc.record_metric(QualityMetric::new(
-            "build_success_rate",
+            &build_name,
             MetricCategory::BuildHealth,
             95.0,
             90.0,
@@ -317,22 +319,22 @@ mod tests {
 
         // Verify the gauges were set
         let val = SDLC_METRIC_VALUE
-            .with_label_values(&["test_coverage", "test_coverage"])
+            .with_label_values(&[&metric_name, "test_coverage"])
             .get();
         assert!((val - 87.5).abs() < 0.01);
 
         let target = SDLC_METRIC_TARGET
-            .with_label_values(&["test_coverage", "test_coverage"])
+            .with_label_values(&[&metric_name, "test_coverage"])
             .get();
         assert!((target - 80.0).abs() < 0.01);
 
         let passing = SDLC_METRIC_PASSING
-            .with_label_values(&["test_coverage", "test_coverage"])
+            .with_label_values(&[&metric_name, "test_coverage"])
             .get();
         assert_eq!(passing, 1.0);
 
         let failing = SDLC_METRIC_PASSING
-            .with_label_values(&["build_success_rate", "build_health"])
+            .with_label_values(&[&build_name, "build_health"])
             .get();
         assert_eq!(failing, 1.0); // 95 >= 90
     }

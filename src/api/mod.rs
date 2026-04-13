@@ -4,7 +4,6 @@ pub mod lfs_locks;
 pub mod models;
 pub mod routes;
 
-use crate::compliance::audit::InMemoryComplianceAuditStorage;
 use crate::compliance::dora::{DoraService, InMemoryDoraStore};
 use crate::compliance::dora_nis2_handlers::DoraNis2State;
 use crate::compliance::handlers::{ComplianceState, configure_compliance_routes};

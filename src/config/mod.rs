@@ -123,18 +123,26 @@ impl AppConfig {
             .build();
 
         match settings {
-            Ok(config) => {
-                println!("Loading config from {}", path);
-                let app_config: AppConfig = config.try_deserialize()?;
-                println!(
-                    "Config loaded: host={}, port={}",
-                    app_config.server.host, app_config.server.port
-                );
-                Ok(app_config)
-            }
+            Ok(config) => match config.try_deserialize::<AppConfig>() {
+                Ok(app_config) => {
+                    println!("Loading config from {}", path);
+                    println!(
+                        "Config loaded: host={}, port={}",
+                        app_config.server.host, app_config.server.port
+                    );
+                    Ok(app_config)
+                }
+                Err(e) => {
+                    println!(
+                        "Config file {} invalid ({}), using defaults",
+                        path, e
+                    );
+                    Ok(Self::default())
+                }
+            },
             Err(e) => {
                 println!(
-                    "Config file {} not found or invalid ({}), using defaults",
+                    "Config file {} not found ({}), using defaults",
                     path, e
                 );
                 Ok(Self::default())
@@ -262,5 +270,110 @@ impl Default for LfsThrottleConfig {
             per_repo_limits: HashMap::new(),
             burst_size: 50 * 1024 * 1024,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_server_defaults() {
+        let config = AppConfig::default();
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 8090);
+    }
+
+    #[test]
+    fn default_lfs_config() {
+        let lfs = LfsConfig::default();
+        assert!(!lfs.enabled);
+        assert_eq!(lfs.max_object_size, 5 * 1024 * 1024 * 1024);
+        assert_eq!(lfs.token_expiration_secs, 3600);
+        assert_eq!(lfs.base_url, "http://localhost:8090");
+        assert!(!lfs.locking_enabled);
+        assert_eq!(lfs.lock_expiration_secs, 86400);
+    }
+
+    #[test]
+    fn default_lfs_gc_config() {
+        let gc = LfsGcConfig::default();
+        assert!(!gc.enabled);
+        assert_eq!(gc.grace_period_days, 7);
+        assert_eq!(gc.schedule, "0 2 * * *");
+        assert_eq!(gc.max_deletions_per_run, 1000);
+    }
+
+    #[test]
+    fn default_lfs_quota_config() {
+        let quota = LfsQuotaConfig::default();
+        assert!(!quota.enabled);
+        assert_eq!(quota.default_quota_bytes, 10 * 1024 * 1024 * 1024);
+        assert!(quota.per_tenant_quotas.is_empty());
+        assert!(quota.per_repo_quotas.is_empty());
+    }
+
+    #[test]
+    fn default_lfs_audit_config() {
+        let audit = LfsAuditConfig::default();
+        assert!(!audit.enabled);
+        assert_eq!(audit.retention_days, 90);
+        assert!(audit.include_ip_addresses);
+    }
+
+    #[test]
+    fn default_lfs_throttle_config() {
+        let throttle = LfsThrottleConfig::default();
+        assert!(!throttle.enabled);
+        assert_eq!(throttle.default_bytes_per_second, 10 * 1024 * 1024);
+        assert_eq!(throttle.burst_size, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn from_missing_file_returns_defaults() {
+        let config = AppConfig::from_file("/nonexistent/path/config.yaml").unwrap();
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 8090);
+    }
+
+    #[test]
+    fn from_valid_yaml_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_config.yaml");
+        std::fs::write(&path, "server:\n  host: 0.0.0.0\n  port: 9090\n").unwrap();
+        let config = AppConfig::from_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.port, 9090);
+    }
+
+    #[test]
+    fn from_yaml_with_features() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("features.yaml");
+        std::fs::write(&path, "server:\n  host: 0.0.0.0\n  port: 8080\nfeatures:\n  web_ui: true\n  rbac: true\n").unwrap();
+        let config = AppConfig::from_file(path.to_str().unwrap()).unwrap();
+        let features = config.get_feature_flags();
+        assert!(features.web_ui);
+        assert!(features.rbac);
+    }
+
+    #[test]
+    fn from_yaml_with_lfs_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lfs.yaml");
+        std::fs::write(&path, "server:\n  host: 0.0.0.0\n  port: 8080\nlfs:\n  enabled: true\n  max_object_size: 1073741824\n  token_expiration_secs: 7200\n  jwt_secret: test-secret\n  base_url: http://localhost:8080\n  storage_path_pattern: '{oid}'\n  locking_enabled: false\n  lock_expiration_secs: 86400\n").unwrap();
+        let config = AppConfig::from_file(path.to_str().unwrap()).unwrap();
+        assert!(config.lfs.enabled);
+        assert_eq!(config.lfs.max_object_size, 1073741824);
+        assert_eq!(config.lfs.token_expiration_secs, 7200);
+    }
+
+    #[test]
+    fn config_serialization_roundtrip() {
+        let original = AppConfig::default();
+        let json = serde_json::to_string(&original).unwrap();
+        let back: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.server.host, original.server.host);
+        assert_eq!(back.server.port, original.server.port);
     }
 }

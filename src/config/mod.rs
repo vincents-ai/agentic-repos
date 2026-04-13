@@ -1,5 +1,4 @@
 use crate::features::FeatureFlags;
-use config::{Config as ConfigBuilder, File};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -226,35 +225,23 @@ impl AppConfig {
     }
 
     pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let path_without_ext = path.trim_end_matches(".yaml").trim_end_matches(".yml");
-
-        let settings = ConfigBuilder::builder()
-            .add_source(File::with_name(path_without_ext).required(false))
-            .build();
-
-        match settings {
-            Ok(config) => match config.try_deserialize::<AppConfig>() {
+        match std::fs::read_to_string(path) {
+            Ok(content) => match serde_yaml::from_str::<AppConfig>(&content) {
                 Ok(app_config) => {
-                    println!("Loading config from {}", path);
-                    println!(
+                    tracing::info!("Loading config from {}", path);
+                    tracing::info!(
                         "Config loaded: host={}, port={}",
                         app_config.server.host, app_config.server.port
                     );
                     Ok(app_config)
                 }
                 Err(e) => {
-                    println!(
-                        "Config file {} invalid ({}), using defaults",
-                        path, e
-                    );
+                    tracing::warn!("Config file {} invalid ({}), using defaults", path, e);
                     Ok(Self::default())
                 }
             },
-            Err(e) => {
-                println!(
-                    "Config file {} not found ({}), using defaults",
-                    path, e
-                );
+            Err(_) => {
+                tracing::info!("Config file {} not found, using defaults", path);
                 Ok(Self::default())
             }
         }

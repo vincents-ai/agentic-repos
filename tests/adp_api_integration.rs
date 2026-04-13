@@ -28,7 +28,7 @@ mod tests {
 
     fn init_bare_repo(dir: &PathBuf) {
         std::fs::create_dir_all(dir).unwrap();
-        git2::Repository::init_bare(dir).unwrap();
+        gix::init_bare(dir).unwrap();
     }
 
     // -----------------------------------------------------------------------
@@ -110,10 +110,18 @@ mod tests {
 
         AdpStore::write_schema(&repo_path, &make_schema("task")).unwrap();
 
-        // Delete via git2 reference deletion
+        // Delete reference via gix
         let refname = "refs/adp/schema/task";
-        let repo = git2::Repository::open(&repo_path).unwrap();
-        repo.find_reference(refname).unwrap().delete().unwrap();
+        let repo = gix::open(&repo_path).unwrap();
+        use gix::refs::transaction::{Change, PreviousValue, RefEdit};
+        repo.edit_reference(RefEdit {
+            change: Change::Delete {
+                expected: PreviousValue::MustExist,
+                log: gix::refs::transaction::RefLog::AndReference,
+            },
+            name: refname.try_into().unwrap(),
+            deref: false,
+        }).unwrap();
 
         let result = AdpStore::read_schema(&repo_path, "task").unwrap();
         assert!(result.is_none());

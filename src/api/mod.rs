@@ -4,6 +4,11 @@ pub mod lfs_locks;
 pub mod models;
 pub mod routes;
 
+use crate::compliance::audit::InMemoryComplianceAuditStorage;
+use crate::compliance::dora::{DoraService, InMemoryDoraStore};
+use crate::compliance::dora_nis2_handlers::DoraNis2State;
+use crate::compliance::handlers::{ComplianceState, configure_compliance_routes};
+use crate::compliance::nis2::{InMemoryNis2Store, Nis2Service};
 use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
@@ -98,15 +103,28 @@ impl ApiServer {
 
         let config_clone = config.clone();
         let sdlc_service = web::Data::new(Arc::new(SdlcService::new(Arc::new(InMemorySdlcStore::new()))));
+        let compliance_state = web::Data::new(ComplianceState::new(crate::compliance::ComplianceConfig::default()));
+        let dora_nis2_state = web::Data::new(Arc::new(DoraNis2State {
+            dora: Arc::new(DoraService::new(Arc::new(InMemoryDoraStore::new()))),
+            nis2: Arc::new(Nis2Service::new(Arc::new(InMemoryNis2Store::new()))),
+        }));
         HttpServer::new(move || {
             let mut app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
                 .app_data(web::Data::new(lfs_config.clone()))
                 .app_data(cluster_state.clone())
                 .app_data(sdlc_service.clone())
+                .app_data(compliance_state.clone())
+                .app_data(dora_nis2_state.clone())
                 .wrap(Logger::default())
                 .route("/metrics", web::get().to(metrics_endpoint))
-                .service(web::scope("/api/v1").configure(routes::configure_routes));
+                .service(web::scope("/api/v1").configure(routes::configure_routes))
+                .service(web::scope("/api/v1/compliance").configure(|cfg| {
+                    configure_compliance_routes(cfg, compliance_state.clone());
+                }))
+                .service(web::scope("/api/v1/compliance").configure(|cfg| {
+                    crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(cfg, dora_nis2_state.clone());
+                }));
 
             if feature_flags.git_lfs && lfs_config.enabled {
                 use crate::lfs::storage::LfsStorageAdapter;

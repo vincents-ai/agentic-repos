@@ -371,21 +371,20 @@ impl RateLimiter {
         let mut headers = http::HeaderMap::new();
 
         if let Some(tier_config) = self.config.tiers.get(tier) {
-            headers.insert(
-                "X-RateLimit-Limit-Minute",
-                tier_config.requests_per_minute.to_string().parse().unwrap(),
-            );
-            headers.insert(
-                "X-RateLimit-Limit-Hour",
-                tier_config.requests_per_hour.to_string().parse().unwrap(),
-            );
-            headers.insert(
-                "X-RateLimit-Burst",
-                tier_config.burst_size.to_string().parse().unwrap(),
-            );
+            if let Ok(v) = tier_config.requests_per_minute.to_string().parse() {
+                headers.insert("X-RateLimit-Limit-Minute", v);
+            }
+            if let Ok(v) = tier_config.requests_per_hour.to_string().parse() {
+                headers.insert("X-RateLimit-Limit-Hour", v);
+            }
+            if let Ok(v) = tier_config.burst_size.to_string().parse() {
+                headers.insert("X-RateLimit-Burst", v);
+            }
         }
 
-        headers.insert("X-Request-ID", context.request_id.clone().parse().unwrap());
+        if let Ok(v) = context.request_id.clone().parse() {
+            headers.insert("X-Request-ID", v);
+        }
 
         headers
     }

@@ -310,19 +310,19 @@ impl RetentionService {
 
     /// Cache a policy
     pub fn cache_policy(&self, repo_id: &str, policy: RetentionPolicy) {
-        let mut cache = self.policy_cache.write().unwrap();
+        let mut cache = self.policy_cache.write().unwrap_or_else(|e| e.into_inner());
         cache.insert(repo_id.to_string(), policy);
     }
 
     /// Get cached policy
     pub fn get_cached_policy(&self, repo_id: &str) -> Option<RetentionPolicy> {
-        let cache = self.policy_cache.read().unwrap();
+        let cache = self.policy_cache.read().unwrap_or_else(|e| e.into_inner());
         cache.get(repo_id).cloned()
     }
 
     /// Clear policy cache
     pub fn clear_cache(&self) {
-        let mut cache = self.policy_cache.write().unwrap();
+        let mut cache = self.policy_cache.write().unwrap_or_else(|e| e.into_inner());
         cache.clear();
     }
 }

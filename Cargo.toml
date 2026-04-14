@@ -115,3 +115,6 @@ futures = "0.3"
 [[test]]
 name = "bdd"
 harness = false
+
+[[test]]
+name = "http_integration"

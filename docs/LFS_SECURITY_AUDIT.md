@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The Git LFS implementation in repos-mcp has undergone a comprehensive security audit. The system demonstrates **good security fundamentals** with proper JWT authentication, SHA256 integrity checking, and multi-tenant isolation. Several recommendations are provided to further harden the implementation for production use.
+The Git LFS implementation in agentic-repos has undergone a comprehensive security audit. The system demonstrates **good security fundamentals** with proper JWT authentication, SHA256 integrity checking, and multi-tenant isolation. Several recommendations are provided to further harden the implementation for production use.
 
 **Overall Security Rating**: ✅ **GOOD** (Production-ready with recommended hardening)
 
@@ -87,7 +87,7 @@ The Git LFS implementation in repos-mcp has undergone a comprehensive security a
        pub operation: LfsOperation,
        pub exp: u64,
        pub iat: u64,
-       pub iss: String,  // "repos-mcp"
+       pub iss: String,  // "agentic-repos"
        pub aud: String,  // "lfs-api"
    }
    ```

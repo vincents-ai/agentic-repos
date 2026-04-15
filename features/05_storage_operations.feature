@@ -4,7 +4,7 @@ Feature: Storage Operations
   So that repositories can be stored in various backends
 
   Background:
-    Given the plugin "./target/release/librepos_mcp.so" is loaded
+    Given the plugin "./target/release/libagentic_repos.so" is loaded
     And the plugin is initialized
 
   @storage @api

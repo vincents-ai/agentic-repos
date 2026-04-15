@@ -4,7 +4,7 @@
 set -e
 
 echo "========================================"
-echo "repos-mcp Critical Features Validation"
+echo "agentic-repos Critical Features Validation"
 echo "Date: $(date)"
 echo "========================================"
 
@@ -22,13 +22,13 @@ if [ ! -f "$SKYLET_DIR/target/release/skylet" ]; then
 fi
 echo "    ✓ Skylet binary found"
 
-# Check repos-mcp plugin
-echo "  - Checking repos-mcp plugin..."
-if [ ! -f "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" ]; then
-    echo "    ✗ ERROR: repos-mcp plugin not found"
+# Check agentic-repos plugin
+echo "  - Checking agentic-repos plugin..."
+if [ ! -f "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" ]; then
+    echo "    ✗ ERROR: agentic-repos plugin not found"
     exit 1
 fi
-echo "    ✓ repos-mcp plugin found"
+echo "    ✓ agentic-repos plugin found"
 
 # Check garage-s3 plugin
 echo "  - Checking garage-s3 plugin..."
@@ -43,12 +43,12 @@ fi
 echo ""
 echo "[2/7] Validating plugins..."
 
-# Validate repos-mcp
-echo "  - Validating repos-mcp plugin..."
-if ~/code/skylet/target/release/plugin-test-harness validate --plugin-path "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" > /dev/null 2>&1; then
-    echo "    ✓ repos-mcp plugin validated"
+# Validate agentic-repos
+echo "  - Validating agentic-repos plugin..."
+if ~/code/skylet/target/release/plugin-test-harness validate --plugin-path "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" > /dev/null 2>&1; then
+    echo "    ✓ agentic-repos plugin validated"
 else
-    echo "    ✗ ERROR: repos-mcp plugin validation failed"
+    echo "    ✗ ERROR: agentic-repos plugin validation failed"
     exit 1
 fi
 
@@ -71,7 +71,7 @@ REPO_NAME="test-repo"
 # Create repository
 echo "  - Creating repository..."
 RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-    -p "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" \
+    -p "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" \
     -a repo_create \
     --args "{\"id\":\"test-1\",\"method\":\"repo.create\",\"params\":{\"name\":\"$REPO_NAME\",\"tenant_id\":\"$TENANT_ID\"}}" 2>&1)
 
@@ -86,7 +86,7 @@ fi
 # List repositories
 echo "  - Listing repositories..."
 LIST_RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-    -p "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" \
+    -p "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" \
     -a repo_list \
     --args "{\"id\":\"test-2\",\"method\":\"repo.list\",\"params\":{\"tenant_id\":\"$TENANT_ID\"}}" 2>&1)
 
@@ -102,7 +102,7 @@ echo ""
 echo "[4/7] Testing health check..."
 
 HEALTH_RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-    -p "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" \
+    -p "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" \
     -a health_check \
     --args '{"id":"health-1","method":"health.check","params":{}}' 2>&1)
 

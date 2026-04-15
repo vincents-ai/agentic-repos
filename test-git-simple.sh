@@ -1,9 +1,9 @@
 #!/bin/bash
-PLUGIN="./target/release/librepos_mcp.so"
+PLUGIN="./target/release/libagentic_repos.so"
 TEST_DIR="./test-git-$$"
 TENANT="test-$(date +%s)"
 
-echo "=== repos-mcp Git Operations Test ==="
+echo "=== agentic-repos Git Operations Test ==="
 echo ""
 
 # Validate plugin

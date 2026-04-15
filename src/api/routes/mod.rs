@@ -7,13 +7,11 @@ pub mod cluster;
 pub mod repositories;
 pub mod secrets;
 pub mod secrets_service;
-pub mod users;
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/health", web::get().to(handlers::health_check))
         .route("/info", web::get().to(handlers::api_info))
         .service(web::scope("/repositories").configure(repositories::configure_repository_routes))
-        .service(web::scope("/users").configure(users::configure_user_routes))
         .service(web::scope("/auth").configure(auth::configure_auth_routes))
         .service(web::scope("/backups").configure(crate::backup::handlers::configure_backup_routes))
         .service(
@@ -27,7 +25,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(web::scope("/sdlc").configure(crate::sdlc::configure_sdlc_routes))
         .service(web::scope("/analytics").configure(crate::analytics::handlers::configure_analytics_routes))
         .service(web::scope("/replication").configure(crate::replication::handlers::configure_replication_routes))
-        .service(web::scope("/lfs-locks").configure(crate::api::lfs_locks::configure_locks_routes))
         .service(web::scope("/cicd").configure(crate::cicd::webhooks::handlers::configure_cicd_routes))
+        .service(web::scope("/lfs-locks").configure(crate::api::lfs_locks::configure_locks_routes))
         .default_service(web::route().to(handlers::not_found));
 }

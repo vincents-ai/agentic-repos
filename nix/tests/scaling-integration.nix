@@ -9,13 +9,13 @@
 #
 # Dependencies:
 # - NixOS with testers.runNixOSTest
-# - repos-mcp package with scaling features enabled
+# - agentic-repos package with scaling features enabled
 # - Redis for distributed coordination
 #
 # Usage:
 #   nix-build -A checks.scaling-integration-*
 
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
   inherit (lib) mapAttrsToList;
@@ -30,14 +30,14 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
         with subtest("Instance registers with cluster"):
           status = instance1.succeed("curl -s http://localhost:8090/api/v1/cluster/status")
           assert "instance-1" in status or "cluster" in status, f"Instance should be registered: {status}"
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Second instance joins cluster"):
@@ -54,9 +54,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -74,9 +74,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -101,13 +101,13 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
-        instance3.wait_for_unit("repos-mcp.service")
+        instance3.wait_for_unit("agentic-repos.service")
         instance3.wait_for_open_port(8090)
 
         import time
@@ -134,9 +134,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -154,9 +154,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -174,9 +174,9 @@ let
           };
         };
         instance3 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -201,10 +201,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Health check endpoint returns healthy status"):
@@ -235,9 +235,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -256,9 +256,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -284,10 +284,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Initial cluster has two instances"):
@@ -295,7 +295,7 @@ let
           instance1.log(f"Initial status: {status}")
 
         with subtest("Stopped instance is removed after timeout"):
-          instance2.stop_job("repos-mcp.service")
+          instance2.stop_job("agentic-repos.service")
 
           instance1.log("Waiting for instance timeout (10s)...")
           import time
@@ -314,9 +314,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -336,9 +336,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -369,10 +369,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         import time
@@ -400,9 +400,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -421,9 +421,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -449,10 +449,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         import time
@@ -466,10 +466,10 @@ let
           leader_before = instance1.succeed("curl -s http://localhost:8090/api/v1/cluster/leader")
 
           if "instance-1" in leader_before:
-            instance1.stop_job("repos-mcp.service")
+            instance1.stop_job("agentic-repos.service")
             survivor = instance2
           else:
-            instance2.stop_job("repos-mcp.service")
+            instance2.stop_job("agentic-repos.service")
             survivor = instance1
 
           time.sleep(8)
@@ -491,9 +491,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -512,9 +512,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -540,7 +540,7 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
         import time
@@ -566,9 +566,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -595,13 +595,13 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
-        instance3.wait_for_unit("repos-mcp.service")
+        instance3.wait_for_unit("agentic-repos.service")
         instance3.wait_for_open_port(8090)
 
         import time
@@ -638,9 +638,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -659,9 +659,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -680,9 +680,9 @@ let
           };
         };
         instance3 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -712,7 +712,7 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
         with subtest("Session is created with correct attributes"):
@@ -738,9 +738,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -767,10 +767,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Request with session routes to correct instance"):
@@ -794,9 +794,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -815,9 +815,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -843,7 +843,7 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
         with subtest("Valid session passes validation"):
@@ -874,9 +874,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -903,10 +903,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Session created on one instance visible on another"):
@@ -932,9 +932,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -953,9 +953,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -985,7 +985,7 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
         with subtest("Lock can be acquired"):
@@ -1010,9 +1010,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1037,7 +1037,7 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
         with subtest("Lock can be released"):
@@ -1061,9 +1061,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1088,10 +1088,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Lock expires after TTL"):
@@ -1119,9 +1119,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1139,9 +1139,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1166,10 +1166,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Second instance cannot acquire held lock"):
@@ -1199,9 +1199,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1219,9 +1219,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1250,7 +1250,7 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
         with subtest("Instance enters drain mode"):
@@ -1279,9 +1279,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1307,10 +1307,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         with subtest("Active connections are tracked"):
@@ -1334,9 +1334,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1355,9 +1355,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1383,10 +1383,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         import time
@@ -1416,9 +1416,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1437,9 +1437,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1465,10 +1465,10 @@ let
         redis.wait_for_unit("redis.service")
         redis.wait_for_open_port(6379)
 
-        instance1.wait_for_unit("repos-mcp.service")
+        instance1.wait_for_unit("agentic-repos.service")
         instance1.wait_for_open_port(8090)
 
-        instance2.wait_for_unit("repos-mcp.service")
+        instance2.wait_for_unit("agentic-repos.service")
         instance2.wait_for_open_port(8090)
 
         import time
@@ -1478,7 +1478,7 @@ let
           instance1.succeed("curl -s -X POST http://localhost:8090/api/v1/cluster/drain")
           time.sleep(2)
 
-          instance1.stop_job("repos-mcp.service")
+          instance1.stop_job("agentic-repos.service")
 
         with subtest("Cluster remains healthy after instance removal"):
           status = instance2.succeed("curl -s http://localhost:8090/api/v1/cluster/status")
@@ -1498,9 +1498,9 @@ let
           networking.firewall.allowedTCPPorts = [ 6379 ];
         };
         instance1 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;
@@ -1519,9 +1519,9 @@ let
           };
         };
         instance2 = { pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
           networking.firewall.enable = false;
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
             host = "0.0.0.0";
             port = 8090;

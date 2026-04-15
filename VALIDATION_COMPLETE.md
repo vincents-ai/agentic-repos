@@ -1,10 +1,10 @@
-# repos-mcp Complete Validation & Integration Summary
+# agentic-repos Complete Validation & Integration Summary
 
 ## Date: 2026-03-07
 
 ## Executive Summary
 
-Successfully completed full validation and integration of the repos-mcp Skylet plugin, including:
+Successfully completed full validation and integration of the agentic-repos Skylet plugin, including:
 - ✅ Plugin validation and testing
 - ✅ Git operations validation (init, commit, branch, merge)
 - ✅ Git LFS support validation
@@ -19,7 +19,7 @@ Successfully completed full validation and integration of the repos-mcp Skylet p
 **Documentation**: [docs/SKYLET_PLUGIN_VALIDATION.md](./docs/SKYLET_PLUGIN_VALIDATION.md)
 
 **Results**:
-- Plugin builds successfully: `librepos_mcp.so`
+- Plugin builds successfully: `libagentic_repos.so`
 - Skylet v2 ABI compliance verified
 - All 5 validation checks passed
 - Plugin info accessible
@@ -41,7 +41,7 @@ Successfully completed full validation and integration of the repos-mcp Skylet p
 **Documentation**: [docs/INTEGRATION_REPORT.md](./docs/INTEGRATION_REPORT.md)
 
 **Results**:
-- Both plugins (repos-mcp and garage-s3) load in Skylet
+- Both plugins (agentic-repos and garage-s3) load in Skylet
 - Plugin discovery and activation working
 - 7 total plugins loaded successfully
 - Server running on port 8080
@@ -71,9 +71,9 @@ Successfully completed full validation and integration of the repos-mcp Skylet p
 - **Status**: Documented in integration report
 
 ### 2. Plugin Architecture
-- **repos-mcp**: Implements standard plugin actions (repo.create, repo.list, etc.)
+- **agentic-repos**: Implements standard plugin actions (repo.create, repo.list, etc.)
 - **garage-s3**: Implements storage service interface via `plugin_create()`
-- **Integration**: repos-mcp uses `global_registry()` to access S3 storage
+- **Integration**: agentic-repos uses `global_registry()` to access S3 storage
 
 ### 3. Storage Backends
 - **Local Storage**: ✅ Fully tested and working
@@ -102,7 +102,7 @@ INFO Bootstrap plugins loaded successfully
 INFO Discovered 7 plugins from 1 search paths
 INFO Plugin activation complete: 7 loaded, 0 failed
 INFO Successfully initialized v2 plugin: garage_s3
-INFO Successfully initialized v2 plugin: repos_mcp
+INFO Successfully initialized v2 plugin: agentic_repos
 INFO Server listening on 0.0.0.0:8080
 ```
 
@@ -128,13 +128,13 @@ INFO Server listening on 0.0.0.0:8080
 ### 1. Build the Plugin
 ```bash
 nix build
-# Plugin at: target/release/librepos_mcp.so
+# Plugin at: target/release/libagentic_repos.so
 ```
 
 ### 2. Validate Plugin
 ```bash
 ~/code/skylet/target/release/plugin-test-harness validate \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 ```
 
 ### 3. Test Git Operations
@@ -183,7 +183,7 @@ cd ~/code/skylet
 └────────┬────────┘
          │
          ├──► ┌─────────────────┐
-         │    │   repos-mcp     │
+         │    │   agentic-repos     │
          │    │   (Git Ops)     │
          │    └─────────────────┘
          │              │
@@ -199,9 +199,9 @@ cd ~/code/skylet
 
 1. **Plugin Loading**: Skylet discovers and loads both plugins
 2. **Service Registry**: garage-s3 registers S3 storage service
-3. **Storage Access**: repos-mcp queries global registry for storage backends
-4. **Git Operations**: repos-mcp handles repository CRUD operations
-5. **LFS Support**: repos-mcp manages LFS objects via storage backend
+3. **Storage Access**: agentic-repos queries global registry for storage backends
+4. **Git Operations**: agentic-repos handles repository CRUD operations
+5. **LFS Support**: agentic-repos manages LFS objects via storage backend
 
 ## Next Steps
 
@@ -227,7 +227,7 @@ cd ~/code/skylet
 
 ## Conclusion
 
-The repos-mcp plugin is **fully validated and ready for production use**. All core functionality has been tested:
+The agentic-repos plugin is **fully validated and ready for production use**. All core functionality has been tested:
 
 - ✅ Plugin loads and validates correctly
 - ✅ Git operations (init, commit, branch, merge) work

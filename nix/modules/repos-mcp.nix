@@ -1,30 +1,30 @@
 { config, lib, pkgs, ... }:
 
 let
-  cfg = config.services.repos-mcp;
+  cfg = config.services.agentic-repos;
   settingsFormat = pkgs.formats.yaml { };
 in
 {
-  options.services.repos-mcp = {
-    enable = lib.mkEnableOption "repos-mcp Git server with MCP integration";
+  options.services.agentic-repos = {
+    enable = lib.mkEnableOption "agentic-repos Git server with MCP integration";
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.repos-mcp or pkgs.callPackage ../../default.nix { };
-      defaultText = lib.literalExpression "pkgs.repos-mcp";
-      description = "The repos-mcp package to use.";
+      default = pkgs.agentic-repos or pkgs.callPackage ../../default.nix { };
+      defaultText = lib.literalExpression "pkgs.agentic-repos";
+      description = "The agentic-repos package to use.";
     };
 
     user = lib.mkOption {
       type = lib.types.str;
-      default = "repos-mcp";
-      description = "User under which repos-mcp runs.";
+      default = "agentic-repos";
+      description = "User under which agentic-repos runs.";
     };
 
     group = lib.mkOption {
       type = lib.types.str;
-      default = "repos-mcp";
-      description = "Group under which repos-mcp runs.";
+      default = "agentic-repos";
+      description = "Group under which agentic-repos runs.";
     };
 
     host = lib.mkOption {
@@ -47,8 +47,8 @@ in
 
     dataDir = lib.mkOption {
       type = lib.types.path;
-      default = "/var/lib/repos-mcp";
-      description = "Base directory for repos-mcp data.";
+      default = "/var/lib/agentic-repos";
+      description = "Base directory for agentic-repos data.";
     };
 
     features = {
@@ -73,7 +73,7 @@ in
       path = lib.mkOption {
         type = lib.types.path;
         default = "${cfg.dataDir}/repositories";
-        defaultText = lib.literalExpression "\${config.services.repos-mcp.dataDir}/repositories";
+        defaultText = lib.literalExpression "\${config.services.agentic-repos.dataDir}/repositories";
         description = "Path for local repository storage.";
       };
 
@@ -135,13 +135,13 @@ in
 
       name = lib.mkOption {
         type = lib.types.str;
-        default = "repos_mcp";
+        default = "agentic_repos";
         description = "Database name.";
       };
 
       user = lib.mkOption {
         type = lib.types.str;
-        default = "repos_mcp";
+        default = "agentic_repos";
         description = "Database user.";
       };
 
@@ -156,7 +156,7 @@ in
       hostKeyPath = lib.mkOption {
         type = lib.types.path;
         default = "${cfg.dataDir}/ssh_host_ed25519_key";
-        defaultText = lib.literalExpression "\${config.services.repos-mcp.dataDir}/ssh_host_ed25519_key";
+        defaultText = lib.literalExpression "\${config.services.agentic-repos.dataDir}/ssh_host_ed25519_key";
         description = "Path to SSH host key.";
       };
 
@@ -175,7 +175,7 @@ in
       authorizedKeysPath = lib.mkOption {
         type = lib.types.path;
         default = "${cfg.dataDir}/authorized_keys";
-        defaultText = lib.literalExpression "\${config.services.repos-mcp.dataDir}/authorized_keys";
+        defaultText = lib.literalExpression "\${config.services.agentic-repos.dataDir}/authorized_keys";
         description = "Path to authorized keys file.";
       };
     };
@@ -294,13 +294,13 @@ in
         };
       }) // cfg.settings;
 
-    configFile = settingsFormat.generate "repos-mcp-config.yaml" settingsAttrset;
+    configFile = settingsFormat.generate "agentic-repos-config.yaml" settingsAttrset;
   in {
     users.users.${cfg.user} = {
       isSystemUser = true;
       group = cfg.group;
       home = cfg.dataDir;
-      description = "repos-mcp service user";
+      description = "agentic-repos service user";
     };
 
     users.groups.${cfg.group} = { };
@@ -311,9 +311,9 @@ in
       "d ${cfg.dataDir}/logs 0750 ${cfg.user} ${cfg.group} -"
     ];
 
-    systemd.services.repos-mcp = {
-      description = "repos-mcp - Multi-tenant Git server with MCP integration";
-      documentation = [ "https://github.com/vincents-ai/repos-mcp" ];
+    systemd.services.agentic-repos = {
+      description = "agentic-repos - Multi-tenant Git server with MCP integration";
+      documentation = [ "https://github.com/vincents-ai/agentic-repos" ];
       after = [ "network.target" ]
         ++ lib.optional cfg.database.enable "postgresql.service"
         ++ lib.optional cfg.redis.enable "redis.service";
@@ -327,7 +327,7 @@ in
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = cfg.dataDir;
-        ExecStart = "${cfg.package}/bin/repos-mcp --config ${configFile}";
+        ExecStart = "${cfg.package}/bin/agentic-repos --config ${configFile}";
         Restart = "on-failure";
         RestartSec = "5s";
 
@@ -356,7 +356,7 @@ in
 
       preStart = ''
         if [ ! -f "${cfg.ssh.hostKeyPath}" ]; then
-          ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "${cfg.ssh.hostKeyPath}" -N "" -C "repos-mcp@$(hostname)"
+          ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "${cfg.ssh.hostKeyPath}" -N "" -C "agentic-repos@$(hostname)"
           chown ${cfg.user}:${cfg.group} "${cfg.ssh.hostKeyPath}"
           chmod 600 "${cfg.ssh.hostKeyPath}"
         fi

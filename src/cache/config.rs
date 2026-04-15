@@ -40,7 +40,7 @@ impl Default for CacheConfig {
         Self {
             enabled: false,
             url: "redis://127.0.0.1:6379".to_string(),
-            key_prefix: "repos-mcp".to_string(),
+            key_prefix: "agentic-repos".to_string(),
             default_ttl_secs: 3600,
             max_connections: 10,
             connection_timeout_secs: 5,

@@ -9,7 +9,7 @@
 # Run with:
 #   nix-build -A tests.storage-integration-*
 
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
 
 let
   inherit (lib);
@@ -51,11 +51,11 @@ let
       testScript = ''
         ${waitForReposMCP}
 
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/tenant1")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/tenant1/local-test.git")
-        server.succeed("test -f /var/lib/repos-mcp/repositories/tenant1/local-test.git/HEAD")
-        server.succeed("test -d /var/lib/repos-mcp/repositories/tenant1/local-test.git/objects")
-        server.succeed("test -d /var/lib/repos-mcp/repositories/tenant1/local-test.git/refs")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/tenant1")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/tenant1/local-test.git")
+        server.succeed("test -f /var/lib/agentic-repos/repositories/tenant1/local-test.git/HEAD")
+        server.succeed("test -d /var/lib/agentic-repos/repositories/tenant1/local-test.git/objects")
+        server.succeed("test -d /var/lib/agentic-repos/repositories/tenant1/local-test.git/refs")
       '';
     }
     {
@@ -63,12 +63,12 @@ let
       testScript = ''
         ${waitForReposMCP}
 
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/tenant1/lfs-test.git")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/tenant1/lfs-test.git")
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/tenant1/lfs-test.git/lfs/objects/ab/cd")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/tenant1/lfs-test.git")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/tenant1/lfs-test.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/tenant1/lfs-test.git/lfs/objects/ab/cd")
         server.succeed("echo 'lfs object data' > /tmp/lfs-data.bin")
-        server.succeed("cp /tmp/lfs-data.bin /var/lib/repos-mcp/repositories/tenant1/lfs-test.git/lfs/objects/ab/cd/abcd1234")
-        server.succeed("test -f /var/lib/repos-mcp/repositories/tenant1/lfs-test.git/lfs/objects/ab/cd/abcd1234")
+        server.succeed("cp /tmp/lfs-data.bin /var/lib/agentic-repos/repositories/tenant1/lfs-test.git/lfs/objects/ab/cd/abcd1234")
+        server.succeed("test -f /var/lib/agentic-repos/repositories/tenant1/lfs-test.git/lfs/objects/ab/cd/abcd1234")
       '';
     }
     {
@@ -76,11 +76,11 @@ let
       testScript = ''
         ${waitForReposMCP}
 
-        server.succeed("test -d /var/lib/repos-mcp/repositories")
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/perm-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/perm-tenant/test.git")
-        server.succeed("test -r /var/lib/repos-mcp/repositories/perm-tenant/test.git/HEAD")
-        server.succeed("test -r /var/lib/repos-mcp/repositories/perm-tenant/test.git/config")
+        server.succeed("test -d /var/lib/agentic-repos/repositories")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/perm-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/perm-tenant/test.git")
+        server.succeed("test -r /var/lib/agentic-repos/repositories/perm-tenant/test.git/HEAD")
+        server.succeed("test -r /var/lib/agentic-repos/repositories/perm-tenant/test.git/config")
       '';
     }
     {
@@ -88,11 +88,11 @@ let
       testScript = ''
         ${waitForReposMCP}
 
-        server.succeed("dd if=/dev/zero of=/var/lib/repos-mcp/repositories/test-write.bin bs=1M count=1")
-        server.succeed("test -f /var/lib/repos-mcp/repositories/test-write.bin")
-        file_size = server.succeed("stat -c %s /var/lib/repos-mcp/repositories/test-write.bin").strip()
+        server.succeed("dd if=/dev/zero of=/var/lib/agentic-repos/repositories/test-write.bin bs=1M count=1")
+        server.succeed("test -f /var/lib/agentic-repos/repositories/test-write.bin")
+        file_size = server.succeed("stat -c %s /var/lib/agentic-repos/repositories/test-write.bin").strip()
         assert file_size == "1048576", "Expected 1MB file, got %s bytes" % file_size
-        server.succeed("rm /var/lib/repos-mcp/repositories/test-write.bin")
+        server.succeed("rm /var/lib/agentic-repos/repositories/test-write.bin")
       '';
     }
     {
@@ -101,20 +101,20 @@ let
         ${waitForReposMCP}
         ${createTestRepo "tenant1" "persist-test"}
 
-        server.succeed("cd /tmp && git clone /var/lib/repos-mcp/repositories/tenant1/persist-test.git init-persist")
+        server.succeed("cd /tmp && git clone /var/lib/agentic-repos/repositories/tenant1/persist-test.git init-persist")
         server.succeed("cd /tmp/init-persist && git config user.email test@example.com")
         server.succeed("cd /tmp/init-persist && git config user.name 'Test User'")
         server.succeed("cd /tmp/init-persist && echo 'persistence test' > README.md")
         server.succeed("cd /tmp/init-persist && git add README.md && git commit -m 'Initial'")
         server.succeed("cd /tmp/init-persist && git push origin master || git push origin main")
 
-        commit_hash = server.succeed("cd /var/lib/repos-mcp/repositories/tenant1/persist-test.git && git rev-parse HEAD").strip()
+        commit_hash = server.succeed("cd /var/lib/agentic-repos/repositories/tenant1/persist-test.git && git rev-parse HEAD").strip()
 
-        server.succeed("systemctl restart repos-mcp.service")
-        server.wait_for_unit("repos-mcp.service", timeout=60)
+        server.succeed("systemctl restart agentic-repos.service")
+        server.wait_for_unit("agentic-repos.service", timeout=60)
         server.wait_for_open_port(2222, timeout=60)
 
-        persisted_hash = server.succeed("cd /var/lib/repos-mcp/repositories/tenant1/persist-test.git && git rev-parse HEAD").strip()
+        persisted_hash = server.succeed("cd /var/lib/agentic-repos/repositories/tenant1/persist-test.git && git rev-parse HEAD").strip()
         assert commit_hash == persisted_hash, "Commit hash mismatch after restart"
       '';
     }
@@ -131,10 +131,10 @@ let
         storage.wait_for_open_port(3900)
 
         storage.succeed("garage status || echo garage_status_checked")
-        storage.succeed("garage bucket create repos-mcp-test")
+        storage.succeed("garage bucket create agentic-repos-test")
         storage.succeed("garage key create --name admin-key")
         key_output = storage.succeed("garage key info admin-key 2>&1 || echo key_created")
-        storage.succeed("garage bucket allow repos-mcp-test --read --write --key admin-key || echo permissions_set")
+        storage.succeed("garage bucket allow agentic-repos-test --read --write --key admin-key || echo permissions_set")
       '';
     }
     {
@@ -258,7 +258,7 @@ let
     # REPOS-MCP S3 INTEGRATION TESTS
     # ===========================================================
     {
-      id = "repos-mcp-s3-config";
+      id = "agentic-repos-s3-config";
       nodes = { storage = garageNode; };
       timeout = 180;
       testScript = ''
@@ -266,16 +266,16 @@ let
         storage.wait_for_unit("garage.service")
         storage.wait_for_open_port(3900)
 
-        storage.succeed("garage bucket create repos-mcp-s3 || true")
-        storage.succeed("garage key create --name repos-mcp-key || true")
-        storage.succeed("garage bucket allow repos-mcp-s3 --read --write --key repos-mcp-key || true")
+        storage.succeed("garage bucket create agentic-repos-s3 || true")
+        storage.succeed("garage key create --name agentic-repos-key || true")
+        storage.succeed("garage bucket allow agentic-repos-s3 --read --write --key agentic-repos-key || true")
 
-        s3_config_exists = server.succeed("test -f /etc/repos-mcp/config.yaml && echo exists || echo missing").strip()
+        s3_config_exists = server.succeed("test -f /etc/agentic-repos/config.yaml && echo exists || echo missing").strip()
         assert s3_config_exists == "exists", "Config file should exist"
       '';
     }
     {
-      id = "repos-mcp-s3-health";
+      id = "agentic-repos-s3-health";
       nodes = { storage = garageNode; };
       timeout = 120;
       testScript = ''

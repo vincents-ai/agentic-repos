@@ -2,7 +2,7 @@
 set -e
 
 # Test configuration
-REPO_MCP_PLUGIN="./target/release/librepos_mcp.so"
+REPO_MCP_PLUGIN="./target/release/libagentic_repos.so"
 GARAGE_S3_PLUGIN="$HOME/code/vincents-ai/skynet/target/release/libgarage_s3.so"
 TEST_DIR="./test-git-lfs-$$"
 
@@ -40,7 +40,7 @@ test_git_operations() {
     mkdir -p "$TEST_DIR/git-work"
     cd "$TEST_DIR/git-work"
     
-    # Configure repos-mcp for local storage
+    # Configure agentic-repos for local storage
     export REPOS_STORAGE_PATH="$TEST_DIR/local-storage"
     export REPOS_SSH_ENABLED=false
     
@@ -52,9 +52,9 @@ test_git_operations() {
     
     # Create test files
     echo "# Test Repository" > README.md
-    echo "This is a test repository for repos-mcp validation" >> README.md
-    echo "Test content for repos-mcp" >> README.md
-    echo "This is a test repository for repos-mcp validation" >> test-repo.txt
+    echo "This is a test repository for agentic-repos validation" >> README.md
+    echo "Test content for agentic-repos" >> README.md
+    echo "This is a test repository for agentic-repos validation" >> test-repo.txt
     git add test-repo.txt
     git commit -m "Add test-repo.txt"
     
@@ -93,7 +93,7 @@ test_git_operations() {
 # Main test execution
 main() {
     log_section
-    echo "repos-mcp Git Operations and LFS Validation"
+    echo "agentic-repos Git Operations and LFS Validation"
     echo "Date: $(date)"
     echo "Using Embedded Garage S3 Storage Backend"
     log_section

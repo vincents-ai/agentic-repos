@@ -1,6 +1,6 @@
 # LFS Storage Backend Configuration
 
-This document describes the storage backend configurations supported by the repos-mcp LFS integration tests.
+This document describes the storage backend configurations supported by the agentic-repos LFS integration tests.
 
 ## Overview
 
@@ -17,7 +17,7 @@ The `lfs-integration.nix` test suite validates LFS operations across multiple st
 storage:
   type: "local"
   local:
-    path: "/var/lib/repos-mcp"
+    path: "/var/lib/agentic-repos"
 
 lfs:
   enabled: true
@@ -39,18 +39,18 @@ lfs:
 For tenant `acme`, repo `website`, OID `abcdef123456...`:
 
 ```
-/var/lib/repos-mcp/acme/website.git/lfs/objects/ab/cd/abcdef123456...
+/var/lib/agentic-repos/acme/website.git/lfs/objects/ab/cd/abcdef123456...
 ```
 
 ### NixOS Test Configuration
 
 ```nix
 server = { config, pkgs, ... }: {
-  environment.etc."repos-mcp/config.yaml".text = ''
+  environment.etc."agentic-repos/config.yaml".text = ''
     storage:
       type: "local"
       local:
-        path: "/var/lib/repos-mcp"
+        path: "/var/lib/agentic-repos"
 
     lfs:
       enabled: true
@@ -100,7 +100,7 @@ storage = { config, pkgs, ... }: {
 
 ### Garage Alternative
 
-For production-like testing with Garage (used in repos-mcp integration):
+For production-like testing with Garage (used in agentic-repos integration):
 
 ```yaml
 storage:
@@ -212,7 +212,7 @@ nix build .#tests.lfs-integration.driver
 
 # Inside driver
 > start_all()
-> server.succeed("journalctl -u repos-mcp -f")
+> server.succeed("journalctl -u agentic-repos -f")
 ```
 
 ## Storage Backend Selection
@@ -233,7 +233,7 @@ mkLfsTest = { backend ? "local", ... }:
     storageConfig = if backend == "s3" then s3Config else localConfig;
   in pkgs.testers.runNixOSTest {
     nodes.server = { ... }: {
-      environment.etc."repos-mcp/config.yaml".text = storageConfig;
+      environment.etc."agentic-repos/config.yaml".text = storageConfig;
     };
   };
 ```
@@ -262,10 +262,10 @@ mkLfsTest = { backend ? "local", ... }:
 
 ```bash
 # Check LFS storage layout
-server.succeed("find /var/lib/repos-mcp -type d -name 'lfs'")
+server.succeed("find /var/lib/agentic-repos -type d -name 'lfs'")
 
 # List LFS locks
-server.succeed("psql -d repos_mcp -c 'SELECT * FROM lfs_locks'")
+server.succeed("psql -d agentic_repos -c 'SELECT * FROM lfs_locks'")
 
 # Check quota usage
 server.succeed("curl -s http://localhost:8090/api/v1/{tenant}/quota")

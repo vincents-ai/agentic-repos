@@ -376,7 +376,7 @@ pub fn default_retention_policy() -> RetentionPolicy {
     }
 }
 
-/// Embedded retention policy for .git/repos-mcp/retention.json
+/// Embedded retention policy for .git/agentic-repos/retention.json
 pub const EMBEDDED_POLICY_FILENAME: &str = "retention.json";
 pub const DEFAULT_POLICY_REF: &str = "refs/policies/retention";
 

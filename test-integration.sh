@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# repos-mcp Integration Test with Skylet Runtime
+# agentic-repos Integration Test with Skylet Runtime
 # Tests git operations with actual plugin integration
 
 set -e
@@ -8,10 +8,10 @@ set -e
 SKYLET_DIR="$HOME/code/skylet"
 PLUGIN_DIR="$SKYLET_DIR/plugins"
 SKYLET_PID=""
-TEST_DIR="/tmp/repos-mcp-integration-test-$$"
+TEST_DIR="/tmp/agentic-repos-integration-test-$$"
 
 echo "========================================"
-echo "repos-mcp Integration Test with Skylet"
+echo "agentic-repos Integration Test with Skylet"
 echo "Date: $(date)"
 echo "========================================"
 
@@ -41,13 +41,13 @@ fi
 echo "✓ Skylet binary found"
 
 # Check plugins
-if [ ! -f "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" ]; then
-    echo "ERROR: repos-mcp plugin not found in Skylet plugins directory"
-    echo "Expected: $PLUGIN_DIR/repos-mcp/librepos_mcp.so"
+if [ ! -f "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" ]; then
+    echo "ERROR: agentic-repos plugin not found in Skylet plugins directory"
+    echo "Expected: $PLUGIN_DIR/agentic-repos/libagentic_repos.so"
     exit 1
 fi
 
-echo "✓ repos-mcp plugin found"
+echo "✓ agentic-repos plugin found"
 
 if [ ! -f "$PLUGIN_DIR/garage-s3/libgarage_s3.so" ]; then
     echo "WARNING: garage-s3 plugin not found, integration will use local storage only"
@@ -84,9 +84,9 @@ echo "✓ Server is running"
 echo ""
 echo "Test 1: Verifying plugins loaded"
 if grep -q "git-operations v0.1.0" "$TEST_DIR/skylet.log"; then
-    echo "✓ repos-mcp plugin loaded successfully"
+    echo "✓ agentic-repos plugin loaded successfully"
 else
-    echo "WARNING: repos-mcp plugin may not have loaded"
+    echo "WARNING: agentic-repos plugin may not have loaded"
     echo "Check logs at: $TEST_DIR/skylet.log"
 fi
 
@@ -97,15 +97,15 @@ fi
 # Test 2: Plugin validation
 echo ""
 echo "Test 2: Plugin validation"
-echo "repos-mcp plugin:"
+echo "agentic-repos plugin:"
 ~/code/skylet/target/release/plugin-test-harness validate \
-    --plugin-path "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" 2>&1 | grep -E "Validation Summary|Plugin validation" || echo "Validation failed"
+    --plugin-path "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" 2>&1 | grep -E "Validation Summary|Plugin validation" || echo "Validation failed"
 
 # Test 3: Health check action
 echo ""
 echo "Test 3: Testing health check action"
 RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-    -p "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" \
+    -p "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" \
     -a health \
     --args '{}' 2>&1)
 
@@ -127,7 +127,7 @@ REPO="test-repo"
 
 echo "Creating repository '$REPO' for tenant '$TENANT'..."
 RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-    -p "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" \
+    -p "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" \
     -a repo_create \
     --args "{\"id\":\"test-1\",\"method\":\"repo.create\",\"params\":{\"name\":\"$REPO\",\"tenant_id\":\"$TENANT\"}}" 2>&1)
 
@@ -141,7 +141,7 @@ fi
 # List repositories
 echo "Listing repositories for tenant '$TENANT'..."
 RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-    -p "$PLUGIN_DIR/repos-mcp/librepos_mcp.so" \
+    -p "$PLUGIN_DIR/agentic-repos/libagentic_repos.so" \
     -a repo_list \
     --args "{\"id\":\"test-2\",\"method\":\"repo.list\",\"params\":{\"tenant_id\":\"$TENANT\"}}" 2>&1)
 
@@ -168,7 +168,7 @@ git config user.email "integration@test.com" 2>/dev/null
 git config user.name "Integration Test" 2>/dev/null
 
 echo "# Integration Test Repository" > README.md
-echo "Testing repos-mcp with Skylet integration" >> README.md
+echo "Testing agentic-repos with Skylet integration" >> README.md
 git add README.md 2>/dev/null
 git commit -m "Initial commit" 2>/dev/null
 
@@ -208,7 +208,7 @@ echo "========================================"
 echo "Integration Test Summary"
 echo "========================================"
 echo "✅ Skylet server started successfully"
-echo "✅ repos-mcp plugin loaded"
+echo "✅ agentic-repos plugin loaded"
 echo "✅ Health check working"
 echo "✅ Repository operations working"
 echo "✅ Git operations working"

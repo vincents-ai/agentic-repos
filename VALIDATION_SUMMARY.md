@@ -4,7 +4,7 @@
 
 ### ✅ COMPLETED: Plugin Prerequisites
 - Skylet binary exists and is executable
-- repos-mcp plugin is installed in Skylet plugins directory
+- agentic-repos plugin is installed in Skylet plugins directory
 - garage-s3 plugin is installed in Skylet plugins directory
 - Plugin test harness is available
 
@@ -22,7 +22,7 @@
 1. Skylet server must be running
 2. SSH server must be listening on port 2222
 3. SSH keys must be configured
-4. repos-mcp plugin must be loaded in Skylet
+4. agentic-repos plugin must be loaded in Skylet
 
 **Test Cases**:
 - Git clone via SSH
@@ -42,7 +42,7 @@ sleep 5
 netstat -tuln | grep 2222
 
 # 3. Setup SSH keys
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 bash validate-simple.sh  # Will test SSH if available
 
 # 4. Manual SSH test
@@ -90,7 +90,7 @@ aws --endpoint-url http://localhost:3900 s3 mb s3://test-bucket
 
 **Requirements**:
 - Skylet server running
-- repos-mcp plugin loaded
+- agentic-repos plugin loaded
 - garage-s3 plugin loaded
 - SSH server listening on port 2222
 - S3 server listening on port 3900
@@ -119,9 +119,9 @@ bash validate-critical-features.sh
 
 ### Step 1: Rebuild Plugin with Fix
 ```bash
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 cargo build --release
-cp target/release/librepos_mcp.so ~/code/skylet/plugins/repos-mcp/
+cp target/release/libagentic_repos.so ~/code/skylet/plugins/agentic-repos/
 ```
 
 ### Step 2: Start Skylet
@@ -141,7 +141,7 @@ curl http://localhost:3900/health
 
 ### Step 4: Run Validation
 ```bash
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 bash validate-simple.sh
 bash validate-critical-features.sh
 ```

@@ -1,4 +1,4 @@
-# repos-mcp SDLC Maturity Gap Analysis — Executive Report
+# agentic-repos SDLC Maturity Gap Analysis — Executive Report
 
 **Date:** 2026-04-12  
 **Scope:** Full platform SDLC assessment  
@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-repos-mcp has been transformed from a Level 1 (Initial/Ad-hoc) SDLC maturity baseline into a **Level 3–4 (Defined/Managed)** platform over the course of 159 commits across 24 modules, 179 source files, and ~46,800 lines of Rust. The platform now has comprehensive test coverage (430+ unit/integration tests), feature-flagged commercial modules, dual EU/US compliance (GDPR precedence), multi-region replication, and a full SDLC monitoring framework with DORA metrics.
+agentic-repos has been transformed from a Level 1 (Initial/Ad-hoc) SDLC maturity baseline into a **Level 3–4 (Defined/Managed)** platform over the course of 159 commits across 24 modules, 179 source files, and ~46,800 lines of Rust. The platform now has comprehensive test coverage (430+ unit/integration tests), feature-flagged commercial modules, dual EU/US compliance (GDPR precedence), multi-region replication, and a full SDLC monitoring framework with DORA metrics.
 
 **Key achievement:** All critical security vulnerabilities have been resolved, all git protocol operations work correctly (clone/push race condition fixed), and the platform is structurally ready for production deployment.
 
@@ -174,7 +174,7 @@ Quality gates support blocking and advisory enforcement with 5 comparison operat
 
 ## 10. Conclusion
 
-repos-mcp has achieved **Level 3–4 SDLC maturity** across all assessed dimensions. The platform has:
+agentic-repos has achieved **Level 3–4 SDLC maturity** across all assessed dimensions. The platform has:
 
 - ✅ Comprehensive test coverage (430+ tests)
 - ✅ All critical security vulnerabilities resolved

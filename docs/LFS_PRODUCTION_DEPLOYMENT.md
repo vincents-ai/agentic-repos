@@ -1,6 +1,6 @@
 # Production Deployment Guide - Git LFS
 
-This guide provides step-by-step instructions for deploying repos-mcp with Git LFS in a production environment.
+This guide provides step-by-step instructions for deploying agentic-repos with Git LFS in a production environment.
 
 ## Table of Contents
 
@@ -59,7 +59,7 @@ server:
   port: 8090       # HTTP API port
   ssh:
     port: 2222
-    host_key_path: "/etc/repos-mcp/ssh_host_key"
+    host_key_path: "/etc/agentic-repos/ssh_host_key"
     max_connections: 500  # Increase for production
     connection_timeout_secs: 60
 ```
@@ -97,11 +97,11 @@ lfs:
 
 ```bash
 # Generate 32-byte secret (256-bit)
-openssl rand -base64 32 > /etc/repos-mcp/jwt-secret.txt
-chmod 600 /etc/repos-mcp/jwt-secret.txt
+openssl rand -base64 32 > /etc/agentic-repos/jwt-secret.txt
+chmod 600 /etc/agentic-repos/jwt-secret.txt
 
 # Set as environment variable
-export LFS_JWT_SECRET=$(cat /etc/repos-mcp/jwt-secret.txt)
+export LFS_JWT_SECRET=$(cat /etc/agentic-repos/jwt-secret.txt)
 ```
 
 **Secret Management Best Practices**:
@@ -118,17 +118,17 @@ export LFS_JWT_SECRET=$(cat /etc/repos-mcp/jwt-secret.txt)
 storage:
   type: "local"
   local:
-    path: "/var/lib/repos-mcp/storage"
+    path: "/var/lib/agentic-repos/storage"
 ```
 
 **File Permissions** (CRITICAL):
 ```bash
 # Create storage directory
-mkdir -p /var/lib/repos-mcp/storage
+mkdir -p /var/lib/agentic-repos/storage
 
 # Set restrictive permissions (owner-only access)
-chown repos-mcp:repos-mcp /var/lib/repos-mcp/storage
-chmod 700 /var/lib/repos-mcp/storage
+chown agentic-repos:agentic-repos /var/lib/agentic-repos/storage
+chmod 700 /var/lib/agentic-repos/storage
 ```
 
 #### Option B: S3 Storage (Recommended for production, scalable)
@@ -196,7 +196,7 @@ logging:
 #### Option A: Nginx Reverse Proxy (Recommended)
 
 ```nginx
-# /etc/nginx/sites-available/repos-mcp
+# /etc/nginx/sites-available/agentic-repos
 server {
     listen 443 ssl http2;
     server_name git.example.com;
@@ -214,7 +214,7 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
 
-    # Proxy to repos-mcp
+    # Proxy to agentic-repos
     location / {
         proxy_pass http://localhost:8090;
         proxy_set_header Host $host;
@@ -279,27 +279,27 @@ ufw enable
 ### 3. Systemd Service (Run as non-root user)
 
 ```ini
-# /etc/systemd/system/repos-mcp.service
+# /etc/systemd/system/agentic-repos.service
 [Unit]
-Description=repos-mcp Git Server with LFS
+Description=agentic-repos Git Server with LFS
 After=network.target postgresql.service
 
 [Service]
 Type=simple
-User=repos-mcp
-Group=repos-mcp
-WorkingDirectory=/opt/repos-mcp
-EnvironmentFile=/etc/repos-mcp/environment
+User=agentic-repos
+Group=agentic-repos
+WorkingDirectory=/opt/agentic-repos
+EnvironmentFile=/etc/agentic-repos/environment
 
 # Run the server
-ExecStart=/opt/repos-mcp/repos-mcp --config /etc/repos-mcp/config-production.yaml
+ExecStart=/opt/agentic-repos/agentic-repos --config /etc/agentic-repos/config-production.yaml
 
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/repos-mcp
+ReadWritePaths=/var/lib/agentic-repos
 
 # Restart policy
 Restart=on-failure
@@ -309,7 +309,7 @@ RestartSec=10s
 WantedBy=multi-user.target
 ```
 
-**Environment file** (`/etc/repos-mcp/environment`):
+**Environment file** (`/etc/agentic-repos/environment`):
 ```bash
 # JWT Secret (loaded from secure storage)
 LFS_JWT_SECRET=<your-strong-secret-here>
@@ -324,15 +324,15 @@ RUST_LOG=info
 
 **Create service user**:
 ```bash
-useradd --system --no-create-home --shell /bin/false repos-mcp
+useradd --system --no-create-home --shell /bin/false agentic-repos
 ```
 
 **Start service**:
 ```bash
 systemctl daemon-reload
-systemctl enable repos-mcp
-systemctl start repos-mcp
-systemctl status repos-mcp
+systemctl enable agentic-repos
+systemctl start agentic-repos
+systemctl status agentic-repos
 ```
 
 ### 4. JWT Secret Rotation
@@ -352,13 +352,13 @@ systemctl status repos-mcp
 
 3. Update environment and restart:
    ```bash
-   echo "LFS_JWT_SECRET=$NEW_SECRET" > /etc/repos-mcp/environment
-   systemctl restart repos-mcp
+   echo "LFS_JWT_SECRET=$NEW_SECRET" > /etc/agentic-repos/environment
+   systemctl restart agentic-repos
    ```
 
 4. Monitor for authentication errors:
    ```bash
-   journalctl -u repos-mcp -f | grep -i "jwt\|auth"
+   journalctl -u agentic-repos -f | grep -i "jwt\|auth"
    ```
 
 ---
@@ -376,14 +376,14 @@ systemctl status repos-mcp
 └────────────┬────────────────────────┘
              │ HTTPS
 ┌────────────▼────────────────────────┐
-│         repos-mcp Server            │
+│         agentic-repos Server            │
 │  ┌──────────────┐  ┌──────────────┐│
 │  │   SSH:2222   │  │  HTTP:8090   ││
 │  │   (Git SSH)  │  │  (LFS API)   ││
 │  └──────────────┘  └──────────────┘│
 │  ┌─────────────────────────────────┤
 │  │   Local Storage / S3            │
-│  │   /var/lib/repos-mcp/storage    │
+│  │   /var/lib/agentic-repos/storage    │
 │  └─────────────────────────────────┤
 └─────────────────────────────────────┘
 ```
@@ -492,7 +492,7 @@ receivers:
 
 ### 3. Health Checks
 
-**HTTP Health Endpoint** (add to repos-mcp):
+**HTTP Health Endpoint** (add to agentic-repos):
 ```bash
 # Check if service is responding
 curl -f http://localhost:8090/metrics || exit 1
@@ -549,7 +549,7 @@ aws s3api put-bucket-lifecycle-configuration \
 # Daily backup to S3
 #!/bin/bash
 DATE=$(date +%Y%m%d)
-tar -czf /tmp/lfs-backup-$DATE.tar.gz /var/lib/repos-mcp/storage
+tar -czf /tmp/lfs-backup-$DATE.tar.gz /var/lib/agentic-repos/storage
 aws s3 cp /tmp/lfs-backup-$DATE.tar.gz s3://backups/lfs/$DATE/
 rm /tmp/lfs-backup-$DATE.tar.gz
 ```
@@ -557,15 +557,15 @@ rm /tmp/lfs-backup-$DATE.tar.gz
 **Cron schedule**:
 ```cron
 # Daily backup at 2 AM
-0 2 * * * /opt/repos-mcp/scripts/backup-lfs.sh
+0 2 * * * /opt/agentic-repos/scripts/backup-lfs.sh
 ```
 
 #### Configuration Backup
 
 ```bash
 # Backup configuration files
-cp /etc/repos-mcp/config-production.yaml /backups/config-$(date +%Y%m%d).yaml
-cp /etc/repos-mcp/authorized_keys /backups/authorized_keys-$(date +%Y%m%d)
+cp /etc/agentic-repos/config-production.yaml /backups/config-$(date +%Y%m%d).yaml
+cp /etc/agentic-repos/authorized_keys /backups/authorized_keys-$(date +%Y%m%d)
 ```
 
 ### 2. Disaster Recovery
@@ -578,15 +578,15 @@ cp /etc/repos-mcp/authorized_keys /backups/authorized_keys-$(date +%Y%m%d)
 1. **Provision new server** (infrastructure-as-code recommended)
 2. **Restore configuration**:
    ```bash
-   scp backups/config-latest.yaml new-server:/etc/repos-mcp/config-production.yaml
+   scp backups/config-latest.yaml new-server:/etc/agentic-repos/config-production.yaml
    ```
 3. **Restore storage** (if local):
    ```bash
-   aws s3 sync s3://backups/lfs/latest/ /var/lib/repos-mcp/storage/
+   aws s3 sync s3://backups/lfs/latest/ /var/lib/agentic-repos/storage/
    ```
 4. **Start service**:
    ```bash
-   systemctl start repos-mcp
+   systemctl start agentic-repos
    ```
 5. **Verify**:
    ```bash
@@ -667,7 +667,7 @@ sum(lfs_upload_bytes_total) / sum(lfs_uploads_total)
 - Verify JWT secret matches configuration
 - Check token expiration (`token_expiration_secs`)
 - Ensure system clocks are synchronized (NTP)
-- Review logs: `journalctl -u repos-mcp | grep -i jwt`
+- Review logs: `journalctl -u agentic-repos | grep -i jwt`
 
 #### 2. SHA256 Hash Mismatches
 
@@ -730,22 +730,22 @@ logging:
 
 Restart service:
 ```bash
-systemctl restart repos-mcp
+systemctl restart agentic-repos
 ```
 
 View logs:
 ```bash
-journalctl -u repos-mcp -f
+journalctl -u agentic-repos -f
 ```
 
 ### Useful Commands
 
 ```bash
 # Check service status
-systemctl status repos-mcp
+systemctl status agentic-repos
 
 # View recent logs
-journalctl -u repos-mcp --since "10 minutes ago"
+journalctl -u agentic-repos --since "10 minutes ago"
 
 # Check metrics
 curl http://localhost:8090/metrics | grep lfs_
@@ -756,10 +756,10 @@ OID=$(sha256sum test.bin | awk '{print $1}')
 curl -X PUT http://localhost:8090/lfs/test-tenant/test-repo/lfs/objects/$OID --data-binary @test.bin
 
 # Check disk space
-df -h /var/lib/repos-mcp
+df -h /var/lib/agentic-repos
 
 # Check open file descriptors
-lsof -p $(pgrep repos-mcp) | wc -l
+lsof -p $(pgrep agentic-repos) | wc -l
 
 # Network connectivity
 ping git.example.com

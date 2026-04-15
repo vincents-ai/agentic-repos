@@ -561,7 +561,7 @@ NEW_SECRET=$(openssl rand -base64 32)
 # - Repeated 403 Forbidden (unauthorized attempts)
 # - Unusual access patterns
 # - Token validation failures
-tail -f /var/log/repos-mcp/access.log | grep "403\|401"
+tail -f /var/log/agentic-repos/access.log | grep "403\|401"
 ```
 
 **3. Audit SSH keys:**
@@ -684,7 +684,7 @@ logging:
 
 3. **Audit access logs**
    ```bash
-   grep "LFS" /var/log/repos-mcp/access.log | grep -E "$(date +%Y-%m-%d)"
+   grep "LFS" /var/log/agentic-repos/access.log | grep -E "$(date +%Y-%m-%d)"
    ```
 
 4. **Identify affected repositories**
@@ -720,7 +720,7 @@ logging:
 **Investigation steps:**
 1. **Identify access pattern**
    ```bash
-   grep "403\|401" /var/log/repos-mcp/access.log
+   grep "403\|401" /var/log/agentic-repos/access.log
    ```
 
 2. **Determine scope**

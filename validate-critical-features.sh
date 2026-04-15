@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Comprehensive Validation Test for Critical Features
 # Tests: SSH git operations, S3 storage, and end-to-end functionality
-# Requires: Running Skylet instance with repos-mcp and garage-s3 plugins
+# Requires: Running Skylet instance with agentic-repos and garage-s3 plugins
 
 set -e
 
@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # Test configuration
 SKYLET_DIR="$HOME/code/skylet"
 SKYLET_PID=""
-TEST_DIR="/tmp/repos-mcp-critical-validation-$$"
+TEST_DIR="/tmp/agentic-repos-critical-validation-$$"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="$TEST_DIR/validation.log"
 
@@ -71,7 +71,7 @@ setup_test_env() {
     mkdir -p "$TEST_DIR"/{repos,keys,client1,client2,logs}
     
     # Initialize log file
-    echo "repos-mcp Critical Features Validation" > "$LOG_FILE"
+    echo "agentic-repos Critical Features Validation" > "$LOG_FILE"
     echo "Date: $(date)" >> "$LOG_FILE"
     echo "Test Directory: $TEST_DIR" >> "$LOG_FILE"
     echo "========================================" >> "$LOG_FILE"
@@ -85,11 +85,11 @@ setup_test_env() {
     fi
     log_success "Skylet binary found"
     
-    if [ ! -f "$SKYLET_DIR/plugins/repos-mcp/librepos_mcp.so" ]; then
-        log_error "repos-mcp plugin not found"
+    if [ ! -f "$SKYLET_DIR/plugins/agentic-repos/libagentic_repos.so" ]; then
+        log_error "agentic-repos plugin not found"
         exit 1
     fi
-    log_success "repos-mcp plugin found"
+    log_success "agentic-repos plugin found"
     
     if [ ! -f "$SKYLET_DIR/plugins/garage-s3/libgarage_s3.so" ]; then
         log_warning "garage-s3 plugin not found - S3 tests will be skipped"
@@ -136,10 +136,10 @@ start_skylet() {
     
     # Check if plugins loaded
     sleep 3
-    if grep -q "git-operations" "$TEST_DIR/logs/skylet.log" || grep -q "repos-mcp" "$TEST_DIR/logs/skylet.log"; then
-        log_success "repos-mcp plugin loaded"
+    if grep -q "git-operations" "$TEST_DIR/logs/skylet.log" || grep -q "agentic-repos" "$TEST_DIR/logs/skylet.log"; then
+        log_success "agentic-repos plugin loaded"
     else
-        log_warning "repos-mcp plugin may not have loaded"
+        log_warning "agentic-repos plugin may not have loaded"
     fi
     
     if [ "$SKIP_S3_TESTS" -eq 0 ]; then
@@ -197,7 +197,7 @@ test_repo_creation() {
     # Create repository via plugin
     log_info "Creating repository '$REPO_NAME' for tenant '$TENANT_ID'..."
     RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-        -p "$SKYLET_DIR/plugins/repos-mcp/librepos_mcp.so" \
+        -p "$SKYLET_DIR/plugins/agentic-repos/libagentic_repos.so" \
         -a repo.create \
         --args "{\"id\":\"test-1\",\"method\":\"repo.create\",\"params\":{\"name\":\"$REPO_NAME\",\"tenant_id\":\"$TENANT_ID\"}}" 2>&1)
     
@@ -213,7 +213,7 @@ test_repo_creation() {
     # List repositories to verify
     log_info "Listing repositories..."
     LIST_RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-        -p "$SKYLET_DIR/plugins/repos-mcp/librepos_mcp.so" \
+        -p "$SKYLET_DIR/plugins/agentic-repos/libagentic_repos.so" \
         -a repo.list \
         --args "{\"id\":\"test-2\",\"method\":\"repo.list\",\"params\":{\"tenant_id\":\"$TENANT_ID\"}}" 2>&1)
     
@@ -395,7 +395,7 @@ test_end_to_end_workflow() {
     # Create repository
     log_info "Creating repository for end-to-end test..."
     RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-        -p "$SKYLET_DIR/plugins/repos-mcp/librepos_mcp.so" \
+        -p "$SKYLET_DIR/plugins/agentic-repos/libagentic_repos.so" \
         -a repo.create \
         --args "{\"id\":\"e2e-1\",\"method\":\"repo.create\",\"params\":{\"name\":\"$REPO_NAME\",\"tenant_id\":\"$TENANT_ID\"}}" 2>&1)
     
@@ -464,7 +464,7 @@ test_end_to_end_workflow() {
     # Verify repository info
     log_info "Verifying repository info..."
     INFO_RESULT=$(~/code/skylet/target/release/plugin-test-harness execute \
-        -p "$SKYLET_DIR/plugins/repos-mcp/librepos_mcp.so" \
+        -p "$SKYLET_DIR/plugins/agentic-repos/libagentic_repos.so" \
         -a repo.info \
         --args "{\"id\":\"e2e-2\",\"method\":\"repo.info\",\"params\":{\"name\":\"$REPO_NAME\",\"tenant_id\":\"$TENANT_ID\"}}" 2>&1)
     
@@ -515,12 +515,12 @@ main() {
     
     # Initialize log file
     LOG_FILE="$TEST_DIR/validation.log"
-    echo "repos-mcp Critical Features Validation" > "$LOG_FILE"
+    echo "agentic-repos Critical Features Validation" > "$LOG_FILE"
     echo "Date: $(date)" >> "$LOG_FILE"
     echo "Testing: SSH Git Operations, S3 Storage, End-to-End" >> "$LOG_FILE"
     
     log_section
-    echo "repos-mcp Critical Features Validation"  | tee -a "$LOG_FILE"
+    echo "agentic-repos Critical Features Validation"  | tee -a "$LOG_FILE"
     echo "Date: $(date)"  | tee -a "$LOG_FILE"
     echo "Testing: SSH Git Operations, S3 Storage, End-to-End"  | tee -a "$LOG_FILE"
     log_section

@@ -5,9 +5,9 @@
 
 #[cfg(test)]
 mod tests {
-    use repos_mcp::adp::access::{AccessConfig, PathRule, Permission};
-    use repos_mcp::adp::schema::RefSchema;
-    use repos_mcp::adp::storage::AdpStore;
+    use agentic_repos::adp::access::{AccessConfig, PathRule, Permission};
+    use agentic_repos::adp::schema::RefSchema;
+    use agentic_repos::adp::storage::AdpStore;
     use std::path::PathBuf;
     use tempfile::TempDir;
 
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_caller_identity_owner() {
-        use repos_mcp::adp::identity::CallerIdentity;
+        use agentic_repos::adp::identity::CallerIdentity;
 
         let config = AccessConfig {
             version: "1".to_string(),
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_caller_identity_admin() {
-        use repos_mcp::adp::identity::CallerIdentity;
+        use agentic_repos::adp::identity::CallerIdentity;
 
         let config = AccessConfig {
             version: "1".to_string(),
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_caller_identity_regular_user() {
-        use repos_mcp::adp::identity::CallerIdentity;
+        use agentic_repos::adp::identity::CallerIdentity;
 
         let config = AccessConfig {
             version: "1".to_string(),
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_owner_is_also_admin() {
-        use repos_mcp::adp::identity::CallerIdentity;
+        use agentic_repos::adp::identity::CallerIdentity;
 
         let config = AccessConfig {
             version: "1".to_string(),
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_schema_resolution_specificity() {
-        use repos_mcp::adp::glob::resolve_schema;
+        use agentic_repos::adp::glob::resolve_schema;
 
         let now = chrono::Utc::now();
         let generic = RefSchema {
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_schema_resolution_no_match() {
-        use repos_mcp::adp::glob::resolve_schema;
+        use agentic_repos::adp::glob::resolve_schema;
 
         let now = chrono::Utc::now();
         let schema = RefSchema {
@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_adp_ref_classification() {
-        use repos_mcp::adp::{is_adp, is_private, is_public_adp};
+        use agentic_repos::adp::{is_adp, is_private, is_public_adp};
 
         // Public ADP refs
         assert!(is_public_adp("refs/adp/schema/engram-task"));
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_version_sidecar_detection() {
-        use repos_mcp::adp::is_version_sidecar;
+        use agentic_repos::adp::is_version_sidecar;
 
         assert!(is_version_sidecar("refs/adp/schema/v1/engram-task"));
         assert!(is_version_sidecar("refs/adp/access/v3/config"));
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_bootstrap_creates_system_repo() {
-        use repos_mcp::adp::bootstrap::bootstrap_system_repo;
+        use agentic_repos::adp::bootstrap::bootstrap_system_repo;
 
         let dir = TempDir::new().unwrap();
         bootstrap_system_repo(dir.path()).unwrap();
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_bootstrap_is_idempotent() {
-        use repos_mcp::adp::bootstrap::bootstrap_system_repo;
+        use agentic_repos::adp::bootstrap::bootstrap_system_repo;
 
         let dir = TempDir::new().unwrap();
         bootstrap_system_repo(dir.path()).unwrap();
@@ -470,8 +470,8 @@ mod tests {
 
     #[test]
     fn test_bootstrap_writes_defaults() {
-        use repos_mcp::adp::bootstrap::bootstrap_system_repo;
-        use repos_mcp::adp::SERVER_CONFIG_REF;
+        use agentic_repos::adp::bootstrap::bootstrap_system_repo;
+        use agentic_repos::adp::SERVER_CONFIG_REF;
 
         let dir = TempDir::new().unwrap();
         bootstrap_system_repo(dir.path()).unwrap();

@@ -1,6 +1,6 @@
-# NixOS VM Testing Framework for repos-mcp
+# NixOS VM Testing Framework for agentic-repos
 
-This document describes the comprehensive NixOS VM testing framework for repos-mcp, which provides integration testing for SSH Git operations using isolated virtual machines.
+This document describes the comprehensive NixOS VM testing framework for agentic-repos, which provides integration testing for SSH Git operations using isolated virtual machines.
 
 ## Overview
 
@@ -32,7 +32,7 @@ The VM testing framework creates isolated NixOS virtual machines to test:
 **Purpose**: Verifies basic SSH connectivity and service startup.
 
 **What it tests**:
-- ✅ repos-mcp service starts correctly
+- ✅ agentic-repos service starts correctly
 - ✅ SSH server accepts connections on port 2222
 - ✅ SSH key authentication works
 - ✅ Basic SSH commands execute successfully
@@ -103,7 +103,7 @@ nix build .#checks.x86_64-linux.storage-local
 **VM Architecture**:
 ```
 Client VM ──SSH──▶ Server VM ──S3 API──▶ MinIO VM
-                  (repos-mcp)           (S3 Storage)
+                  (agentic-repos)           (S3 Storage)
 ```
 
 **Usage**:
@@ -152,7 +152,7 @@ In interactive mode:
 >>> start_all()
 >>> server.shell_interact()  # Get shell on server VM
 >>> client.shell_interact()  # Get shell on client VM
->>> server.succeed("systemctl status repos-mcp")
+>>> server.succeed("systemctl status agentic-repos")
 ```
 
 ## Test Configuration
@@ -173,7 +173,7 @@ server:
 storage:
   type: "local"
   local:
-    path: "/var/lib/repos-mcp"
+    path: "/var/lib/agentic-repos"
 auth:
   public_key_auth: true
 ```
@@ -187,7 +187,7 @@ server:
 storage:
   type: "s3"
   s3:
-    bucket: "repos-mcp-test"
+    bucket: "agentic-repos-test"
     region: "us-east-1"
     endpoint: "http://minio:9000"
     access_key: "minioadmin"
@@ -259,7 +259,7 @@ nix build .#checks.x86_64-linux.ssh-basic --print-build-logs
 - Ensure SSH daemon is running
 
 **Git Command Errors**:
-- Check repos-mcp service logs
+- Check agentic-repos service logs
 - Verify repository permissions
 - Test SSH connectivity first
 
@@ -270,9 +270,9 @@ You can also test manually against a development instance:
 # Start development shell
 nix develop
 
-# Build and run repos-mcp
+# Build and run agentic-repos
 cargo build --release
-./target/release/repos-mcp --config config.yaml
+./target/release/agentic-repos --config config.yaml
 
 # Test from another terminal
 ssh -i ~/.ssh/id_ed25519 -p 2222 user@localhost 'git-upload-pack /test/repo'
@@ -313,7 +313,7 @@ find . -name "*.rs" -o -name "*.nix" | entr -c nix flake check
 1. **Add test to flake.nix**:
 ```nix
 new-test = pkgs.testers.runNixOSTest {
-  name = "repos-mcp-new-test";
+  name = "agentic-repos-new-test";
   nodes = { /* VM configuration */ };
   testScript = '' /* Python test script */ '';
 };
@@ -374,4 +374,4 @@ ssh-keygen -l -f /path/to/test_ssh_key.pub
 ssh -vvv -i test_key -p 2222 localhost
 ```
 
-This VM testing framework ensures repos-mcp works correctly in realistic deployment scenarios and catches integration issues that unit tests cannot detect.
+This VM testing framework ensures agentic-repos works correctly in realistic deployment scenarios and catches integration issues that unit tests cannot detect.

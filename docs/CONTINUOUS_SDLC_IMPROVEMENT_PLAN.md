@@ -8,7 +8,7 @@
 
 ## 1. Purpose
 
-This document defines the continuous improvement processes for repos-mcp's software development lifecycle. It leverages the SDLC monitoring framework (module `sdlc/`) and DORA metrics to drive measurable, quarterly improvements.
+This document defines the continuous improvement processes for agentic-repos's software development lifecycle. It leverages the SDLC monitoring framework (module `sdlc/`) and DORA metrics to drive measurable, quarterly improvements.
 
 ---
 

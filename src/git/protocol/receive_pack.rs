@@ -89,7 +89,7 @@ impl ReceivePackHandler {
             "report-status",
             "delete-refs",
             "ofs-delta",
-            "agent=repos-mcp/0.1.0",
+            "agent=agentic-repos/0.1.0",
         ];
 
         let repo_path_clone1 = repo_path.to_path_buf();

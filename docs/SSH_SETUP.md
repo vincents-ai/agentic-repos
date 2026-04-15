@@ -1,8 +1,8 @@
-# SSH Setup Guide for repos-mcp
+# SSH Setup Guide for agentic-repos
 
 ## Overview
 
-repos-mcp provides SSH-based Git access for secure repository operations. This guide covers SSH setup, key management, and testing.
+agentic-repos provides SSH-based Git access for secure repository operations. This guide covers SSH setup, key management, and testing.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ repos-mcp provides SSH-based Git access for secure repository operations. This g
 
 ## SSH Configuration
 
-### 1. Enable SSH in repos-mcp
+### 1. Enable SSH in agentic-repos
 
 **Via Environment Variables:**
 ```bash
@@ -26,7 +26,7 @@ export REPOS_SSH_AUTHORIZED_KEYS_PATH="./data/ssh/authorized_keys"
 ```yaml
 plugins:
   - name: git-operations
-    path: ./plugins/librepos_mcp.so
+    path: ./plugins/libagentic_repos.so
     config:
       ssh.enabled: true
       ssh.port: 2222
@@ -49,18 +49,18 @@ chmod 600 ./data/ssh/host_key
 
 ```bash
 # Generate key pair for each user
-ssh-keygen -t rsa -b 2048 -f ~/.ssh/repos_mcp_user -C "user@example.com"
+ssh-keygen -t rsa -b 2048 -f ~/.ssh/agentic_repos_user -C "user@example.com"
 
 # This creates:
-# ~/.ssh/repos_mcp_user       (private key)
-# ~/.ssh/repos_mcp_user.pub   (public key)
+# ~/.ssh/agentic_repos_user       (private key)
+# ~/.ssh/agentic_repos_user.pub   (public key)
 ```
 
 ### 4. Authorize User Keys
 
 ```bash
 # Add public key to authorized_keys
-cat ~/.ssh/repos_mcp_user.pub >> ./data/ssh/authorized_keys
+cat ~/.ssh/agentic_repos_user.pub >> ./data/ssh/authorized_keys
 
 # Set permissions
 chmod 600 ./data/ssh/authorized_keys
@@ -71,11 +71,11 @@ chmod 600 ./data/ssh/authorized_keys
 Create or update `~/.ssh/config`:
 
 ```
-Host repos-mcp
+Host agentic-repos
     HostName localhost
     Port 2222
     User git
-    IdentityFile ~/.ssh/repos_mcp_user
+    IdentityFile ~/.ssh/agentic_repos_user
     StrictHostKeyChecking no
 ```
 
@@ -108,7 +108,7 @@ ssh -T git@localhost -p 2222
 ```bash
 # Create test repository first
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ./target/release/librepos_mcp.so \
+  -p ./target/release/libagentic_repos.so \
   -a repo.create \
   --args '{"id":"1","method":"repo.create","params":{"name":"test-repo","tenant_id":"test-tenant"}}'
 
@@ -116,7 +116,7 @@ ssh -T git@localhost -p 2222
 git clone ssh://git@localhost:2222/test-tenant/test-repo.git
 
 # Or with SSH config
-git clone repos-mcp:test-tenant/test-repo.git
+git clone agentic-repos:test-tenant/test-repo.git
 ```
 
 ### Test 4: Push to Repository
@@ -176,7 +176,7 @@ git pull ssh://git@localhost:2222/my-company/my-project.git master
 ### With SSH Config
 ```bash
 # After adding Host to ~/.ssh/config
-git clone repos-mcp:my-company/my-project.git
+git clone agentic-repos:my-company/my-project.git
 ```
 
 ## Multi-Tenant SSH Access
@@ -217,7 +217,7 @@ mkdir -p ./data/ssh/tenants/tenant-1
 cat user1_key.pub > ./data/ssh/tenants/tenant-1/authorized_keys
 ```
 
-Configure in repos-mcp:
+Configure in agentic-repos:
 ```yaml
 ssh.authorized_keys_path: "./data/ssh/tenants/{tenant_id}/authorized_keys"
 ```
@@ -227,22 +227,22 @@ ssh.authorized_keys_path: "./data/ssh/tenants/{tenant_id}/authorized_keys"
 ### 1. Use Strong Keys
 ```bash
 # RSA 4096-bit
-ssh-keygen -t rsa -b 4096 -f ~/.ssh/repos_mcp_key
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/agentic_repos_key
 
 # Or Ed25519 (recommended)
-ssh-keygen -t ed25519 -f ~/.ssh/repos_mcp_key
+ssh-keygen -t ed25519 -f ~/.ssh/agentic_repos_key
 ```
 
 ### 2. Protect Private Keys
 ```bash
-chmod 600 ~/.ssh/repos_mcp_user
+chmod 600 ~/.ssh/agentic_repos_user
 chmod 700 ~/.ssh/
 ```
 
 ### 3. Use Key Passphrases
 ```bash
 # Add passphrase when generating key
-ssh-keygen -t rsa -b 4096 -f ~/.ssh/repos_mcp_key
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/agentic_repos_key
 # Enter passphrase when prompted
 ```
 
@@ -269,7 +269,7 @@ iptables -A INPUT -p tcp --dport 2222 -j ACCEPT
 
 **Solutions**:
 1. Verify SSH is enabled: `echo $REPOS_SSH_ENABLED` should be `true`
-2. Check server is running: `ps aux | grep repos_mcp`
+2. Check server is running: `ps aux | grep agentic_repos`
 3. Verify port: `netstat -tuln | grep 2222`
 4. Check logs: `tail -f skylet.log | grep SSH`
 
@@ -279,7 +279,7 @@ iptables -A INPUT -p tcp --dport 2222 -j ACCEPT
 
 **Solutions**:
 1. Verify public key in authorized_keys: `cat ./data/ssh/authorized_keys`
-2. Check private key permissions: `chmod 600 ~/.ssh/repos_mcp_user`
+2. Check private key permissions: `chmod 600 ~/.ssh/agentic_repos_user`
 3. Verify SSH config points to correct key
 4. Test with verbose: `ssh -vvv git@localhost -p 2222`
 
@@ -325,7 +325,7 @@ ssh:
 
 Create custom welcome message:
 ```bash
-echo "Welcome to repos-mcp Git Server" > ./data/ssh/banner.txt
+echo "Welcome to agentic-repos Git Server" > ./data/ssh/banner.txt
 ```
 
 Configure:

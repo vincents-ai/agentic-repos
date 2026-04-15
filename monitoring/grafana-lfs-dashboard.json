@@ -858,7 +858,7 @@
   "refresh": "10s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["lfs", "git", "repos-mcp"],
+  "tags": ["lfs", "git", "agentic-repos"],
   "templating": {
     "list": [
       {
@@ -887,7 +887,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Git LFS Monitoring - repos-mcp",
+  "title": "Git LFS Monitoring - agentic-repos",
   "uid": "lfs-monitoring",
   "version": 0,
   "weekStart": ""

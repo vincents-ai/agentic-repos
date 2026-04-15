@@ -1,4 +1,4 @@
-//! repos-mcp - Multi-tenant Git server with SSH protocol support
+//! agentic-repos - Multi-tenant Git server with SSH protocol support
 
 #![allow(clippy::result_large_err)]
 

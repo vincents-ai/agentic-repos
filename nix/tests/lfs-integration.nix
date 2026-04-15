@@ -1,11 +1,11 @@
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
   lfsServerConfig = { config, pkgs, ... }: {
     networking.firewall.enable = false;
 
     environment.systemPackages = with pkgs; [
-      repos-mcp
+      agentic-repos
       git
       git-lfs
       curl
@@ -21,7 +21,7 @@ let
 
     services.postgresql = {
       enable = true;
-      ensureDatabases = [ "repos_mcp" ];
+      ensureDatabases = [ "agentic_repos" ];
       ensureUsers = [{
         name = "root";
         ensureDBOwnership = true;
@@ -33,37 +33,37 @@ let
       '';
     };
 
-    systemd.services.repos-mcp = {
-      description = "repos-mcp Git server with LFS";
+    systemd.services.agentic-repos = {
+      description = "agentic-repos Git server with LFS";
       after = [ "network.target" "postgresql.service" ];
       requires = [ "postgresql.service" ];
       wantedBy = [ "multi-user.target" ];
 
       environment = {
-        DATABASE_URL = "postgres://root@localhost/repos_mcp";
+        DATABASE_URL = "postgres://root@localhost/agentic_repos";
       };
 
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${repos-mcp}/bin/repos-mcp";
-        WorkingDirectory = "/etc/repos-mcp";
+        ExecStart = "${agentic-repos}/bin/agentic-repos";
+        WorkingDirectory = "/etc/agentic-repos";
         Restart = "always";
         User = "root";
       };
     };
 
-    environment.etc."repos-mcp/config.yaml".text = ''
+    environment.etc."agentic-repos/config.yaml".text = ''
       server:
         host: "0.0.0.0"
         port: 8090
         ssh:
           port: 2222
-          host_key_path: "/etc/repos-mcp/ssh_host_ed25519_key"
+          host_key_path: "/etc/agentic-repos/ssh_host_ed25519_key"
           max_connections: 10
           connection_timeout_secs: 30
 
       auth:
-        authorized_keys_path: "/etc/repos-mcp/authorized_keys"
+        authorized_keys_path: "/etc/agentic-repos/authorized_keys"
 
       rbac:
         enabled: false
@@ -72,10 +72,10 @@ let
       storage:
         type: "local"
         local:
-          path: "/var/lib/repos-mcp"
+          path: "/var/lib/agentic-repos"
 
       database:
-        url: "postgres://root@localhost/repos_mcp"
+        url: "postgres://root@localhost/agentic_repos"
         max_connections: 5
 
       rate_limit:
@@ -157,7 +157,7 @@ let
       };
     };
 
-    environment.etc."repos-mcp/s3-config.yaml".text = ''
+    environment.etc."agentic-repos/s3-config.yaml".text = ''
       endpoint: "http://storage:3900"
       access_key: "GKlfsadmin"
       secret_key: "GSlfsadminsecretkey123456"
@@ -186,7 +186,7 @@ let
         client.succeed("cd /tmp/test-lfs-upload && git commit -m 'Add LFS tracked file'")
         client.succeed("cd /tmp/test-lfs-upload && git push -u origin master || git push -u origin main")
 
-        server.succeed("test -d /var/lib/repos-mcp/tenant1/test-lfs-upload.git/lfs/objects || test -d /var/lib/repos-mcp/tenant1/test-lfs-upload.git")
+        server.succeed("test -d /var/lib/agentic-repos/tenant1/test-lfs-upload.git/lfs/objects || test -d /var/lib/agentic-repos/tenant1/test-lfs-upload.git")
       '';
     }
     {
@@ -339,7 +339,7 @@ let
       testScript = ''
         ${waitForReposMCP}
 
-        throttle_config = server.succeed("cat /etc/repos-mcp/config.yaml | grep -A5 throttle || echo 'throttle_config'")
+        throttle_config = server.succeed("cat /etc/agentic-repos/config.yaml | grep -A5 throttle || echo 'throttle_config'")
       '';
     }
     {
@@ -367,7 +367,7 @@ let
         client.succeed("cd /tmp/test-quota-isolation && git add . && git commit -m 'tenant2 quota test'")
         client.succeed("cd /tmp/test-quota-isolation && git push -u origin master || git push -u origin main || true")
 
-        server.succeed("test -d /var/lib/repos-mcp/tenant2")
+        server.succeed("test -d /var/lib/agentic-repos/tenant2")
       '';
     }
     {
@@ -386,7 +386,7 @@ let
         client.succeed("cd /tmp/test-local-storage && git add . && git commit -m 'local storage'")
         client.succeed("cd /tmp/test-local-storage && git push -u origin master || git push -u origin main || true")
 
-        server.succeed("test -d /var/lib/repos-mcp/tenant1/test-local-storage.git/lfs/objects || test -d /var/lib/repos-mcp/tenant1/test-local-storage.git")
+        server.succeed("test -d /var/lib/agentic-repos/tenant1/test-local-storage.git/lfs/objects || test -d /var/lib/agentic-repos/tenant1/test-local-storage.git")
       '';
     }
     {
@@ -394,7 +394,7 @@ let
       testScript = ''
         ${waitForReposMCP}
 
-        storage_path = server.succeed("find /var/lib/repos-mcp -type d -name 'lfs' 2>/dev/null | head -1 || echo '/var/lib/repos-mcp/tenant1/test-local-storage.git/lfs/objects'")
+        storage_path = server.succeed("find /var/lib/agentic-repos -type d -name 'lfs' 2>/dev/null | head -1 || echo '/var/lib/agentic-repos/tenant1/test-local-storage.git/lfs/objects'")
         assert "lfs" in storage_path
       '';
     }
@@ -426,7 +426,7 @@ let
       testScript = ''
         storage.wait_for_unit("garage.service")
 
-        s3_config = storage.succeed("cat /etc/repos-mcp/s3-config.yaml")
+        s3_config = storage.succeed("cat /etc/agentic-repos/s3-config.yaml")
         assert "3900" in s3_config
         assert "lfs-objects" in s3_config
       '';
@@ -486,7 +486,7 @@ let
         health = server.succeed("curl -s http://localhost:8090/health")
         assert "ok" in health.lower() or "healthy" in health.lower() or "200" in health or True
 
-        server.succeed("systemctl is-active repos-mcp.service")
+        server.succeed("systemctl is-active agentic-repos.service")
         server.succeed("systemctl is-active postgresql.service")
       '';
     }
@@ -508,7 +508,7 @@ let
 
         gc_status = server.succeed("curl -s http://localhost:8090/api/v1/gc/status 2>&1 || echo 'gc_disabled'")
 
-        audit_logs = server.succeed("journalctl -u repos-mcp --no-pager -n 50 | grep -i lfs || echo 'audit_complete'")
+        audit_logs = server.succeed("journalctl -u agentic-repos --no-pager -n 50 | grep -i lfs || echo 'audit_complete'")
       '';
     }
   ];

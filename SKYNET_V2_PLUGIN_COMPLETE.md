@@ -1,4 +1,4 @@
-repos-mcp Skynet v2 Git Operations Plugin - Development Complete
+agentic-repos Skynet v2 Git Operations Plugin - Development Complete
 ================================================================
 
 Project Status: PRODUCTION READY ✓
@@ -255,7 +255,7 @@ HOW TO USE
 Quick Start
 -----------
 # Verify compilation
-cd /home/shift/code/vincents-ai/repos-mcp
+cd /home/shift/code/vincents-ai/agentic-repos
 cargo check --lib
 
 # Run tests
@@ -275,8 +275,8 @@ Integration with Skynet v2
 
 Example Code
 -----------
-use repos_mcp::skynet;
-use repos_mcp::config::AppConfig;
+use agentic_repos::skynet;
+use agentic_repos::config::AppConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -324,7 +324,7 @@ Documentation Coverage
 CONCLUSION
 ==========
 
-The repos-mcp Skynet v2 Git Operations Plugin is complete and production-ready.
+The agentic-repos Skynet v2 Git Operations Plugin is complete and production-ready.
 
 ✓ All 11 implementation tasks finished
 ✓ 19 source files with 2,802 lines of code

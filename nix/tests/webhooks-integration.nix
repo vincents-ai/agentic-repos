@@ -1,4 +1,4 @@
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
 
 let
   webhookReceiverScript = pkgs.writeShellScriptBin "webhook-receiver" ''
@@ -117,7 +117,7 @@ let
 in
 {
   webhooks-integration = pkgs.testers.runNixOSTest {
-    name = "repos-mcp-webhooks-integration";
+    name = "agentic-repos-webhooks-integration";
 
   nodes = {
     server = { config, pkgs, ... }: {
@@ -125,7 +125,7 @@ in
       networking.firewall.enable = false;
       
       environment.systemPackages = with pkgs; [
-        repos-mcp
+        agentic-repos
         curl
         jq
         netcat
@@ -133,8 +133,8 @@ in
         procps
       ];
       
-      systemd.services.repos-mcp = {
-        description = "repos-mcp Git server with webhooks";
+      systemd.services.agentic-repos = {
+        description = "agentic-repos Git server with webhooks";
         after = [ "network.target" ];
         wantedBy = [ "multi-user.target" ];
         
@@ -144,25 +144,25 @@ in
         
         serviceConfig = {
           Type = "simple";
-          ExecStart = "${repos-mcp}/bin/repos-mcp";
-          WorkingDirectory = "/etc/repos-mcp";
+          ExecStart = "${agentic-repos}/bin/agentic-repos";
+          WorkingDirectory = "/etc/agentic-repos";
           Restart = "always";
           User = "root";
         };
       };
       
-      environment.etc."repos-mcp/config.yaml".text = ''
+      environment.etc."agentic-repos/config.yaml".text = ''
         server:
           host: "0.0.0.0"
           port: 8090
           ssh:
             port: 2222
-            host_key_path: "/etc/repos-mcp/ssh_host_ed25519_key"
+            host_key_path: "/etc/agentic-repos/ssh_host_ed25519_key"
             max_connections: 10
             connection_timeout_secs: 30
         
         auth:
-          authorized_keys_path: "/etc/repos-mcp/authorized_keys"
+          authorized_keys_path: "/etc/agentic-repos/authorized_keys"
         
         rbac:
           enabled: false
@@ -177,7 +177,7 @@ in
         storage:
           type: "local"
           local:
-            path: "/var/lib/repos-mcp"
+            path: "/var/lib/agentic-repos"
         
         rate_limit:
           enabled: false
@@ -268,7 +268,7 @@ in
         node.wait_for_unit("%s.service" % (service_name,), timeout)
 
     def api_call(node, method, endpoint, data=None, headers=None):
-        """Make an API call to repos-mcp."""
+        """Make an API call to agentic-repos."""
         cmd = "curl -s -X %s http://server:8090%s" % (method, endpoint,)
         if data:
             cmd += " -H 'Content-Type: application/json' -d '%s'" % (json.dumps(data),)
@@ -282,7 +282,7 @@ in
     # ============================================================
     
     with subtest("1.1 - Server startup and health check"):
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
         
         # Verify server is responding
@@ -427,8 +427,8 @@ in
         # For testing, we use the dispatch endpoint if available
         
         # Simulate push event by creating repository and pushing
-        server.succeed("mkdir -p /var/lib/repos-mcp/delivery-tenant")
-        server.succeed("cd /var/lib/repos-mcp/delivery-tenant && git init --bare test-repo.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/delivery-tenant")
+        server.succeed("cd /var/lib/agentic-repos/delivery-tenant && git init --bare test-repo.git")
         
         # Check if webhook was delivered (may require actual git push)
         # For now, verify webhook is active and ready

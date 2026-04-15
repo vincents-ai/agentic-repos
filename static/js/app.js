@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('repos-mcp Web UI loaded');
+    console.log('agentic-repos Web UI loaded');
     
     const copyButtons = document.querySelectorAll('button[onclick*="copyToClipboard"]');
     copyButtons.forEach(button => {

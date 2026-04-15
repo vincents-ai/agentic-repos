@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: repos-mcp-config
-  namespace: repos-mcp
+  name: agentic-repos-config
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 data:
   REPOS_MCP_STORAGE__TYPE: "s3"
   REPOS_MCP_STORAGE__S3__REGION: "us-east-1"

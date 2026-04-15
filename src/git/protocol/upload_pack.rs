@@ -139,7 +139,7 @@ impl UploadPackHandler {
             "multi_ack",
             "side-band-64k",
             "ofs-delta",
-            "agent=repos-mcp/0.1.0",
+            "agent=agentic-repos/0.1.0",
         ];
 
         let mut count = 0;

@@ -115,7 +115,11 @@ impl GitService {
 
         self.storage.create_directory(&repo_path).await?;
 
-        let _repo = gix::init_bare(&repo_path).map_err(|e| GitServiceError::Git(e.to_string()))?;
+        // Resolve to absolute path before passing to gix (which uses CWD-relative paths)
+        let abs_repo_path = self.storage.root()
+            .expect("local storage required for repo creation")
+            .join(&repo_path);
+        let _repo = gix::init_bare(&abs_repo_path).map_err(|e| GitServiceError::Git(e.to_string()))?;
 
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -155,7 +159,10 @@ impl GitService {
 
         let size = self.calculate_repository_size(&repo_path).await?;
 
-        let repo = gix::open(&repo_path)
+        let abs_repo_path = self.storage.root()
+            .expect("local storage required")
+            .join(&repo_path);
+        let repo = gix::open(&abs_repo_path)
             .map_err(|e| GitServiceError::RepositoryNotFound(e.to_string()))?;
 
         let default_branch = repo
@@ -272,7 +279,10 @@ impl GitService {
             )));
         }
 
-        let repo = gix::open(&repo_path)
+        let abs_repo_path = self.storage.root()
+            .expect("local storage required")
+            .join(&repo_path);
+        let repo = gix::open(&abs_repo_path)
             .map_err(|e| GitServiceError::RepositoryNotFound(e.to_string()))?;
 
         let mut branches = Vec::new();

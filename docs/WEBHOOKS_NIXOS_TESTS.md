@@ -1,6 +1,6 @@
 # Webhooks NixOS Integration Tests
 
-This document describes the NixOS integration tests for the repos-mcp webhook system.
+This document describes the NixOS integration tests for the agentic-repos webhook system.
 
 ## Test File Location
 
@@ -22,7 +22,7 @@ nix-shell -p nixos-rebuild --run "nixos-rebuild build-vm"
 
 The test uses two NixOS virtual machines:
 
-1. **server** - Runs repos-mcp with webhooks enabled
+1. **server** - Runs agentic-repos with webhooks enabled
 2. **receiver** - Runs webhook receiver services for testing delivery
 
 ### Server Configuration
@@ -263,7 +263,7 @@ logging:
 
 Check server logs:
 ```bash
-journalctl -u repos-mcp -f
+journalctl -u agentic-repos -f
 ```
 
 ## Test Implementation Notes

@@ -5,17 +5,17 @@
 set -e
 
 echo "========================================"
-echo "repos-mcp Git Operations Test"
+echo "agentic-repos Git Operations Test"
 echo "Date: $(date)"
 echo "========================================"
 
 # Test configuration
-PLUGIN="./target/release/librepos_mcp.so"
+PLUGIN="./target/release/libagentic_repos.so"
 TEST_DIR="./test-git-ops-$$"
 TENANT_ID="test-tenant-$(date +%s)"
 
 echo ""
-echo "Step 1: Validate repos-mcp plugin"
+echo "Step 1: Validate agentic-repos plugin"
 if [ ! -f "$PLUGIN" ]; then
     echo "ERROR: Plugin not found at $PLUGIN"
     exit 1
@@ -79,7 +79,7 @@ git config user.email "test@example.com"
 git config user.name "Test User"
 
 echo "# Test Repository" > README.md
-echo "This is a test for repos-mcp" >> README.md
+echo "This is a test for agentic-repos" >> README.md
 git add README.md
 git commit -m "Initial commit"
 

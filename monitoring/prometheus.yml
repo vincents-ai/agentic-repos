@@ -2,15 +2,15 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    cluster: 'repos-mcp'
+    cluster: 'agentic-repos'
     environment: 'production'
 
 scrape_configs:
-  - job_name: 'repos-mcp'
+  - job_name: 'agentic-repos'
     static_configs:
       - targets: ['localhost:8090']
         labels:
-          service: 'repos-mcp'
+          service: 'agentic-repos'
           component: 'lfs'
     
     scrape_interval: 15s
@@ -20,7 +20,7 @@ scrape_configs:
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        replacement: 'repos-mcp-main'
+        replacement: 'agentic-repos-main'
 
 rule_files:
   - 'alerts.yml'

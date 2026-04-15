@@ -1,6 +1,6 @@
-# repos-mcp Plugin Deployment Guide
+# agentic-repos Plugin Deployment Guide
 
-## Complete deployment instructions for repos-mcp with garage-s3 storage backend
+## Complete deployment instructions for agentic-repos with garage-s3 storage backend
 
 ## Table of Contents
 
@@ -16,13 +16,13 @@
 
 ## Overview
 
-The repos-mcp plugin provides multi-tenant Git server functionality for Skylet, including:
+The agentic-repos plugin provides multi-tenant Git server functionality for Skylet, including:
 - Git repository management (create, clone, push, pull)
 - Git LFS support for large files
 - Multi-tenant isolation
 - Multiple storage backends (local, S3)
 
-When combined with the garage-s3 plugin, repos-mcp can use S3-compatible storage for both Git repositories and LFS objects.
+When combined with the garage-s3 plugin, agentic-repos can use S3-compatible storage for both Git repositories and LFS objects.
 
 ### Architecture
 
@@ -34,7 +34,7 @@ When combined with the garage-s3 plugin, repos-mcp can use S3-compatible storage
          ┌───────┴────────┐
          │                │
     ┌────▼─────┐    ┌────▼──────┐
-    │ repos-mcp│    │ garage-s3 │
+    │ agentic-repos│    │ garage-s3 │
     │  (Git)   │────│  (S3)     │
     └──────────┘    └─────┬─────┘
                           │
@@ -61,7 +61,7 @@ When combined with the garage-s3 plugin, repos-mcp can use S3-compatible storage
 
 ### Files Needed
 
-1. **repos-mcp plugin**: `librepos_mcp.so` (~10MB)
+1. **agentic-repos plugin**: `libagentic_repos.so` (~10MB)
 2. **garage-s3 plugin**: `libgarage_s3.so` (~11MB) - optional but recommended
 
 ## Quick Deployment
@@ -69,8 +69,8 @@ When combined with the garage-s3 plugin, repos-mcp can use S3-compatible storage
 ### Step 1: Build Plugins
 
 ```bash
-# Clone repos-mcp
-cd ~/code/vincents-ai/repos-mcp
+# Clone agentic-repos
+cd ~/code/vincents-ai/agentic-repos
 nix build
 
 # Build garage-s3 (optional, for S3 storage)
@@ -81,18 +81,18 @@ cargo build --release -p garage-s3
 ### Step 2: Create Deployment Package
 
 ```bash
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 ./package.sh
 ```
 
-This creates: `dist/repos-mcp-plugin-0.1.0.tar.gz`
+This creates: `dist/agentic-repos-plugin-0.1.0.tar.gz`
 
 ### Step 3: Deploy
 
 ```bash
 # Extract package
-tar -xzf dist/repos-mcp-plugin-0.1.0.tar.gz
-cd repos-mcp-plugin-0.1.0
+tar -xzf dist/agentic-repos-plugin-0.1.0.tar.gz
+cd agentic-repos-plugin-0.1.0
 
 # Install to Skylet
 export SKYLET_DIR=~/code/skylet
@@ -103,7 +103,7 @@ export SKYLET_DIR=~/code/skylet
 
 ```bash
 cd ~/code/skylet
-source repos-mcp.env
+source agentic-repos.env
 ./target/release/skylet server
 ```
 
@@ -114,7 +114,7 @@ source repos-mcp.env
 curl http://localhost:8080/health
 
 # Test git operations
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 ./test-simple.sh
 ```
 
@@ -124,12 +124,12 @@ cd ~/code/vincents-ai/repos-mcp
 
 ```bash
 # Create Skylet plugins directory
-mkdir -p ~/code/skylet/plugins/repos-mcp
+mkdir -p ~/code/skylet/plugins/agentic-repos
 mkdir -p ~/code/skylet/plugins/garage-s3
 
-# Copy repos-mcp plugin
-cp ~/code/vincents-ai/repos-mcp/target/release/librepos_mcp.so \
-   ~/code/skylet/plugins/repos-mcp/
+# Copy agentic-repos plugin
+cp ~/code/vincents-ai/agentic-repos/target/release/libagentic_repos.so \
+   ~/code/skylet/plugins/agentic-repos/
 
 # Copy garage-s3 plugin (optional)
 cp ~/code/vincents-ai/skynet/target/release/libgarage_s3.so \
@@ -165,7 +165,7 @@ plugins:
 
   # Git operations - load second
   - name: git-operations
-    path: ./plugins/repos-mcp/librepos_mcp.so
+    path: ./plugins/agentic-repos/libagentic_repos.so
     enabled: true
     priority: 5
     config:
@@ -183,7 +183,7 @@ discovery:
 
 ### Step 3: Set Environment Variables
 
-Create `~/code/skylet/repos-mcp.env`:
+Create `~/code/skylet/agentic-repos.env`:
 
 ```bash
 # Storage Configuration
@@ -208,7 +208,7 @@ export REPOS_LOG_LEVEL="info"
 Source it:
 
 ```bash
-source ~/code/skylet/repos-mcp.env
+source ~/code/skylet/agentic-repos.env
 ```
 
 ### Step 4: Start Skylet
@@ -225,13 +225,13 @@ INFO Starting Skylet server...
 INFO Bootstrap plugins loaded successfully
 INFO Discovered 7 plugins from 1 search paths
 INFO Successfully initialized v2 plugin: garage_s3
-INFO Successfully initialized v2 plugin: repos_mcp
+INFO Successfully initialized v2 plugin: agentic_repos
 INFO Server listening on 0.0.0.0:8080
 ```
 
 ## Configuration
 
-### repos-mcp Configuration Options
+### agentic-repos Configuration Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -256,7 +256,7 @@ INFO Server listening on 0.0.0.0:8080
 
 ### Environment Variables
 
-repos-mcp respects these environment variables:
+agentic-repos respects these environment variables:
 
 ```bash
 # Storage
@@ -286,8 +286,8 @@ REPOS_LOG_LEVEL           # Log level
 
 1. **garage-s3** starts embedded Garage server as a subprocess
 2. **garage-s3** registers S3 storage service in Skylet's global registry
-3. **repos-mcp** queries global registry for available storage backends
-4. **repos-mcp** uses S3 backend for Git repositories and LFS objects
+3. **agentic-repos** queries global registry for available storage backends
+4. **agentic-repos** uses S3 backend for Git repositories and LFS objects
 
 ### Enabling S3 Storage
 
@@ -296,7 +296,7 @@ Update `config.yaml`:
 ```yaml
 plugins:
   - name: git-operations
-    path: ./plugins/repos-mcp/librepos_mcp.so
+    path: ./plugins/agentic-repos/libagentic_repos.so
     config:
       storage.default_backend: "s3"  # Changed from "local"
       storage.local_path: "./data/repos"
@@ -338,14 +338,14 @@ Each tenant gets isolated storage:
 ### Basic Git Operations Test
 
 ```bash
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 ./test-simple.sh
 ```
 
 Expected output:
 
 ```
-=== repos-mcp Git Operations Test ===
+=== agentic-repos Git Operations Test ===
 ✓ Plugin found
 ✓ Plugin validated
 ✓ Storage configured
@@ -361,7 +361,7 @@ Expected output:
 ### Integration Test with Skylet
 
 ```bash
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 ./test-integration.sh
 ```
 
@@ -377,19 +377,19 @@ This tests:
 ```bash
 # Create repository
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ~/code/skylet/plugins/repos-mcp/librepos_mcp.so \
+  -p ~/code/skylet/plugins/agentic-repos/libagentic_repos.so \
   -a repo.create \
   --args '{"id":"1","method":"repo.create","params":{"name":"test","tenant_id":"tenant1"}}'
 
 # List repositories
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ~/code/skylet/plugins/repos-mcp/librepos_mcp.so \
+  -p ~/code/skylet/plugins/agentic-repos/libagentic_repos.so \
   -a repo.list \
   --args '{"id":"2","method":"repo.list","params":{"tenant_id":"tenant1"}}'
 
 # Health check
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ~/code/skylet/plugins/repos-mcp/librepos_mcp.so \
+  -p ~/code/skylet/plugins/agentic-repos/libagentic_repos.so \
   -a health \
   --args '{}'
 ```
@@ -402,7 +402,7 @@ This tests:
 
 **Solutions**:
 1. Check file permissions: `chmod +x plugins/*/*.so`
-2. Check dependencies: `ldd plugins/repos-mcp/librepos_mcp.so`
+2. Check dependencies: `ldd plugins/agentic-repos/libagentic_repos.so`
 3. Check logs for errors
 4. Verify ABI version matches Skylet version
 
@@ -462,7 +462,7 @@ Check logs:
 tail -f ~/code/skylet/skylet.log
 
 # Plugin logs (if configured)
-tail -f ~/code/skylet/logs/repos-mcp.log
+tail -f ~/code/skylet/logs/agentic-repos.log
 ```
 
 ## Production Deployment
@@ -552,7 +552,7 @@ For large deployments:
 
 ### Getting Help
 
-- **GitHub**: https://github.com/vincents-ai/repos-mcp
+- **GitHub**: https://github.com/vincents-ai/agentic-repos
 - **Skylet**: https://github.com/vincents-ai/skylet
 - **Issues**: Report bugs and request features on GitHub
 

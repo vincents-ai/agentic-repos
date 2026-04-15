@@ -375,7 +375,7 @@ Response with PluginResponse
 ### Using Git Operations
 
 ```rust
-use repos_mcp::skynet::git_ops::GitOperationService;
+use agentic_repos::skynet::git_ops::GitOperationService;
 use std::path::Path;
 
 #[tokio::main]
@@ -412,7 +412,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Using SSH Key Manager
 
 ```rust
-use repos_mcp::skynet::ssh_keys::{SshKeyManager, CreateSshKeyRequest};
+use agentic_repos::skynet::ssh_keys::{SshKeyManager, CreateSshKeyRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -443,7 +443,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Database Setup
 
 ```rust
-use repos_mcp::skynet::database_models::migrations;
+use agentic_repos::skynet::database_models::migrations;
 use sqlx::PgPool;
 
 #[tokio::main]

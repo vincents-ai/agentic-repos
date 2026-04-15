@@ -40,7 +40,10 @@ impl SshServer {
     ) -> Self {
         let config = config.unwrap_or_default();
         let lfs_config = lfs_config.unwrap_or_default();
-        let auth_manager = AuthorizedKeysManager::new(config.clone());
+        let mut auth_manager = AuthorizedKeysManager::new(config.clone());
+        if let Some(root) = git_service.get_storage_root() {
+            auth_manager = auth_manager.with_storage_root(root);
+        }
         let rate_limiter = RateLimiter::new(Some(config.rate_limit.clone()));
 
         Self {
@@ -591,9 +594,15 @@ impl russh::server::Handler for SshHandler {
                                         "git-upload-pack completed for {} from {}",
                                         repository_name, peer_ip
                                     );
+                                    let _ = handle.exit_status_request(channel, 0).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
                                 }
                                 Err(e) => {
                                     error!("git-upload-pack failed for {}: {}", repository_name, e);
+                                    let _ = handle.exit_status_request(channel, 1).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
                                 }
                             }
                         });
@@ -864,7 +873,7 @@ impl SshHandler {
         info!("SSH Authentication Audit: {}", audit_entry.trim());
 
         // Write to audit log file if configured
-        let audit_path = "/var/log/repos-mcp/auth-audit.log";
+        let audit_path = "/var/log/agentic-repos/auth-audit.log";
         if let Some(parent) = std::path::Path::new(audit_path).parent() {
             if tokio::fs::create_dir_all(parent).await.is_err() {
                 // If we can't create directory, just log to tracing

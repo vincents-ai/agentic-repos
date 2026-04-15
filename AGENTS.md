@@ -1,4 +1,4 @@
-# AGENTS.md — agentic-repos (repos-mcp)
+# AGENTS.md — agentic-repos (agentic-repos)
 
 **Read the workspace AGENTS.md at `../AGENTS.md` first.** This file extends it with repo-specific detail for `agentic-repos`. Platform-wide rules (engram protocol, licensing, build conventions, commit format) are defined there and apply here without exception.
 
@@ -6,10 +6,10 @@
 
 ## Repo Role in ADP
 
-`agentic-repos` (package name: `repos-mcp`) is the Git server and API backend of the ADP platform. It has two deployment modes:
+`agentic-repos` (package name: `agentic-repos`) is the Git server and API backend of the ADP platform. It has two deployment modes:
 
 1. **Standalone binary** — full-featured multi-tenant Git server with HTTP API, SSH server, web UI host, monitoring, and LFS.
-2. **Skylet v2 plugin** — compiles as `librepos_mcp.so`, loaded by the Skylet runtime to provide Git operations via FFI.
+2. **Skylet v2 plugin** — compiles as `libagentic_repos.so`, loaded by the Skylet runtime to provide Git operations via FFI.
 
 The `adp-web-ui` frontend is baked into this binary at compile time via `rust-embed`. Any new HTTP endpoint added here is part of the frontend contract.
 
@@ -86,16 +86,16 @@ agentic-repos/
 
 ```bash
 nix build
-# Output: result/bin/repos-mcp  or  result/lib/librepos_mcp.so
+# Output: result/bin/agentic-repos  or  result/lib/libagentic_repos.so
 ```
 
 ### Cargo (fallback)
 
 ```bash
 cargo build --release
-# Binary:  target/release/repos-mcp
-# Plugin:  target/release/librepos_mcp.so  (Linux)
-#          target/release/librepos_mcp.dylib (macOS)
+# Binary:  target/release/agentic-repos
+# Plugin:  target/release/libagentic_repos.so  (Linux)
+#          target/release/libagentic_repos.dylib (macOS)
 ```
 
 ### Pre-commit checks (must pass before every commit)
@@ -130,11 +130,11 @@ cargo test --test lfs_locks_integration
 # BDD tests
 ~/code/skylet/target/release/plugin-test-harness bdd \
   --feature-path ./features \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 
 # ABI compliance check
 ~/code/skylet/target/release/plugin-test-harness validate \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 ```
 
 Full validation checklist before marking work done:
@@ -198,7 +198,7 @@ When loaded as a Skylet plugin:
 ```yaml
 plugins:
   - name: git-operations
-    path: ./target/release/librepos_mcp.so
+    path: ./target/release/libagentic_repos.so
     config:
       storage.default_backend: "local"
       log.level: "info"
@@ -279,17 +279,17 @@ kubectl apply -f k8s/
 ### Skylet plugin (manual)
 
 ```bash
-cp target/release/librepos_mcp.so ~/code/skylet/plugins/repos-mcp/
+cp target/release/libagentic_repos.so ~/code/skylet/plugins/agentic-repos/
 cp config/skylet-config.yaml ~/code/skylet/config.yaml
-source config/repos-mcp.env
+source config/agentic-repos.env
 ```
 
 ### With garage-s3 storage plugin
 
-Load order matters — garage-s3 must load before repos-mcp:
+Load order matters — garage-s3 must load before agentic-repos:
 
 1. `garage-s3` (priority 10) — starts embedded Garage, registers S3 service
-2. `repos-mcp` (priority 5) — discovers garage-s3 via `global_registry()`, uses it for LFS/storage
+2. `agentic-repos` (priority 5) — discovers garage-s3 via `global_registry()`, uses it for LFS/storage
 
 See `DEPLOYMENT.md` for the full deployment guide.
 
@@ -300,7 +300,7 @@ See `DEPLOYMENT.md` for the full deployment guide.
 | Symptom | Check |
 |---|---|
 | Build fails: missing deps | `nix build` to get all deps in scope |
-| Plugin not loading | `ldd target/release/librepos_mcp.so` for missing symbols |
+| Plugin not loading | `ldd target/release/libagentic_repos.so` for missing symbols |
 | ABI version mismatch | Ensure `skylet-abi` version matches the Skylet runtime |
 | Test harness not found | Build from `~/code/skylet/plugin-test-harness` |
 | SSH auth failure | Verify `authorized_keys` format: `username:ssh-key-type key comment` |

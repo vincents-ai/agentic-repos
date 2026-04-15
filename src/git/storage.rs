@@ -12,7 +12,7 @@ pub struct GitStorageIntegration<S: StorageBackend> {
 
 impl<S: StorageBackend> GitStorageIntegration<S> {
     pub fn new(storage: Arc<S>, temp_dir: Option<PathBuf>) -> Self {
-        let temp_dir = temp_dir.unwrap_or_else(|| std::env::temp_dir().join("repos-mcp-git"));
+        let temp_dir = temp_dir.unwrap_or_else(|| std::env::temp_dir().join("agentic-repos-git"));
         let _ = std::fs::create_dir_all(&temp_dir);
         Self { storage, temp_dir }
     }

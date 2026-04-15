@@ -117,8 +117,8 @@ Usage Examples
 ### Initialize Plugin
 
 ```rust
-use repos_mcp::skynet;
-use repos_mcp::config::AppConfig;
+use agentic_repos::skynet;
+use agentic_repos::config::AppConfig;
 
 let config = AppConfig::from_env()?;
 let plugin = skynet::init_plugin(config).await?;
@@ -199,7 +199,7 @@ skynet:
 storage:
   backend: s3  # or local
   local:
-    base_path: /var/repos-mcp/repositories
+    base_path: /var/agentic-repos/repositories
   s3:
     endpoint: https://s3.amazonaws.com
     bucket: git-repositories

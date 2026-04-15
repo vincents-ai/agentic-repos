@@ -1,5 +1,5 @@
 {
-  description = "repos-mcp - Multi-tenant Git server with MCP integration";
+  description = "agentic-repos - Multi-tenant Git server with MCP integration";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -42,26 +42,26 @@
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        repos-mcp-uncompressed = craneLib.buildPackage (commonArgs // {
+        agentic-repos-uncompressed = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           doCheck = false;
         });
 
-        repos-mcp = pkgs.stdenv.mkDerivation {
-          name = "repos-mcp-0.1.0";
-          src = repos-mcp-uncompressed;
+        agentic-repos = pkgs.stdenv.mkDerivation {
+          name = "agentic-repos-0.1.0";
+          src = agentic-repos-uncompressed;
           
           nativeBuildInputs = [ pkgs.upx ];
           
           buildPhase = ''
-            cp ${repos-mcp-uncompressed}/bin/repos-mcp repos-mcp-tmp
-            chmod +w repos-mcp-tmp
-            upx --best --lzma repos-mcp-tmp -o repos-mcp-compressed
+            cp ${agentic-repos-uncompressed}/bin/agentic-repos agentic-repos-tmp
+            chmod +w agentic-repos-tmp
+            upx --best --lzma agentic-repos-tmp -o agentic-repos-compressed
             mkdir -p $out/bin
-            cp repos-mcp-compressed $out/bin/repos-mcp
-            chmod +x $out/bin/repos-mcp
-            if [ -d ${repos-mcp-uncompressed}/share ]; then
-              cp -r ${repos-mcp-uncompressed}/share $out/
+            cp agentic-repos-compressed $out/bin/agentic-repos
+            chmod +x $out/bin/agentic-repos
+            if [ -d ${agentic-repos-uncompressed}/share ]; then
+              cp -r ${agentic-repos-uncompressed}/share $out/
             fi
           '';
           
@@ -69,11 +69,11 @@
         };
 
         containerImage = pkgs.dockerTools.buildLayeredImage {
-          name = "repos-mcp";
+          name = "agentic-repos";
           tag = "latest";
           
           contents = with pkgs; [
-            repos-mcp
+            agentic-repos
             bashInteractive
             coreutils
             git
@@ -82,14 +82,14 @@
           ];
           
           config = {
-            Cmd = [ "${repos-mcp}/bin/repos-mcp" "--config" "/app/config/config.yaml" ];
+            Cmd = [ "${agentic-repos}/bin/agentic-repos" "--config" "/app/config/config.yaml" ];
             ExposedPorts = {
               "2222/tcp" = {};
               "8090/tcp" = {};
             };
             WorkingDir = "/app";
             Env = [
-              "PATH=${pkgs.lib.makeBinPath [ repos-mcp pkgs.git pkgs.curl pkgs.coreutils ]}"
+              "PATH=${pkgs.lib.makeBinPath [ agentic-repos pkgs.git pkgs.curl pkgs.coreutils ]}"
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
             ];
             User = "1000:1000";
@@ -99,15 +99,15 @@
         # Make Garage available for S3-compatible storage tests
         garage = pkgs.garage;
 
-        vmTests = import ./nix/vm-tests.nix { inherit pkgs system repos-mcp garage; };
+        vmTests = import ./nix/vm-tests.nix { inherit pkgs system agentic-repos garage; };
         
-        integrationTests = import ./nix/tests/default.nix { inherit pkgs system repos-mcp garage; };
+        integrationTests = import ./nix/tests/default.nix { inherit pkgs system agentic-repos garage; };
 
       in
       {
         packages = {
-          default = repos-mcp;
-          inherit repos-mcp containerImage;
+          default = agentic-repos;
+          inherit agentic-repos containerImage;
           dockerImage = containerImage;
         };
 
@@ -131,7 +131,7 @@
         };
 
         checks = {
-          build = repos-mcp;
+          build = agentic-repos;
           container = containerImage;
         }
         // vmTests.auth
@@ -150,14 +150,14 @@
     )
     // {
       nixosModules = {
-        repos-mcp = import ./nix/modules/repos-mcp.nix;
-        default = self.nixosModules.repos-mcp;
+        agentic-repos = import ./nix/modules/agentic-repos.nix;
+        default = self.nixosModules.agentic-repos;
       };
 
       nixosModule = self.nixosModules.default;
 
       overlays.default = final: prev: {
-        repos-mcp = self.packages.${final.system}.default;
+        agentic-repos = self.packages.${final.system}.default;
       };
     };
 }

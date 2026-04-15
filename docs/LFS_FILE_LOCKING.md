@@ -231,7 +231,7 @@ Used before pushing to check which files are locked by you vs others.
 
 ### Git LFS Commands
 
-Standard Git LFS commands work with repos-mcp:
+Standard Git LFS commands work with agentic-repos:
 
 #### Lock a File
 
@@ -380,7 +380,7 @@ lfs:
 The cleanup scheduler runs periodically to remove expired locks:
 
 ```rust
-use repos_mcp::lfs::LockCleanupScheduler;
+use agentic_repos::lfs::LockCleanupScheduler;
 
 let scheduler = LockCleanupScheduler::new(
     lock_manager,
@@ -473,7 +473,7 @@ curl -H "Authorization: Bearer $TOKEN" ...
 3. Manually trigger cleanup:
 ```bash
 # Via API or service restart
-systemctl restart repos-mcp
+systemctl restart agentic-repos
 ```
 
 ### Lock Conflicts During Push
@@ -695,11 +695,11 @@ lock_cleanup_interval_secs: 86400
 
 ### From Git LFS Server
 
-repos-mcp is API-compatible. Update your `.lfsconfig`:
+agentic-repos is API-compatible. Update your `.lfsconfig`:
 
 ```
 [lfs]
-    url = https://your-repos-mcp-server.com/lfs/tenant/repo
+    url = https://your-agentic-repos-server.com/lfs/tenant/repo
 ```
 
 ### Lock Data Migration
@@ -722,6 +722,6 @@ If migrating from another system:
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/your-org/repos-mcp/issues
+- GitHub Issues: https://github.com/your-org/agentic-repos/issues
 - Email: support@your-domain.com
 - Documentation: https://docs.your-domain.com

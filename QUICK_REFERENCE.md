@@ -1,23 +1,23 @@
-# repos-mcp Quick Reference Card
+# agentic-repos Quick Reference Card
 
 ## Build & Package
 
 ```bash
 # Build plugin
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 nix build
 
 # Create package
 ./package.sh
-# → dist/repos-mcp-plugin-0.1.0.tar.gz
+# → dist/agentic-repos-plugin-0.1.0.tar.gz
 ```
 
 ## Deploy
 
 ```bash
 # Extract and install
-tar -xzf dist/repos-mcp-plugin-0.1.0.tar.gz
-cd repos-mcp-plugin-0.1.0
+tar -xzf dist/agentic-repos-plugin-0.1.0.tar.gz
+cd agentic-repos-plugin-0.1.0
 export SKYLET_DIR=~/code/skylet
 ./install.sh
 
@@ -28,7 +28,7 @@ cat ~/.ssh/id_rsa.pub >> $SKYLET_DIR/data/ssh/authorized_keys
 
 # Start
 cd $SKYLET_DIR
-source repos-mcp.env
+source agentic-repos.env
 ./target/release/skylet server
 ```
 
@@ -99,10 +99,10 @@ export GARAGE_SECRET_ACCESS_KEY="garage"
 netstat -tuln | grep 2222
 
 # Check plugin
-ldd plugins/librepos_mcp.so
+ldd plugins/libagentic_repos.so
 
 # Check logs
-tail -f skylet.log | grep repos_mcp
+tail -f skylet.log | grep agentic_repos
 
 # Test SSH
 ssh -T git@localhost -p 2222

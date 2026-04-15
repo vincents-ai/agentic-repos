@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -12,8 +11,7 @@ pub struct Tenant {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "storage_type", rename_all = "lowercase")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StorageType {
     Local,
     S3,

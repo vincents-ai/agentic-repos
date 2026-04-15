@@ -1,8 +1,8 @@
-# repos-mcp Delegation Execution Summary
+# agentic-repos Delegation Execution Summary
 
 ## ✅ DELEGATION EXECUTION COMPLETE
 
-Successfully executed systematic SDLC gap analysis using 6 specialized agents for repos-mcp project.
+Successfully executed systematic SDLC gap analysis using 6 specialized agents for agentic-repos project.
 
 ## 🎯 Agent Results Summary
 
@@ -12,7 +12,7 @@ Successfully executed systematic SDLC gap analysis using 6 specialized agents fo
 - ✅ Fixed SSH command injection vulnerability at `src/git/ssh.rs:407`
 - ✅ Implemented comprehensive input validation (4KB limit, control character detection)
 - ✅ Added authentication audit logging with fingerprint tracking
-- ✅ Enhanced security event logging to `/var/log/repos-mcp/auth-audit.log`
+- ✅ Enhanced security event logging to `/var/log/agentic-repos/auth-audit.log`
 
 **Impact**: Critical security vulnerabilities patched, audit capabilities implemented
 
@@ -138,7 +138,7 @@ This systematic agent-based approach successfully:
 - Created clear roadmap for remaining improvements
 - Stored all findings in comprehensive documentation
 
-The repos-mcp project is now positioned for confident production deployment with robust security controls and clear paths for continuous improvement.
+The agentic-repos project is now positioned for confident production deployment with robust security controls and clear paths for continuous improvement.
 
 ---
 

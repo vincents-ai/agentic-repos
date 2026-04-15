@@ -34,11 +34,11 @@ let method_name = action_str
 
 ### ✅ PASSED: Plugin Prerequisites
 - Skylet binary found at `~/code/skylet/target/release/skylet`
-- repos-mcp plugin found at `~/code/skylet/plugins/repos-mcp/librepos_mcp.so`
+- agentic-repos plugin found at `~/code/skylet/plugins/agentic-repos/libagentic_repos.so`
 - garage-s3 plugin found at `~/code/skylet/plugins/garage-s3/libgarage_s3.so`
 
 ### ⚠️ PENDING: Plugin Validation
-- repos-mcp plugin validates successfully
+- agentic-repos plugin validates successfully
 - garage-s3 plugin validation requires investigation
 
 ### ⚠️ PENDING: Repository Operations
@@ -114,13 +114,13 @@ let method_name = action_str
 
 ### Available Components
 - ✅ Skylet binary: `/home/shift/code/skylet/target/release/skylet`
-- ✅ repos-mcp plugin: `/home/shift/code/skylet/plugins/repos-mcp/librepos_mcp.so`
+- ✅ agentic-repos plugin: `/home/shift/code/skylet/plugins/agentic-repos/libagentic_repos.so`
 - ✅ garage-s3 plugin: `/home/shift/code/skylet/plugins/garage-s3/libgarage_s3.so`
 - ✅ Plugin test harness: `/home/shift/code/skylet/target/release/plugin-test-harness`
 
 ### Configuration Files
 - ✅ Skylet config: `/home/shift/code/skylet/config.yaml`
-- ✅ repos-mcp config: `config.yaml`
+- ✅ agentic-repos config: `config.yaml`
 
 ### Services Status
 - ⚠️ Skylet server: Not running (PID 2797433 found but may be stale)
@@ -134,7 +134,7 @@ let method_name = action_str
 1. **Rebuild Plugin** (IN PROGRESS)
    ```bash
    cargo build --release
-   cp target/release/librepos_mcp.so ~/code/skylet/plugins/repos-mcp/
+   cp target/release/libagentic_repos.so ~/code/skylet/plugins/agentic-repos/
    ```
 
 2. **Start Skylet Server**
@@ -196,7 +196,7 @@ let method_name = action_str
    - Must be loaded in Skylet for SSH functionality
 
 2. **S3 Storage**: Requires garage-s3 plugin running
-   - Must be loaded in Skylet before repos-mcp
+   - Must be loaded in Skylet before agentic-repos
    - Provides embedded Garage S3 server
 
 3. **End-to-End Testing**: Requires full Skylet stack

@@ -8,11 +8,10 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use uuid::Uuid;
 
 /// Repository metadata stored in database
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryModel {
     pub id: Uuid,
     pub tenant_id: String,
@@ -38,7 +37,7 @@ pub struct CreateRepositoryRequest {
 }
 
 /// SSH key stored in database
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshKeyModel {
     pub id: Uuid,
     pub tenant_id: String,
@@ -67,7 +66,7 @@ pub struct CreateSshKeyRequest {
 }
 
 /// User account model
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserModel {
     pub id: Uuid,
     pub tenant_id: String,
@@ -90,7 +89,7 @@ pub struct CreateUserRequest {
 }
 
 /// Audit log entry for git operations
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditLogModel {
     pub id: Uuid,
     pub tenant_id: String,

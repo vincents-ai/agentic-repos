@@ -1,12 +1,12 @@
 # NixOS Integration Tests - Comprehensive Report
 
 **Generated:** 2026-03-23
-**Project:** repos-mcp
+**Project:** agentic-repos
 **Branch:** feature/post-quantum-kex
 
 ## Executive Summary
 
-Created comprehensive NixOS integration tests covering all major features of repos-mcp. **224+ test scenarios** across 10 feature domains.
+Created comprehensive NixOS integration tests covering all major features of agentic-repos. **224+ test scenarios** across 10 feature domains.
 
 | Status | Count |
 |--------|-------|
@@ -183,7 +183,7 @@ Created comprehensive NixOS integration tests covering all major features of rep
 - `setupGitConfig` - Git configuration
 - `createTestRepo` - Repository creation helper
 
-### `nix/modules/repos-mcp.nix`
+### `nix/modules/agentic-repos.nix`
 - Full NixOS module with options for:
   - Server configuration (host, ports)
   - Feature flags (10 options)
@@ -231,8 +231,8 @@ nix-build -A checks.git-integration-ssh-authentication-ed25519
 ### Run with NixOS Module
 ```nix
 {
-  imports = [ ./nix/modules/repos-mcp.nix ];
-  services.repos-mcp = {
+  imports = [ ./nix/modules/agentic-repos.nix ];
+  services.agentic-repos = {
     enable = true;
     features = {
       gitLfs = true;
@@ -303,7 +303,7 @@ nix-build -A checks.git-integration-ssh-authentication-ed25519
 
 ```
 nix/
-├── modules/repos-mcp.nix (371 lines)
+├── modules/agentic-repos.nix (371 lines)
 └── tests/
     ├── default.nix (97 lines)
     ├── lib.nix (175 lines)
@@ -333,8 +333,8 @@ nix-build -A checks.git-integration-ssh-authentication-ed25519
 
 ```nix
 {
-  imports = [ ./nix/modules/repos-mcp.nix ];
-  services.repos-mcp = {
+  imports = [ ./nix/modules/agentic-repos.nix ];
+  services.agentic-repos = {
     enable = true;
     features.gitLfs = true;
   };

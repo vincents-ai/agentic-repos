@@ -4,14 +4,14 @@
 # Run with:
 #   nix-build -A tests.cache-integration
 
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
   redisServerConfig = { config, pkgs, ... }: {
     networking.firewall.enable = false;
 
     environment.systemPackages = with pkgs; [
-      repos-mcp
+      agentic-repos
       git
       curl
       jq
@@ -22,8 +22,8 @@ let
       settings.PermitRootLogin = "yes";
     };
 
-    systemd.services.repos-mcp = {
-      description = "repos-mcp Git server with Redis cache";
+    systemd.services.agentic-repos = {
+      description = "agentic-repos Git server with Redis cache";
       after = [ "network.target" ];
       wantedBy = [ "multi-user.target" ];
 
@@ -34,31 +34,31 @@ let
 
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${repos-mcp}/bin/repos-mcp";
-        WorkingDirectory = "/etc/repos-mcp";
+        ExecStart = "${agentic-repos}/bin/agentic-repos";
+        WorkingDirectory = "/etc/agentic-repos";
         Restart = "always";
         RestartSec = "5";
         User = "root";
       };
     };
 
-    environment.etc."repos-mcp/config.yaml".text = ''
+    environment.etc."agentic-repos/config.yaml".text = ''
       server:
         host: "0.0.0.0"
         port: 8090
         ssh:
           port: 2222
-          host_key_path: "/etc/repos-mcp/ssh_host_ed25519_key"
+          host_key_path: "/etc/agentic-repos/ssh_host_ed25519_key"
           max_connections: 10
           connection_timeout_secs: 30
 
       auth:
-        authorized_keys_path: "/etc/repos-mcp/authorized_keys"
+        authorized_keys_path: "/etc/agentic-repos/authorized_keys"
 
       cache:
         enabled: true
         url: "redis://redis:6379"
-        key_prefix: "repos-mcp"
+        key_prefix: "agentic-repos"
         default_ttl_secs: 3600
         max_connections: 10
         connection_timeout_secs: 5
@@ -80,7 +80,7 @@ let
       storage:
         type: "local"
         local:
-          path: "/var/lib/repos-mcp"
+          path: "/var/lib/agentic-repos"
 
       rate_limit:
         enabled: false
@@ -148,18 +148,18 @@ let
       testScript = ''
         redis.wait_for_unit("redis.service")
 
-        redis.succeed("redis-cli SET repos-mcp:repo:tenant1:repo1:metadata '{\"id\":\"1\"}'")
-        redis.succeed("redis-cli SET repos-mcp:repo:tenant1:repo1:branches '[]'")
-        redis.succeed("redis-cli SET repos-mcp:repo:tenant1:repo2:metadata '{\"id\":\"2\"}'")
-        redis.succeed("redis-cli SET repos-mcp:session:abc123 '{\"user\":\"test\"}'")
+        redis.succeed("redis-cli SET agentic-repos:repo:tenant1:repo1:metadata '{\"id\":\"1\"}'")
+        redis.succeed("redis-cli SET agentic-repos:repo:tenant1:repo1:branches '[]'")
+        redis.succeed("redis-cli SET agentic-repos:repo:tenant1:repo2:metadata '{\"id\":\"2\"}'")
+        redis.succeed("redis-cli SET agentic-repos:session:abc123 '{\"user\":\"test\"}'")
 
-        keys_before = redis.succeed("redis-cli KEYS 'repos-mcp:*'").strip()
+        keys_before = redis.succeed("redis-cli KEYS 'agentic-repos:*'").strip()
         assert "repo1" in keys_before, "repo1 keys should exist"
 
-        redis.succeed("redis-cli DEL repos-mcp:repo:tenant1:repo1:metadata")
-        redis.succeed("redis-cli DEL repos-mcp:repo:tenant1:repo1:branches")
+        redis.succeed("redis-cli DEL agentic-repos:repo:tenant1:repo1:metadata")
+        redis.succeed("redis-cli DEL agentic-repos:repo:tenant1:repo1:branches")
 
-        result = redis.succeed("redis-cli GET repos-mcp:repo:tenant1:repo1:metadata || echo NIL").strip()
+        result = redis.succeed("redis-cli GET agentic-repos:repo:tenant1:repo1:metadata || echo NIL").strip()
         assert result == "NIL" or result == "", "Key should be deleted"
       '';
     }
@@ -205,9 +205,9 @@ let
             "tenant_id": "tenant-1"
         }
 
-        redis.succeed("redis-cli SETEX 'repos-mcp:session:" + session_id + "' 86400 '" + json.dumps(session_data) + "'")
+        redis.succeed("redis-cli SETEX 'agentic-repos:session:" + session_id + "' 86400 '" + json.dumps(session_data) + "'")
 
-        result = redis.succeed("redis-cli GET 'repos-mcp:session:" + session_id + "'").strip()
+        result = redis.succeed("redis-cli GET 'agentic-repos:session:" + session_id + "'").strip()
         stored = json.loads(result)
         assert stored["id"] == session_id, "Session ID should match"
       '';
@@ -225,9 +225,9 @@ let
         tenant_id = "tenant-cache-test"
         repo_list = [{"name": "repo1", "is_private": False}, {"name": "repo2", "is_private": True}]
 
-        redis.succeed("redis-cli SETEX 'repos-mcp:repos:" + tenant_id + ":page:1' 60 '" + json.dumps(repo_list) + "'")
+        redis.succeed("redis-cli SETEX 'agentic-repos:repos:" + tenant_id + ":page:1' 60 '" + json.dumps(repo_list) + "'")
 
-        result = redis.succeed("redis-cli GET 'repos-mcp:repos:" + tenant_id + ":page:1'").strip()
+        result = redis.succeed("redis-cli GET 'agentic-repos:repos:" + tenant_id + ":page:1'").strip()
         cached = json.loads(result)
         assert len(cached) == 2, "Should have 2 repos"
       '';
@@ -243,9 +243,9 @@ let
         redis.wait_for_unit("redis.service")
 
         metadata = {"id": "repo-meta-123", "tenant_id": "tenant-1", "name": "test-repo"}
-        redis.succeed("redis-cli SETEX 'repos-mcp:repo:tenant-1:test-repo:metadata' 300 '" + json.dumps(metadata) + "'")
+        redis.succeed("redis-cli SETEX 'agentic-repos:repo:tenant-1:test-repo:metadata' 300 '" + json.dumps(metadata) + "'")
 
-        result = redis.succeed("redis-cli GET 'repos-mcp:repo:tenant-1:test-repo:metadata'").strip()
+        result = redis.succeed("redis-cli GET 'agentic-repos:repo:tenant-1:test-repo:metadata'").strip()
         cached = json.loads(result)
         assert cached["id"] == "repo-meta-123", "Metadata ID should match"
       '';
@@ -279,15 +279,15 @@ let
       testScript = ''
         redis.wait_for_unit("redis.service")
 
-        redis.succeed("redis-cli SET repos-mcp:tenant:t1:repo:r1 'data1'")
-        redis.succeed("redis-cli SET repos-mcp:tenant:t2:repo:r1 'data2'")
-        redis.succeed("redis-cli SET repos-mcp:user:u1:perm 'read'")
+        redis.succeed("redis-cli SET agentic-repos:tenant:t1:repo:r1 'data1'")
+        redis.succeed("redis-cli SET agentic-repos:tenant:t2:repo:r1 'data2'")
+        redis.succeed("redis-cli SET agentic-repos:user:u1:perm 'read'")
 
-        result_t1 = redis.succeed("redis-cli GET repos-mcp:tenant:t1:repo:r1").strip()
-        result_t2 = redis.succeed("redis-cli GET repos-mcp:tenant:t2:repo:r1").strip()
+        result_t1 = redis.succeed("redis-cli GET agentic-repos:tenant:t1:repo:r1").strip()
+        result_t2 = redis.succeed("redis-cli GET agentic-repos:tenant:t2:repo:r1").strip()
         assert result_t1 != result_t2, "Different tenants should have isolated data"
 
-        keys = redis.succeed("redis-cli KEYS 'repos-mcp:*'").strip()
+        keys = redis.succeed("redis-cli KEYS 'agentic-repos:*'").strip()
         assert "tenant:t1" in keys, "t1 namespace should exist"
         assert "tenant:t2" in keys, "t2 namespace should exist"
       '';
@@ -305,19 +305,19 @@ let
         for tenant in ["tenant-a", "tenant-b", "tenant-c"]:
             for repo in ["repo1", "repo2"]:
                 data = {"tenant": tenant, "repo": repo}
-                redis.succeed("redis-cli SET 'repos-mcp:repo:" + tenant + ":" + repo + ":metadata' '" + json.dumps(data) + "'")
+                redis.succeed("redis-cli SET 'agentic-repos:repo:" + tenant + ":" + repo + ":metadata' '" + json.dumps(data) + "'")
 
         for tenant in ["tenant-a", "tenant-b", "tenant-c"]:
-            keys = redis.succeed("redis-cli KEYS 'repos-mcp:repo:" + tenant + ":*'").strip()
+            keys = redis.succeed("redis-cli KEYS 'agentic-repos:repo:" + tenant + ":*'").strip()
             assert tenant in keys, tenant + " keys should exist"
             for other in ["tenant-a", "tenant-b", "tenant-c"]:
                 if other != tenant:
                     assert other not in keys, tenant + " should not see " + other
 
-        redis.succeed("redis-cli DEL repos-mcp:repo:tenant-a:repo1:metadata")
-        redis.succeed("redis-cli DEL repos-mcp:repo:tenant-a:repo2:metadata")
+        redis.succeed("redis-cli DEL agentic-repos:repo:tenant-a:repo1:metadata")
+        redis.succeed("redis-cli DEL agentic-repos:repo:tenant-a:repo2:metadata")
 
-        keys_b = redis.succeed("redis-cli KEYS 'repos-mcp:repo:tenant-b:*'").strip()
+        keys_b = redis.succeed("redis-cli KEYS 'agentic-repos:repo:tenant-b:*'").strip()
         assert "tenant-b" in keys_b, "tenant-b should still have data"
       '';
     }

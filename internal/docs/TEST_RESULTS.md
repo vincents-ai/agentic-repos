@@ -1,7 +1,7 @@
-# VM Integration Test Results - repos-mcp
+# VM Integration Test Results - agentic-repos
 
 ## Executive Summary
-Successfully implemented and executed a comprehensive NixOS VM testing framework for repos-mcp, a multi-tenant Git server written in Rust. The framework provides enterprise-grade integration testing with real VM environments and protocol testing.
+Successfully implemented and executed a comprehensive NixOS VM testing framework for agentic-repos, a multi-tenant Git server written in Rust. The framework provides enterprise-grade integration testing with real VM environments and protocol testing.
 
 ## Test Framework Architecture
 
@@ -50,7 +50,7 @@ Successfully implemented and executed a comprehensive NixOS VM testing framework
 
 #### 4. Storage S3 Test ✅
 - **Purpose**: S3-compatible storage with Garage
-- **Verification**: repos-mcp integration with S3 API
+- **Verification**: agentic-repos integration with S3 API
 - **Result**: S3 storage backend functional with Garage
 
 #### 5. Multi-Client Test ✅
@@ -163,7 +163,7 @@ nix flake show | grep checks
 
 ## Conclusion
 
-The VM integration testing framework represents a significant achievement for the repos-mcp project:
+The VM integration testing framework represents a significant achievement for the agentic-repos project:
 
 - ✅ **100% Test Framework Implementation**: Complete 5-test suite
 - ✅ **100% Test Execution Success**: All tests passing
@@ -171,10 +171,10 @@ The VM integration testing framework represents a significant achievement for th
 - ✅ **Enterprise-Grade Infrastructure**: VM-based testing with isolation
 - ✅ **Comprehensive Documentation**: Usage guides and architecture docs
 
-This testing framework provides the foundation for confident deployment of repos-mcp in production environments, with comprehensive validation of SSH protocols, Git operations, storage backends, and concurrent connection handling.
+This testing framework provides the foundation for confident deployment of agentic-repos in production environments, with comprehensive validation of SSH protocols, Git operations, storage backends, and concurrent connection handling.
 
 ---
 **Generated**: January 21, 2026  
-**Framework Location**: `/home/shift/code/ogit/repos-mcp/flake.nix`  
-**Documentation**: `/home/shift/code/ogit/repos-mcp/VM_TESTING.md`  
+**Framework Location**: `/home/shift/code/ogit/agentic-repos/flake.nix`  
+**Documentation**: `/home/shift/code/ogit/agentic-repos/VM_TESTING.md`  
 **Test Status**: All 5 integration tests ✅ PASSED

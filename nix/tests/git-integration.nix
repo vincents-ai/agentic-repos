@@ -11,13 +11,13 @@
 #
 # Dependencies:
 # - NixOS with testers.runNixOSTest
-# - repos-mcp package
+# - agentic-repos package
 # - git, openssh packages
 #
 # Usage:
 #   nix-build -A checks.git-integration-*
 
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
   inherit (lib) mapAttrsToList;
@@ -33,7 +33,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/auth-test.git init-auth && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/auth-test.git init-auth && \
           cd init-auth && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -76,12 +76,12 @@ let
         ${setupSSHKeys}
         ${setupGitConfig}
         
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/tenant1/content-repo.git")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/tenant1/content-repo.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/tenant1/content-repo.git")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/tenant1/content-repo.git")
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/content-repo.git init-content && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/content-repo.git init-content && \
           cd init-content && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -111,7 +111,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/push-test.git init-push && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/push-test.git init-push && \
           cd init-push && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -133,7 +133,7 @@ let
             git push origin main
           """, timeout=60)
           
-          server.succeed("cd /var/lib/repos-mcp/repositories/tenant1/push-test.git && git log --oneline | grep 'Add content from client'")
+          server.succeed("cd /var/lib/agentic-repos/repositories/tenant1/push-test.git && git log --oneline | grep 'Add content from client'")
       '';
     }
     {
@@ -146,7 +146,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/pull-test.git init-pull && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/pull-test.git init-pull && \
           cd init-pull && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -182,7 +182,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/branch-test.git init-branch && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/branch-test.git init-branch && \
           cd init-branch && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -231,7 +231,7 @@ let
         server.succeed("""
           cd /tmp && \
           
-          git clone /var/lib/repos-mcp/repositories/tenant-a/private-repo.git init-a && \
+          git clone /var/lib/agentic-repos/repositories/tenant-a/private-repo.git init-a && \
           cd init-a && \
           git config user.email 'a@server' && \
           git config user.name 'Tenant A' && \
@@ -242,7 +242,7 @@ let
           git push origin main && \
           cd .. && \
           
-          git clone /var/lib/repos-mcp/repositories/tenant-b/private-repo.git init-b && \
+          git clone /var/lib/agentic-repos/repositories/tenant-b/private-repo.git init-b && \
           cd init-b && \
           git config user.email 'b@server' && \
           git config user.name 'Tenant B' && \
@@ -264,10 +264,10 @@ let
           assert "Tenant B content" in readme_b
         
         with subtest("Repository paths are isolated per tenant"):
-          server.succeed("test -d /var/lib/repos-mcp/repositories/tenant-a/private-repo.git")
-          server.succeed("test -d /var/lib/repos-mcp/repositories/tenant-b/private-repo.git")
-          server.succeed("test ! -d /var/lib/repos-mcp/repositories/tenant-a/tenant-b")
-          server.succeed("test ! -d /var/lib/repos-mcp/repositories/tenant-b/tenant-a")
+          server.succeed("test -d /var/lib/agentic-repos/repositories/tenant-a/private-repo.git")
+          server.succeed("test -d /var/lib/agentic-repos/repositories/tenant-b/private-repo.git")
+          server.succeed("test ! -d /var/lib/agentic-repos/repositories/tenant-a/tenant-b")
+          server.succeed("test ! -d /var/lib/agentic-repos/repositories/tenant-b/tenant-a")
       '';
     }
     {
@@ -304,7 +304,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/concurrent-test.git init-concurrent && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/concurrent-test.git init-concurrent && \
           cd init-concurrent && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -337,7 +337,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/concurrent-push.git init-cp && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/concurrent-push.git init-cp && \
           cd init-cp && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -364,7 +364,7 @@ let
             wait
           """, timeout=120)
           
-          branches = server.succeed("cd /var/lib/repos-mcp/repositories/tenant1/concurrent-push.git && git branch -a")
+          branches = server.succeed("cd /var/lib/agentic-repos/repositories/tenant1/concurrent-push.git && git branch -a")
           assert "concurrent-branch-1" in branches
           assert "concurrent-branch-2" in branches
           assert "concurrent-branch-3" in branches
@@ -391,8 +391,8 @@ let
             git push -u origin main
           """, timeout=120)
           
-          server.succeed("cd /var/lib/repos-mcp/repositories/tenant1/pack-test.git && git count-objects -v")
-          server.succeed("test -f /var/lib/repos-mcp/repositories/tenant1/pack-test.git/objects/pack/*.pack || test -d /var/lib/repos-mcp/repositories/tenant1/pack-test.git/objects/pack")
+          server.succeed("cd /var/lib/agentic-repos/repositories/tenant1/pack-test.git && git count-objects -v")
+          server.succeed("test -f /var/lib/agentic-repos/repositories/tenant1/pack-test.git/objects/pack/*.pack || test -d /var/lib/agentic-repos/repositories/tenant1/pack-test.git/objects/pack")
       '';
     }
     {
@@ -405,7 +405,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/restart-test.git init-restart && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/restart-test.git init-restart && \
           cd init-restart && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -417,8 +417,8 @@ let
         """)
         
         with subtest("Service restart preserves repositories"):
-          server.succeed("systemctl restart repos-mcp.service")
-          server.wait_for_unit("repos-mcp.service", timeout=60)
+          server.succeed("systemctl restart agentic-repos.service")
+          server.wait_for_unit("agentic-repos.service", timeout=60)
           server.wait_for_open_port(2222, timeout=60)
           
           client.succeed("rm -rf /tmp/restart-clone")
@@ -436,7 +436,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/force-push-test.git init-fp && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/force-push-test.git init-fp && \
           cd init-fp && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -458,7 +458,7 @@ let
             git push --force origin main
           """, timeout=60)
           
-          server.succeed("cd /var/lib/repos-mcp/repositories/tenant1/force-push-test.git && git log --oneline | grep 'Amended commit'")
+          server.succeed("cd /var/lib/agentic-repos/repositories/tenant1/force-push-test.git && git log --oneline | grep 'Amended commit'")
       '';
     }
     {
@@ -471,7 +471,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/shallow-test.git init-shallow && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/shallow-test.git init-shallow && \
           cd init-shallow && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \
@@ -502,7 +502,7 @@ let
         
         server.succeed("""
           cd /tmp && \
-          git clone /var/lib/repos-mcp/repositories/tenant1/tag-test.git init-tag && \
+          git clone /var/lib/agentic-repos/repositories/tenant1/tag-test.git init-tag && \
           cd init-tag && \
           git config user.email 'init@server' && \
           git config user.name 'Server Init' && \

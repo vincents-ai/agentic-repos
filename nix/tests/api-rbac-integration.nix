@@ -1,4 +1,4 @@
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
   apiEndpointsTests = [
@@ -321,8 +321,8 @@ let
       id = "failed-auth-handling";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/tenant1")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/tenant1/secure-repo.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/tenant1")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/tenant1/secure-repo.git")
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/unauthorized_key -N '''''' -C 'unauthorized'")
         client.succeed("echo 'Host server' > /root/.ssh/config")

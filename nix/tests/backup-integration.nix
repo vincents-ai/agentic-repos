@@ -11,7 +11,7 @@
 #   - Scheduling: Cron-based backup scheduling
 #   - Retention: Backup expiration and cleanup
 
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
   inherit (lib);
@@ -20,7 +20,7 @@ let
     backup:
       enabled: true
       storage_backend: "local"
-      local_path: "/var/lib/repos-mcp/backups"
+      local_path: "/var/lib/agentic-repos/backups"
       default_retention_days: 30
       max_concurrent_backups: 3
       compression_enabled: true
@@ -34,7 +34,7 @@ let
 
   mkBackupTest = { id, testScript, nodes ? {}, timeout ? 300 }:
     mkVMTest {
-      name = "repos-mcp-backup-${id}";
+      name = "agentic-repos-backup-${id}";
       testScript = ''
         ${waitForReposMCP}
         ${testScript}
@@ -51,13 +51,13 @@ let
       timeout = 300;
       testScript = ''
         # Setup backup directory
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create test repository
         ${createTestRepo "tenant1" "test-repo"}
         
         # Add some content to the repository
-        server.succeed("cd /tmp && git clone /var/lib/repos-mcp/repositories/tenant1/test-repo.git work")
+        server.succeed("cd /tmp && git clone /var/lib/agentic-repos/repositories/tenant1/test-repo.git work")
         server.succeed("cd /tmp/work && git config user.email 'test@example.com'")
         server.succeed("cd /tmp/work && git config user.name 'Test User'")
         server.succeed("cd /tmp/work && echo 'Initial content' > README.md")
@@ -87,7 +87,7 @@ let
       id = "repository-backup-selective";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create multiple repositories
         ${createTestRepo "tenant1" "repo-alpha"}
@@ -116,12 +116,12 @@ let
       id = "lfs-objects-backup";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
-        server.succeed("mkdir -p /var/lib/repos-mcp/lfs/tenant1")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/lfs/tenant1")
         
         # Create test LFS objects
-        server.succeed("dd if=/dev/urandom of=/var/lib/repos-mcp/lfs/tenant1/large-file.bin bs=1024 count=100")
-        server.succeed("dd if=/dev/urandom of=/var/lib/repos-mcp/lfs/tenant1/another-file.bin bs=512 count=50")
+        server.succeed("dd if=/dev/urandom of=/var/lib/agentic-repos/lfs/tenant1/large-file.bin bs=1024 count=100")
+        server.succeed("dd if=/dev/urandom of=/var/lib/agentic-repos/lfs/tenant1/another-file.bin bs=512 count=50")
         
         # Create LFS backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"lfs_objects\",\"tenant_id\":\"tenant1\",\"repository_ids\":[],\"include_lfs\":true,\"include_database\":false,\"include_config\":false}'")
@@ -143,7 +143,7 @@ let
       id = "configuration-backup";
       timeout = 180;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create configuration backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"tenant1\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true}'")
@@ -165,7 +165,7 @@ let
       id = "database-backup";
       timeout = 180;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create database backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"database\",\"tenant_id\":\"tenant1\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":true,\"include_config\":false}'")
@@ -191,7 +191,7 @@ let
       id = "backup-checksum-verification";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         ${createTestRepo "tenant1" "verify-test"}
         
         # Create backup
@@ -215,11 +215,11 @@ let
       id = "backup-data-integrity";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create repo with known content
         ${createTestRepo "tenant1" "integrity-test"}
-        server.succeed("cd /tmp && git clone /var/lib/repos-mcp/repositories/tenant1/integrity-test.git int-work")
+        server.succeed("cd /tmp && git clone /var/lib/agentic-repos/repositories/tenant1/integrity-test.git int-work")
         server.succeed("cd /tmp/int-work && git config user.email 'test@example.com'")
         server.succeed("cd /tmp/int-work && git config user.name 'Test User'")
         server.succeed("cd /tmp/int-work && echo 'unique-content-12345' > unique.txt")
@@ -236,10 +236,10 @@ let
         server.succeed(f"for i in $(seq 1 20); do curl -s http://localhost:8090/backups/{backup_id} | jq -e '.status == \"completed\" or .status == \"verified\"' && exit 0; sleep 2; done; exit 1")
         
         # Verify backup file exists
-        server.succeed("test -d /var/lib/repos-mcp/backups")
+        server.succeed("test -d /var/lib/agentic-repos/backups")
         
         # List backup files
-        backup_files = server.succeed("find /var/lib/repos-mcp/backups -type f 2>/dev/null | head -5 || echo 'no files'")
+        backup_files = server.succeed("find /var/lib/agentic-repos/backups -type f 2>/dev/null | head -5 || echo 'no files'")
         assert len(backup_files.strip()) > 0 or "tenant1" in backup_files, "Should have backup data"
       '';
     }
@@ -251,11 +251,11 @@ let
       id = "full-restore";
       timeout = 400;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create and backup a repository
         ${createTestRepo "tenant1" "restore-test"}
-        server.succeed("cd /tmp && git clone /var/lib/repos-mcp/repositories/tenant1/restore-test.git restore-work")
+        server.succeed("cd /tmp && git clone /var/lib/agentic-repos/repositories/tenant1/restore-test.git restore-work")
         server.succeed("cd /tmp/restore-work && git config user.email 'test@example.com'")
         server.succeed("cd /tmp/restore-work && git config user.name 'Test User'")
         server.succeed("cd /tmp/restore-work && echo 'restore-content' > restore.txt")
@@ -272,7 +272,7 @@ let
         server.succeed(f"for i in $(seq 1 30); do curl -s http://localhost:8090/backups/{backup_id} | jq -e '.status == \"completed\" or .status == \"verified\"' && exit 0; sleep 2; done; exit 1")
         
         # Delete original repository
-        server.succeed("rm -rf /var/lib/repos-mcp/repositories/tenant1/restore-test.git")
+        server.succeed("rm -rf /var/lib/agentic-repos/repositories/tenant1/restore-test.git")
         
         # Restore from backup
         restore_result = server.succeed(f"curl -s -X POST http://localhost:8090/backups/{backup_id}/restore -H 'Content-Type: application/json' -d '{{\"target_tenant_id\":\"tenant1\",\"overwrite_existing\":false,\"dry_run\":false}}'")
@@ -286,7 +286,7 @@ let
       id = "selective-restore";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create multiple repos
         ${createTestRepo "tenant1" "select-a"}
@@ -303,7 +303,7 @@ let
         server.succeed(f"for i in $(seq 1 20); do curl -s http://localhost:8090/backups/{backup_id} | jq -e '.status == \"completed\" or .status == \"verified\"' && exit 0; sleep 2; done; exit 1")
         
         # Delete one repo
-        server.succeed("rm -rf /var/lib/repos-mcp/repositories/tenant1/select-b.git")
+        server.succeed("rm -rf /var/lib/agentic-repos/repositories/tenant1/select-b.git")
         
         # Selective restore only select-b
         restore_result = server.succeed(f"curl -s -X POST http://localhost:8090/backups/{backup_id}/restore -H 'Content-Type: application/json' -d '{{\"target_tenant_id\":\"tenant1\",\"target_repository_ids\":[\"select-b\"],\"overwrite_existing\":false,\"dry_run\":false}}'")
@@ -316,7 +316,7 @@ let
       id = "dry-run-restore";
       timeout = 200;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         ${createTestRepo "tenant1" "dry-run-test"}
         
         # Create backup
@@ -343,7 +343,7 @@ let
       id = "cross-tenant-restore";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create repo in tenant1
         ${createTestRepo "tenant1" "cross-tenant"}
@@ -374,7 +374,7 @@ let
       id = "list-backups";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create multiple backups
         ${createTestRepo "tenant1" "list-test"}
@@ -398,7 +398,7 @@ let
       id = "filter-backups-by-tenant";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create backups for different tenants
         server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"tenant-a\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true}'")
@@ -423,7 +423,7 @@ let
       id = "filter-backups-by-type";
       timeout = 200;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"full\",\"tenant_id\":\"type-test\",\"repository_ids\":[],\"include_lfs\":true,\"include_database\":true,\"include_config\":true}'")
         server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"type-test\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true}'")
@@ -442,7 +442,7 @@ let
       id = "filter-backups-by-status";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"status-test\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true}'")
         
@@ -462,7 +462,7 @@ let
       id = "limit-backups";
       timeout = 200;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create several backups
         for i in range(5):
@@ -486,7 +486,7 @@ let
       id = "backup-deletion";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create a backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"delete-test\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true}'")
@@ -510,7 +510,7 @@ let
       id = "backup-cancellation";
       timeout = 200;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create a backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"full\",\"tenant_id\":\"cancel-test\",\"repository_ids\":[],\"include_lfs\":true,\"include_database\":true,\"include_config\":true}'")
@@ -528,7 +528,7 @@ let
       id = "retention-enforcement";
       timeout = 200;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create backup with short retention
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"retention-test\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true,\"retention_days\":1}'")
@@ -567,7 +567,7 @@ let
       id = "backup-nonexistent-repo";
       timeout = 120;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Try to backup non-existent repository
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"repository\",\"tenant_id\":\"nonexistent\",\"repository_ids\":[\"no-such-repo\"],\"include_lfs\":false,\"include_database\":false,\"include_config\":false}'")
@@ -595,7 +595,7 @@ let
       id = "delete-in-progress-backup";
       timeout = 120;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"full\",\"tenant_id\":\"delete-in-progress\",\"repository_ids\":[],\"include_lfs\":true,\"include_database\":true,\"include_config\":true}'")
@@ -617,7 +617,7 @@ let
       id = "tenant-backup-isolation";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create repos for different tenants
         ${createTestRepo "tenant-isolated-a" "repo-a"}
@@ -652,7 +652,7 @@ let
       id = "backup-metadata-preservation";
       timeout = 200;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"full\",\"tenant_id\":\"meta-test\",\"repository_ids\":[\"repo1\",\"repo2\"],\"include_lfs\":true,\"include_database\":true,\"include_config\":true,\"retention_days\":14}'")
@@ -681,7 +681,7 @@ let
       id = "backup-timestamps";
       timeout = 200;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"timestamp-test\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true}'")
@@ -711,7 +711,7 @@ let
       id = "backup-persistence-after-restart";
       timeout = 400;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create backup
         backup_result = server.succeed("curl -s -X POST http://localhost:8090/backups -H 'Content-Type: application/json' -d '{\"backup_type\":\"configuration\",\"tenant_id\":\"persist-test\",\"repository_ids\":[],\"include_lfs\":false,\"include_database\":false,\"include_config\":true}'")
@@ -728,8 +728,8 @@ let
         before_count = len(before_data)
         
         # Restart service
-        server.succeed("systemctl restart repos-mcp.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.succeed("systemctl restart agentic-repos.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
         
         # Count backups after restart
@@ -746,7 +746,7 @@ let
       id = "concurrent-backup-creation";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create multiple backups concurrently
         import json
@@ -778,7 +778,7 @@ let
       id = "max-concurrent-limit";
       timeout = 300;
       testScript = ''
-        server.succeed("mkdir -p /var/lib/repos-mcp/backups")
+        server.succeed("mkdir -p /var/lib/agentic-repos/backups")
         
         # Create more backups than the concurrent limit (3)
         import json

@@ -1,8 +1,8 @@
-# repos-mcp Packaging and Deployment Summary
+# agentic-repos Packaging and Deployment Summary
 
 ## Overview
 
-Complete packaging and deployment solution for repos-mcp plugin with garage-s3 integration.
+Complete packaging and deployment solution for agentic-repos plugin with garage-s3 integration.
 
 ## Files Created
 
@@ -10,7 +10,7 @@ Complete packaging and deployment solution for repos-mcp plugin with garage-s3 i
 **File**: `package.sh`
 
 Creates distribution package containing:
-- Plugin binaries (repos-mcp + garage-s3)
+- Plugin binaries (agentic-repos + garage-s3)
 - Configuration files
 - Documentation
 - Test scripts
@@ -19,7 +19,7 @@ Creates distribution package containing:
 **Usage**:
 ```bash
 ./package.sh
-# Creates: dist/repos-mcp-plugin-0.1.0.tar.gz
+# Creates: dist/agentic-repos-plugin-0.1.0.tar.gz
 ```
 
 ### 2. Deployment Guide
@@ -53,13 +53,13 @@ export SKYLET_DIR=~/code/skylet
 ## Package Structure
 
 ```
-repos-mcp-plugin-0.1.0/
+agentic-repos-plugin-0.1.0/
 ├── plugins/
-│   ├── librepos_mcp.so         # Git operations plugin
+│   ├── libagentic_repos.so         # Git operations plugin
 │   └── libgarage_s3.so         # S3 storage backend
 ├── config/
 │   ├── skylet-config.yaml      # Skylet configuration
-│   └── repos-mcp.env           # Environment variables
+│   └── agentic-repos.env           # Environment variables
 ├── docs/
 │   ├── AGENTS.md
 │   ├── SKYLET_PLUGIN_VALIDATION.md
@@ -78,7 +78,7 @@ repos-mcp-plugin-0.1.0/
 ### Create Package
 
 ```bash
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 ./package.sh
 ```
 
@@ -86,8 +86,8 @@ cd ~/code/vincents-ai/repos-mcp
 
 ```bash
 # Extract
-tar -xzf dist/repos-mcp-plugin-0.1.0.tar.gz
-cd repos-mcp-plugin-0.1.0
+tar -xzf dist/agentic-repos-plugin-0.1.0.tar.gz
+cd agentic-repos-plugin-0.1.0
 
 # Install
 export SKYLET_DIR=~/code/skylet
@@ -95,7 +95,7 @@ export SKYLET_DIR=~/code/skylet
 
 # Start
 cd $SKYLET_DIR
-source repos-mcp.env
+source agentic-repos.env
 ./target/release/skylet server
 ```
 
@@ -103,7 +103,7 @@ source repos-mcp.env
 
 ```bash
 # Test deployment
-cd repos-mcp-plugin-0.1.0
+cd agentic-repos-plugin-0.1.0
 ./scripts/test-integration.sh
 ```
 
@@ -125,7 +125,7 @@ plugins:
 
   # Git operations (load second)
   - name: git-operations
-    path: ./plugins/repos-mcp/librepos_mcp.so
+    path: ./plugins/agentic-repos/libagentic_repos.so
     enabled: true
     priority: 5
     config:
@@ -133,7 +133,7 @@ plugins:
       lfs.enabled: true
 ```
 
-### Environment Variables (repos-mcp.env)
+### Environment Variables (agentic-repos.env)
 
 ```bash
 # Storage
@@ -193,7 +193,7 @@ export GARAGE_SECRET_ACCESS_KEY="${CLUSTER_SECRET_KEY}"
 
 Skylet loads plugins in priority order:
 1. garage-s3 (priority: 10) - starts Garage, registers S3 service
-2. repos-mcp (priority: 5) - discovers S3 service, uses for storage
+2. agentic-repos (priority: 5) - discovers S3 service, uses for storage
 
 ### 2. Service Registry
 
@@ -207,7 +207,7 @@ global_registry().register(
 );
 ```
 
-repos-mcp queries registry:
+agentic-repos queries registry:
 ```rust
 let backend = global_registry().get_default();
 // or
@@ -227,7 +227,7 @@ Git operations use storage backend:
 ```bash
 # Validate plugins
 ~/code/skylet/target/release/plugin-test-harness validate \
-  --plugin-path ./plugins/librepos_mcp.so
+  --plugin-path ./plugins/libagentic_repos.so
 
 ~/code/skylet/target/release/plugin-test-harness validate \
   --plugin-path ./plugins/libgarage_s3.so
@@ -248,13 +248,13 @@ Git operations use storage backend:
 ```bash
 # Create repository
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ./plugins/librepos_mcp.so \
+  -p ./plugins/libagentic_repos.so \
   -a repo.create \
   --args '{"id":"1","method":"repo.create","params":{"name":"test","tenant_id":"test"}}'
 
 # List repositories
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ./plugins/librepos_mcp.so \
+  -p ./plugins/libagentic_repos.so \
   -a repo.list \
   --args '{"id":"2","method":"repo.list","params":{"tenant_id":"test"}}'
 ```
@@ -294,7 +294,7 @@ Git operations use storage backend:
 
 ```bash
 # Check dependencies
-ldd plugins/librepos_mcp.so
+ldd plugins/libagentic_repos.so
 
 # Check permissions
 chmod +x plugins/*.so
@@ -339,7 +339,7 @@ chmod -R 755 ./data/repos/
 
 ### Resources
 
-- **GitHub**: https://github.com/vincents-ai/repos-mcp
+- **GitHub**: https://github.com/vincents-ai/agentic-repos
 - **Skylet**: https://github.com/vincents-ai/skylet
 - **Issues**: Report bugs on GitHub
 

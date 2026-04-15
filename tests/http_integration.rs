@@ -1,4 +1,4 @@
-//! HTTP integration tests for the repos-mcp API server.
+//! HTTP integration tests for the agentic-repos API server.
 //!
 //! Uses actix-web test framework to exercise the full HTTP stack:
 //! routing, middleware, serialization, error handling.
@@ -10,7 +10,7 @@
 //! Run with: cargo test --test http_integration
 
 use actix_web::{test, web, App};
-use repos_mcp::api::routes::configure_routes;
+use agentic_repos::api::routes::configure_routes;
 use serde_json::Value;
 
 // ── Health & Info (stateless routes) ──

@@ -1,5 +1,5 @@
 [package]
-name = "repos-mcp"
+name = "agentic-repos"
 version = "0.1.0"
 edition = "2021"
 description = "Multi-tenant Git server with MCP integration (AGPLv3)"
@@ -76,7 +76,7 @@ futures-util = "0.3"
 async-trait = "0.1"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+# sqlx removed — platform uses git-refs as sole datastore (ADR-025)
 chrono = { version = "0.4", features = ["serde"] }
 
 # Age encryption for secrets
@@ -111,6 +111,7 @@ mockall = "0.14"
 serial_test = "3.0"
 cucumber = "0.22"
 futures = "0.3"
+portpicker = "0.1"
 
 [[test]]
 name = "bdd"
@@ -118,3 +119,6 @@ harness = false
 
 [[test]]
 name = "http_integration"
+
+[[test]]
+name = "e2e"

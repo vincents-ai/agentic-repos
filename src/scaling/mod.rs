@@ -1,4 +1,4 @@
-//! Horizontal scaling support for repos-mcp
+//! Horizontal scaling support for agentic-repos
 //!
 //! This module provides:
 //! - Stateless design helpers

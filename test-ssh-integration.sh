@@ -4,15 +4,15 @@
 
 set -e
 
-PLUGIN="./target/release/librepos_mcp.so"
-TEST_DIR="/tmp/repos-mcp-ssh-test-$$"
+PLUGIN="./target/release/libagentic_repos.so"
+TEST_DIR="/tmp/agentic-repos-ssh-test-$$"
 SSH_PORT=2222
 SSH_HOST="localhost"
 TENANT="ssh-test-$(date +%s)"
 REPO="test-ssh-repo"
 
 echo "========================================"
-echo "repos-mcp SSH Git Operations Test"
+echo "agentic-repos SSH Git Operations Test"
 echo "Date: $(date)"
 echo "========================================"
 
@@ -42,9 +42,9 @@ chmod 600 test_key test_key.pub
 PUBLIC_KEY=$(cat test_key.pub)
 echo "✓ SSH keys generated"
 
-# Configure repos-mcp for SSH
+# Configure agentic-repos for SSH
 echo ""
-echo "Configuring repos-mcp for SSH..."
+echo "Configuring agentic-repos for SSH..."
 export REPOS_STORAGE_PATH="$TEST_DIR/repos"
 export REPOS_SSH_ENABLED=true
 export REPOS_SSH_PORT=$SSH_PORT
@@ -101,7 +101,7 @@ echo ""
 echo "Test 4: Initialize server repository"
 cd "$TEST_DIR/server"
 
-# Initialize bare repository (this is what repos-mcp creates)
+# Initialize bare repository (this is what agentic-repos creates)
 git init --bare
 echo "✓ Server repository initialized"
 

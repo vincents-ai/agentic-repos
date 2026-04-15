@@ -1,4 +1,4 @@
-Integration Guide - repos-mcp Skynet v2 Git Operations Plugin
+Integration Guide - agentic-repos Skynet v2 Git Operations Plugin
 ==============================================================
 
 This guide provides step-by-step instructions for integrating the Git Operations Plugin
@@ -40,7 +40,7 @@ Integration Points:
 Required:
 - Skynet v2 version 2.0.0 or later
 - Rust 1.70 or later
-- repos-mcp binary or library
+- agentic-repos binary or library
 
 Optional:
 - S3-compatible storage (MinIO, AWS S3, etc.)
@@ -54,9 +54,9 @@ Optional:
 ### In Your Skynet v2 Integration Code
 
 ```rust
-use repos_mcp::skynet;
-use repos_mcp::config::AppConfig;
-use repos_mcp::skynet::interface::PluginApi;
+use agentic_repos::skynet;
+use agentic_repos::config::AppConfig;
+use agentic_repos::skynet::interface::PluginApi;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -169,7 +169,7 @@ REPOS_MONITORING_HEALTH_PORT=8080
 ### Configuration File (YAML)
 
 ```yaml
-# repos-mcp configuration
+# agentic-repos configuration
 skynet:
   min_version: "2.0.0"
   api_timeout_secs: 30
@@ -214,7 +214,7 @@ monitoring:
   tracing:
     enabled: true
     endpoint: http://localhost:4317
-    service_name: repos-mcp
+    service_name: agentic-repos
   health_check:
     enabled: true
     port: 8080

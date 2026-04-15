@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-PLUGIN="./target/release/librepos_mcp.so"
+PLUGIN="./target/release/libagentic_repos.so"
 TEST_DIR="./test-git-$$"
 
-echo "=== repos-mcp Git Operations Test ==="
+echo "=== agentic-repos Git Operations Test ==="
 
 # Validate plugin
 [ ! -f "$PLUGIN" ] && echo "ERROR: Plugin not found" && exit 1
@@ -41,7 +41,7 @@ git config user.email "test@example.com" 2>/dev/null
 git config user.name "Test User" 1>/dev/null
 
 echo "# Test Repository" > README.md
-echo "Testing repos-mcp git operations" >> README.md
+echo "Testing agentic-repos git operations" >> README.md
 git add README.md 2>/dev/null
 git commit -m "Initial commit" 2>/dev/null
 

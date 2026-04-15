@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-**CRITICAL SECURITY ASSESSMENT**: The repos-mcp SSH implementation contains **critical authentication bypass and command injection vulnerabilities** that allow complete system compromise. The system is **NOT SAFE FOR PRODUCTION DEPLOYMENT**.
+**CRITICAL SECURITY ASSESSMENT**: The agentic-repos SSH implementation contains **critical authentication bypass and command injection vulnerabilities** that allow complete system compromise. The system is **NOT SAFE FOR PRODUCTION DEPLOYMENT**.
 
 ### Critical Findings Summary
 - **CRITICAL**: SSH Authentication Bypass (CWE-287) - Any SSH key accepted
@@ -101,8 +101,8 @@ fs::write(authorized_keys_path, example_content)?;
 #### Scenario 2: Misconfigured File Permissions
 ```bash
 # If authorized_keys file is not readable
-$ ssh git@repos-mcp-server
-git@repos-mcp-server's password: # ← Falls back to password auth (if enabled)
+$ ssh git@agentic-repos-server
+git@agentic-repos-server's password: # ← Falls back to password auth (if enabled)
 ```
 
 ### Impact Assessment
@@ -654,7 +654,7 @@ async fn test_ssh_security_integration() {
 
 ---
 
-**CONCLUSION**: The repos-mcp SSH implementation has critical security vulnerabilities that make it unsafe for production use. Immediate action is required to prevent potential data breaches and system compromise.
+**CONCLUSION**: The agentic-repos SSH implementation has critical security vulnerabilities that make it unsafe for production use. Immediate action is required to prevent potential data breaches and system compromise.
 
 ---
 

@@ -1,4 +1,4 @@
-{ pkgs, repos-mcp, garage }:
+{ pkgs, agentic-repos, garage }:
 
 let
   inherit (pkgs) lib;
@@ -9,24 +9,24 @@ let
 
       nodes = {
         server = { config, pkgs, ... }: {
-          imports = [ ../modules/repos-mcp.nix ];
+          imports = [ ../modules/agentic-repos.nix ];
 
           networking.firewall.enable = false;
 
-          services.repos-mcp = {
+          services.agentic-repos = {
             enable = true;
-            package = repos-mcp;
+            package = agentic-repos;
             host = "0.0.0.0";
             port = 8090;
             sshPort = 2222;
-            storage.path = "/var/lib/repos-mcp/repositories";
+            storage.path = "/var/lib/agentic-repos/repositories";
           };
 
           environment.systemPackages = with pkgs; [
             git
             curl
             openssh
-            repos-mcp
+            agentic-repos
             garage
           ];
 
@@ -50,31 +50,31 @@ let
     builtins.listToAttrs (map (test: {
       name = "${category}-${test.id}";
       value = mkVMTest {
-        name = "repos-mcp-${category}-${test.id}";
+        name = "agentic-repos-${category}-${test.id}";
         inherit (test) testScript;
         nodes = test.nodes or {};
       };
     }) tests);
 
   waitForReposMCP = ''
-    server.wait_for_unit("repos-mcp.service")
+    server.wait_for_unit("agentic-repos.service")
     server.wait_for_open_port(2222)
     server.wait_for_open_port(8090)
   '';
 
   setupSSHKeys = ''
-    server.succeed("mkdir -p /var/lib/repos-mcp")
-    server.succeed("chown repos-mcp:repos-mcp /var/lib/repos-mcp")
+    server.succeed("mkdir -p /var/lib/agentic-repos")
+    server.succeed("chown agentic-repos:agentic-repos /var/lib/agentic-repos")
 
     client.succeed("mkdir -p /root/.ssh")
     client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
     client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/pubkey.txt")
 
     pubkey = client.succeed("cat /tmp/pubkey.txt").strip()
-    # repos-mcp format: username:ssh-key-type key-data comment
-    server.succeed(f"printf 'root:%s' \"{pubkey}\" > /var/lib/repos-mcp/authorized_keys")
-    server.succeed("chown repos-mcp:repos-mcp /var/lib/repos-mcp/authorized_keys")
-    server.succeed("systemctl restart repos-mcp.service")
+    # agentic-repos format: username:ssh-key-type key-data comment
+    server.succeed(f"printf 'root:%s' \"{pubkey}\" > /var/lib/agentic-repos/authorized_keys")
+    server.succeed("chown agentic-repos:agentic-repos /var/lib/agentic-repos/authorized_keys")
+    server.succeed("systemctl restart agentic-repos.service")
     server.wait_for_open_port(2222)
   '';
 
@@ -93,15 +93,15 @@ let
   '';
 
   createTestRepo = tenant: name: ''
-    server.succeed("mkdir -p /var/lib/repos-mcp/repositories/${tenant}")
-    server.succeed("chown repos-mcp:repos-mcp /var/lib/repos-mcp/repositories/${tenant}")
-    server.succeed("su -s /bin/sh repos-mcp -c 'cd /var/lib/repos-mcp/repositories/${tenant} && git init --bare ${name}.git'")
-    server.succeed("git config --global --add safe.directory /var/lib/repos-mcp/repositories/${tenant}/${name}.git")
+    server.succeed("mkdir -p /var/lib/agentic-repos/repositories/${tenant}")
+    server.succeed("chown agentic-repos:agentic-repos /var/lib/agentic-repos/repositories/${tenant}")
+    server.succeed("su -s /bin/sh agentic-repos -c 'cd /var/lib/agentic-repos/repositories/${tenant} && git init --bare ${name}.git'")
+    server.succeed("git config --global --add safe.directory /var/lib/agentic-repos/repositories/${tenant}/${name}.git")
   '';
 
   assertServiceRunning = ''
-    server.succeed("systemctl is-active repos-mcp.service")
-    server.succeed("systemctl status repos-mcp.service | grep 'active (running)'")
+    server.succeed("systemctl is-active agentic-repos.service")
+    server.succeed("systemctl status agentic-repos.service | grep 'active (running)'")
   '';
 
   assertPortOpen = port: ''
@@ -122,20 +122,20 @@ let
 
   mkTenantTest = tenant: testScript:
     mkVMTest {
-      name = "repos-mcp-tenant-${tenant}";
+      name = "agentic-repos-tenant-${tenant}";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/${tenant}")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/${tenant}")
         ${testScript}
       '';
     };
 
   mkStorageTest = backend: testScript:
     mkVMTest {
-      name = "repos-mcp-storage-${backend}";
+      name = "agentic-repos-storage-${backend}";
       nodes.server = { config, pkgs, ... }: {
-        imports = [ ../modules/repos-mcp.nix ];
-        services.repos-mcp = {
+        imports = [ ../modules/agentic-repos.nix ];
+        services.agentic-repos = {
           enable = true;
           storage.backend = backend;
         };
@@ -162,7 +162,7 @@ let
   loadTestFile = category:
     let path = ./. + "/${category}.nix";
     in if builtins.pathExists path
-       then import path { inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo; }
+       then import path { inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo; }
        else {};
 
 in {

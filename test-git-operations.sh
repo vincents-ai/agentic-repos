@@ -1,5 +1,5 @@
 #!/bin/bash
-# Comprehensive Git Operations and LFS Validation Script for repos-mcp with Skylet
+# Comprehensive Git Operations and LFS Validation Script for agentic-repos with Skylet
 # This script validates all git operations including LFS support the S3 storage backend
 
 set -e
@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Test configuration
-REPO_MCP_PLUGIN="./target/release/librepos_mcp.so"
+REPO_MCP_PLUGIN="./target/release/libagentic_repos.so"
 GARAGE_S3_PLUGIN="$HOME/code/vincents-ai/skynet/target/release/libgarage_s3.so"
 TEST_DIR="./test-git-operations-$$"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -53,9 +53,9 @@ test_plugin_validation() {
     log_section
     echo "Testing Plugin Validation..."
     
-    # Check repos-mcp plugin exists
+    # Check agentic-repos plugin exists
     if [ ! -f "$REPO_MCP_PLUGIN" ]; then
-        log_error "repos-mcp plugin not found at build"
+        log_error "agentic-repos plugin not found at build"
         exit 1
     fi
     
@@ -65,13 +65,13 @@ test_plugin_validation() {
         exit 1
     fi
     
-    # Validate repos-mcp
-    log_info "Validating repos-mcp plugin..."
+    # Validate agentic-repos
+    log_info "Validating agentic-repos plugin..."
     if ! ~/code/skylet/target/release/plugin-test-harness validate --plugin-path "$REPO_MCP_PLUGIN" > /dev/null 2>&1; then
-        log_error "repos-mcp plugin validation failed"
+        log_error "agentic-repos plugin validation failed"
         exit 1
     fi
-    log_success "repos-mcp plugin validation passed"
+    log_success "agentic-repos plugin validation passed"
     
     # Validate garage-s3
     log_info "Validating garage-s3 plugin..."
@@ -95,7 +95,7 @@ test_local_storage() {
     mkdir -p "$TEST_DIR/local-storage"
     cd "$TEST_DIR/local-storage"
     
-    # Configure repos-mcp for local storage
+    # Configure agentic-repos for local storage
     export REPOS_STORAGE_PATH="$TEST_DIR/local-storage"
     export REPOS_SSH_ENABLED=false
     
@@ -163,7 +163,7 @@ test_git_operations_local() {
     mkdir -p "$WORK_DIR"
     cd "$WORK_DIR"
     
-    # Configure repos-mcp for local storage
+    # Configure agentic-repos for local storage
     export REPOS_STORAGE_PATH="$TEST_DIR/local-storage"
     export REPOS_SSH_ENABLED=false
     
@@ -187,7 +187,7 @@ test_git_operations_local() {
     
     # Create test files
     echo "# Test Repository" > README.md
-    echo "This is a test repository for repos-mcp validation" >> README.md
+    echo "This is a test repository for agentic-repos validation" >> README.md
     git add README.md
     git commit -m "Initial commit"
     
@@ -228,7 +228,7 @@ test_git_lfs_operations() {
     mkdir -p "$WORK_DIR"
     cd "$WORK_DIR"
     
-    # Configure repos-mcp for local storage
+    # Configure agentic-repos for local storage
     export REPOS_STORAGE_PATH="$TEST_DIR/lfs-storage"
     export REPOS_SSH_ENABLED=false
     
@@ -286,7 +286,7 @@ test_multi_tenant_isolation() {
     local TENANT_B="tenant-b-$$(date +%s)"
     local REPO_NAME="shared-repo-name"
     
-    # Configure repos-mcp for local storage
+    # Configure agentic-repos for local storage
     export REPOS_STORAGE_PATH="$TEST_DIR/multi-tenant-storage"
     export REPOS_SSH_ENABLED=false
     
@@ -335,7 +335,7 @@ test_multi_tenant_isolation() {
 # Main test execution
 main() {
     log_section
-    echo "repos-mcp Git Operations and LFS Validation"
+    echo "agentic-repos Git Operations and LFS Validation"
     echo "Date: $(date)"
     log_section
     

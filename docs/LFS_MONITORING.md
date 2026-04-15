@@ -1,10 +1,10 @@
 # Git LFS Monitoring Guide
 
-This document describes the monitoring and observability capabilities for Git LFS operations in repos-mcp.
+This document describes the monitoring and observability capabilities for Git LFS operations in agentic-repos.
 
 ## Metrics Collection
 
-repos-mcp exposes Prometheus-compatible metrics for Git LFS operations. All metrics are available at the `/metrics` endpoint.
+agentic-repos exposes Prometheus-compatible metrics for Git LFS operations. All metrics are available at the `/metrics` endpoint.
 
 ### Available Metrics
 
@@ -70,7 +70,7 @@ Add this to your `prometheus.yml`:
 
 ```yaml
 scrape_configs:
-  - job_name: 'repos-mcp'
+  - job_name: 'agentic-repos'
     static_configs:
       - targets: ['localhost:8090']
     scrape_interval: 15s

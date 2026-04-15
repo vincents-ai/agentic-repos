@@ -1,17 +1,17 @@
-# User Guide: Enabling Git LFS on repos-mcp Server
+# User Guide: Enabling Git LFS on agentic-repos Server
 
-This guide walks you through enabling Git LFS support on your repos-mcp server.
+This guide walks you through enabling Git LFS support on your agentic-repos server.
 
 ## Prerequisites
 
-- repos-mcp server installed and running
+- agentic-repos server installed and running
 - Access to server configuration files
 - Basic understanding of YAML configuration
 - SSH access to server (for testing)
 
 ## Step 1: Check Current Configuration
 
-First, locate your configuration file. By default, repos-mcp looks for `config.yaml` in the working directory.
+First, locate your configuration file. By default, agentic-repos looks for `config.yaml` in the working directory.
 
 ```bash
 # Check if config.yaml exists
@@ -155,15 +155,15 @@ lfs:
 
 ## Step 8: Restart Server
 
-After updating configuration, restart repos-mcp:
+After updating configuration, restart agentic-repos:
 
 ```bash
 # Stop current server (if running as service)
-sudo systemctl restart repos-mcp
+sudo systemctl restart agentic-repos
 
 # Or if running directly
-killall repos-mcp
-./repos-mcp
+killall agentic-repos
+./agentic-repos
 ```
 
 Check logs for successful LFS initialization:
@@ -340,7 +340,7 @@ lfs:
 
 ### Multiple Server Instances
 
-If running multiple repos-mcp instances:
+If running multiple agentic-repos instances:
 
 1. All instances must share the same `jwt_secret`
 2. All instances must use the same storage backend (or replicated storage)
@@ -348,7 +348,7 @@ If running multiple repos-mcp instances:
 
 ## Configuration File Location
 
-repos-mcp searches for configuration in this order:
+agentic-repos searches for configuration in this order:
 
 1. `--config` command line flag
 2. `config.yaml` in current directory
@@ -356,7 +356,7 @@ repos-mcp searches for configuration in this order:
 
 Specify custom location:
 ```bash
-./repos-mcp --config=/etc/repos-mcp/config.yaml
+./agentic-repos --config=/etc/agentic-repos/config.yaml
 ```
 
 ## Related Documentation
@@ -372,4 +372,4 @@ If you encounter issues not covered in this guide:
 1. Check server logs for error messages
 2. Review [Troubleshooting Guide](./LFS_TROUBLESHOOTING.md)
 3. Verify configuration with [Configuration Reference](./LFS_CONFIGURATION.md)
-4. Report bugs to repos-mcp GitHub issues
+4. Report bugs to agentic-repos GitHub issues

@@ -1,4 +1,4 @@
-# repos-mcp Workload State
+# agentic-repos Workload State
 
 **Last Updated:** 2026-03-23 11:45
 **Session Purpose:** Complete commercial roadmap implementation
@@ -43,10 +43,10 @@ git branch --show-current
 
 ```bash
 # Development build (tmux)
-tmux new-session -d -s repos-mcp-build 'cd /home/shift/code/vincents-ai/repos-mcp && cargo build 2>&1 | tee /tmp/repos-mcp-build.log'
+tmux new-session -d -s agentic-repos-build 'cd /home/shift/code/vincents-ai/agentic-repos && cargo build 2>&1 | tee /tmp/agentic-repos-build.log'
 
 # Check build status
-tail -f /tmp/repos-mcp-build.log
+tail -f /tmp/agentic-repos-build.log
 ```
 
 ## Test Commands

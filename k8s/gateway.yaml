@@ -1,4 +1,4 @@
-# Gateway API Configuration for repos-mcp
+# Gateway API Configuration for agentic-repos
 # Uses Envoy Gateway as GatewayClass controller
 
 ---
@@ -7,7 +7,7 @@ kind: GatewayClass
 metadata:
   name: envoy-gateway
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 spec:
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
 
@@ -15,10 +15,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: repos-mcp
-  namespace: repos-mcp
+  name: agentic-repos
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
@@ -35,77 +35,77 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: repos-mcp-http
-  namespace: repos-mcp
+  name: agentic-repos-http
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 spec:
   parentRefs:
-    - name: repos-mcp
-      namespace: repos-mcp
+    - name: agentic-repos
+      namespace: agentic-repos
       sectionName: http
-  hostnames: ["repos-mcp.example.com"]
+  hostnames: ["agentic-repos.example.com"]
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: repos-mcp
+        - name: agentic-repos
           port: 80
 
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: repos-mcp-mcp
-  namespace: repos-mcp
+  name: agentic-repos
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 spec:
   parentRefs:
-    - name: repos-mcp
-      namespace: repos-mcp
+    - name: agentic-repos
+      namespace: agentic-repos
       sectionName: http
-  hostnames: ["mcp.repos-mcp.example.com"]
+  hostnames: ["mcp.agentic-repos.example.com"]
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: repos-mcp
+        - name: agentic-repos
           port: 3000
 
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: TLSRoute
 metadata:
-  name: repos-mcp-tls
-  namespace: repos-mcp
+  name: agentic-repos-tls
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 spec:
   parentRefs:
-    - name: repos-mcp
-      namespace: repos-mcp
-  hostnames: ["repos-mcp.example.com"]
+    - name: agentic-repos
+      namespace: agentic-repos
+  hostnames: ["agentic-repos.example.com"]
   rules:
     - backendRefs:
-        - name: repos-mcp
+        - name: agentic-repos
           port: 80
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: repos-mcp-tls
-  namespace: repos-mcp
+  name: agentic-repos-tls
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 spec:
-  secretName: repos-mcp-tls
+  secretName: agentic-repos-tls
   issuerRef:
     name: letsencrypt-prod
     kind: ClusterIssuer
   dnsNames:
-    - repos-mcp.example.com
+    - agentic-repos.example.com

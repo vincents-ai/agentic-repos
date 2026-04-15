@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Direct SSH Git Operations Test - Works with running repos-mcp
+# Direct SSH Git Operations Test - Works with running agentic-repos
 
 set -e
 
-PLUGIN="./target/release/librepos_mcp.so"
+PLUGIN="./target/release/libagentic_repos.so"
 TEST_DIR="/tmp/repos-git-ssh-test-$$"
 SSH_PORT=2222
 TENANT="tenant-ssh-$(date +%s)"
 REPO="test-repo"
 
 echo "========================================"
-echo "repos-mcp Git Operations Test (SSH)"
+echo "agentic-repos Git Operations Test (SSH)"
 echo "Date: $(date)"
 echo "========================================"
 
@@ -19,7 +19,7 @@ cleanup() {
     echo ""
     echo "Cleaning up..."
     rm -rf "$TEST_DIR" 2>/dev/null || true
-    pkill -f "repos_mcp" 2>/dev/null || true
+    pkill -f "agentic_repos" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -129,7 +129,7 @@ git config user.email "test@example.com"
 git config user.name "Test User"
 
 echo "# Test Repository" > README.md
-echo "Testing repos-mcp git operations" >> README.md
+echo "Testing agentic-repos git operations" >> README.md
 git add README.md
 git commit -m "Initial commit"
 

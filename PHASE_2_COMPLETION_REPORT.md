@@ -1,9 +1,9 @@
-# repos-mcp Skynet v2 Plugin - Phase 2 Completion Report
+# agentic-repos Skynet v2 Plugin - Phase 2 Completion Report
 
 ## Executive Summary
 
 **Date:** January 28, 2026  
-**Project:** repos-mcp Skynet v2 Git Operations Plugin  
+**Project:** agentic-repos Skynet v2 Git Operations Plugin  
 **Phase:** 2 - Expanded Git Operations, SSH Key Management, Database Integration  
 **Status:** ✅ COMPLETE
 
@@ -407,5 +407,5 @@ Tag:    [task:phase2-git-ops]
 ---
 
 **Report Generated:** 2026-01-28  
-**Project Location:** `/home/shift/code/vincents-ai/repos-mcp/`  
+**Project Location:** `/home/shift/code/vincents-ai/agentic-repos/`  
 **Branch:** `feature/lfs-test-utils` (Phase 2 work staged here)

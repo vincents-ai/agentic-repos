@@ -1,26 +1,26 @@
-Project Summary - repos-mcp Skynet v2 Git Operations Plugin
+Project Summary - agentic-repos Skynet v2 Git Operations Plugin
 ============================================================
 
-This document provides a comprehensive summary of the repos-mcp Skynet v2 Git Operations Plugin
+This document provides a comprehensive summary of the agentic-repos Skynet v2 Git Operations Plugin
 development project, including architecture, implementation status, and next steps.
 
 ## Project Overview
 
-**Project Name**: repos-mcp Git Operations Plugin for Skynet v2 Integration  
+**Project Name**: agentic-repos Git Operations Plugin for Skynet v2 Integration  
 **Status**: Foundation & Core Implementation Complete  
 **Target Release**: Production Ready  
 **License**: AGPLv3 with Commercial Options  
 
 ## Objectives Achieved
 
-### 1. Examine Current repos-mcp Implementation ✓
-- Analyzed existing repos-mcp architecture (SSH server, Git operations, storage backends)
+### 1. Examine Current agentic-repos Implementation ✓
+- Analyzed existing agentic-repos architecture (SSH server, Git operations, storage backends)
 - Identified integration points with Skynet v2
 - Documented current features and limitations
 - Reviewed security implementation and testing
 
 ### 2. Create Skynet Plugin Structure ✓
-- Established new `skynet/` module in repos-mcp
+- Established new `skynet/` module in agentic-repos
 - Implemented modular architecture with clear separation of concerns
 - Created 12+ core modules with specific responsibilities
 - Follows Rust best practices and cargo conventions
@@ -423,7 +423,7 @@ cargo test: ✓ (10 tests passing)
 
 ## Conclusion
 
-The repos-mcp Skynet v2 Git Operations Plugin provides a solid foundation for:
+The agentic-repos Skynet v2 Git Operations Plugin provides a solid foundation for:
 - Multi-tenant Git server operations
 - Seamless Skynet v2 integration
 - Production deployment

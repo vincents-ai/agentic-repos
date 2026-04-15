@@ -7,19 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: repos_mcp_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,15 +16,39 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v17
 
-      - name: Wait for Postgres
-        run: |
-          for i in {1..30}; do
-            pg_isready -h localhost -p 5432 && echo "postgres ready" && break || sleep 1
-          done
+      - name: Cargo fmt
+        run: nix develop -c -- cargo fmt --check
 
-      - name: Run tests (Nix dev shell)
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/repos_mcp_test
+      - name: Cargo clippy
+        run: nix develop -c -- cargo clippy -- -D warnings
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v17
+
+      - name: Run unit tests
         run: |
-          # Use the repo flake dev shell to run tests so environment matches development
-          nix develop -c -- bash -lc "TEST_DATABASE_URL='$TEST_DATABASE_URL' RUST_BACKTRACE=1 cargo test -p repos-mcp --lib -- --nocapture --test-threads=1"
+          nix develop -c -- bash -lc "RUST_BACKTRACE=1 cargo test --lib -- --nocapture --test-threads=1"
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v17
+
+      - name: Install podman (for SeaweedFS S3 tests)
+        run: |
+          sudo apt-get update && sudo apt-get install -y podman
+
+      - name: Run E2E tests
+        run: |
+          nix develop -c -- bash -lc "RUST_BACKTRACE=1 cargo test --test e2e -- --nocapture --test-threads=1"
+        timeout-minutes: 30

@@ -365,6 +365,7 @@ mod tests {
 
     #[test]
     fn test_export_with_gates() {
+        SDLC_GATE_STATUS.reset();
         let svc = make_service();
         svc.record_metric(QualityMetric::new(
             "cov",

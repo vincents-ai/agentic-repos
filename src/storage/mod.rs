@@ -60,7 +60,6 @@ pub trait StorageBackend: Send + Sync {
     fn root(&self) -> Option<&Path>;
 }
 
-pub mod users;
 
 pub mod local {
     use super::{StorageBackend, StorageError};

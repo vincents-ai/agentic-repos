@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-repos-mcp SDLC Real-time Monitoring Dashboard
+agentic-repos SDLC Real-time Monitoring Dashboard
 Provides comprehensive visualization of SDLC metrics and status
 """
 

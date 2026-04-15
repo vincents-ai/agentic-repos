@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Package repos-mcp plugin for deployment with garage-s3
+# Package agentic-repos plugin for deployment with garage-s3
 
 set -e
 
 VERSION=${VERSION:-"0.1.0"}
-PACKAGE_NAME="repos-mcp-plugin-${VERSION}"
+PACKAGE_NAME="agentic-repos-plugin-${VERSION}"
 BUILD_DIR="./dist/${PACKAGE_NAME}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "========================================"
-echo "repos-mcp Plugin Packaging"
+echo "agentic-repos Plugin Packaging"
 echo "Version: ${VERSION}"
 echo "Date: $(date)"
 echo "========================================"
@@ -28,7 +28,7 @@ if ! nix build; then
     exit 1
 fi
 
-if [ ! -f "./target/release/librepos_mcp.so" ]; then
+if [ ! -f "./target/release/libagentic_repos.so" ]; then
     echo "ERROR: Plugin binary not found after build"
     exit 1
 fi
@@ -42,8 +42,8 @@ mkdir -p ${BUILD_DIR}/{plugins,config,docs,scripts}
 
 # Copy plugin binary
 echo "Copying plugin binary..."
-cp ./target/release/librepos_mcp.so ${BUILD_DIR}/plugins/
-chmod +x ${BUILD_DIR}/plugins/librepos_mcp.so
+cp ./target/release/libagentic_repos.so ${BUILD_DIR}/plugins/
+chmod +x ${BUILD_DIR}/plugins/libagentic_repos.so
 
 # Copy garage-s3 plugin if available
 GARAGE_S3_PLUGIN="$HOME/code/vincents-ai/skynet/target/release/libgarage_s3.so"
@@ -61,7 +61,7 @@ echo "Copying documentation..."
 cp -r docs/*.md ${BUILD_DIR}/docs/
 cp AGENTS.md ${BUILD_DIR}/docs/
 cp VALIDATION_COMPLETE.md ${BUILD_DIR}/docs/
-cp README.md ${BUILD_DIR}/ 2>/dev/null || echo "# repos-mcp Plugin" > ${BUILD_DIR}/README.md
+cp README.md ${BUILD_DIR}/ 2>/dev/null || echo "# agentic-repos Plugin" > ${BUILD_DIR}/README.md
 
 # Copy test scripts
 echo "Copying test scripts..."
@@ -72,7 +72,7 @@ chmod +x ${BUILD_DIR}/scripts/*.sh
 # Create deployment configuration
 echo "Creating deployment configurations..."
 cat > ${BUILD_DIR}/config/skylet-config.yaml << 'EOF'
-# Skylet Configuration for repos-mcp with garage-s3
+# Skylet Configuration for agentic-repos with garage-s3
 # Copy this file to your Skylet config directory
 
 server:
@@ -88,7 +88,7 @@ plugins:
   - name: garage-s3
     path: ./plugins/libgarage_s3.so
     enabled: true
-    priority: 10  # Load before repos-mcp
+    priority: 10  # Load before agentic-repos
     config:
       auto_start_garage: true
       data_dir: "./data/garage"
@@ -96,9 +96,9 @@ plugins:
       rpc_port: 3901
       admin_port: 3903
 
-  # Git operations - repos-mcp (depends on garage-s3)
+  # Git operations - agentic-repos (depends on garage-s3)
   - name: git-operations
-    path: ./plugins/librepos_mcp.so
+    path: ./plugins/libagentic_repos.so
     enabled: true
     priority: 5  # Load after garage-s3
     config:
@@ -138,8 +138,8 @@ metrics:
 EOF
 
 # Create environment configuration
-cat > ${BUILD_DIR}/config/repos-mcp.env << 'EOF'
-# repos-mcp Environment Configuration
+cat > ${BUILD_DIR}/config/agentic-repos.env << 'EOF'
+# agentic-repos Environment Configuration
 # Source this file before starting Skylet
 
 # Storage Configuration
@@ -171,18 +171,18 @@ EOF
 # Create deployment guide
 echo "Creating deployment guide..."
 cat > ${BUILD_DIR}/DEPLOYMENT.md << 'EOF'
-# repos-mcp Plugin Deployment Guide
+# agentic-repos Plugin Deployment Guide
 
 ## Package Contents
 
 ```
-repos-mcp-plugin-0.1.0/
+agentic-repos-plugin-0.1.0/
 ├── plugins/
-│   ├── librepos_mcp.so         # repos-mcp plugin
+│   ├── libagentic_repos.so         # agentic-repos plugin
 │   └── libgarage_s3.so         # garage-s3 storage backend
 ├── config/
 │   ├── skylet-config.yaml      # Skylet configuration
-│   └── repos-mcp.env           # Environment variables
+│   └── agentic-repos.env           # Environment variables
 ├── docs/                        # Documentation
 │   ├── AGENTS.md
 │   ├── SKYLET_PLUGIN_VALIDATION.md
@@ -200,8 +200,8 @@ repos-mcp-plugin-0.1.0/
 ### 1. Extract Package
 
 ```bash
-tar -xzf repos-mcp-plugin-0.1.0.tar.gz
-cd repos-mcp-plugin-0.1.0
+tar -xzf agentic-repos-plugin-0.1.0.tar.gz
+cd agentic-repos-plugin-0.1.0
 ```
 
 ### 2. Deploy to Skylet
@@ -214,7 +214,7 @@ cp plugins/*.so /path/to/skylet/plugins/
 cp config/skylet-config.yaml /path/to/skylet/config.yaml
 
 # Set environment variables
-source config/repos-mcp.env
+source config/agentic-repos.env
 ```
 
 ### 3. Start Skylet
@@ -241,13 +241,13 @@ EOF
 
 # Create README
 cat > ${BUILD_DIR}/README.md << EOF
-# repos-mcp Plugin Package v${VERSION}
+# agentic-repos Plugin Package v${VERSION}
 
 Multi-tenant Git server with LFS support for Skylet.
 
 ## What's Included
 
-- **repos-mcp plugin** - Git operations and repository management
+- **agentic-repos plugin** - Git operations and repository management
 - **garage-s3 plugin** - S3-compatible storage backend
 - **Configuration files** - Ready-to-use Skylet configuration
 - **Documentation** - Complete validation and integration guides
@@ -270,7 +270,7 @@ Multi-tenant Git server with LFS support for Skylet.
 
 ## Support
 
-- GitHub: https://github.com/vincents-ai/repos-mcp
+- GitHub: https://github.com/vincents-ai/agentic-repos
 - Skylet: https://github.com/vincents-ai/skylet
 
 ## License
@@ -283,7 +283,7 @@ EOF
 # Create installation script
 cat > ${BUILD_DIR}/install.sh << 'EOF'
 #!/usr/bin/env bash
-# Install repos-mcp plugin to Skylet
+# Install agentic-repos plugin to Skylet
 
 set -e
 
@@ -291,7 +291,7 @@ SKYLET_DIR="${SKYLET_DIR:-$HOME/code/skylet}"
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "========================================"
-echo "repos-mcp Plugin Installer"
+echo "agentic-repos Plugin Installer"
 echo "========================================"
 
 echo ""
@@ -323,8 +323,8 @@ fi
 cp -v "$PLUGIN_DIR/config/skylet-config.yaml" "$SKYLET_DIR/config.yaml"
 
 # Install environment file
-if [ ! -f "$SKYLET_DIR/repos-mcp.env" ]; then
-    cp -v "$PLUGIN_DIR/config/repos-mcp.env" "$SKYLET_DIR/"
+if [ ! -f "$SKYLET_DIR/agentic-repos.env" ]; then
+    cp -v "$PLUGIN_DIR/config/agentic-repos.env" "$SKYLET_DIR/"
 fi
 
 echo ""
@@ -334,7 +334,7 @@ echo "========================================"
 echo ""
 echo "Next steps:"
 echo "1. Review and update $SKYLET_DIR/config.yaml"
-echo "2. Source environment: source $SKYLET_DIR/repos-mcp.env"
+echo "2. Source environment: source $SKYLET_DIR/agentic-repos.env"
 echo "3. Start Skylet: cd $SKYLET_DIR && ./target/release/skylet server"
 echo "4. Test: $PLUGIN_DIR/scripts/test-integration.sh"
 echo ""

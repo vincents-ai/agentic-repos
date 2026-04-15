@@ -1,6 +1,6 @@
 {
   "framework": {
-    "name": "repos-mcp SDLC Monitoring Framework",
+    "name": "agentic-repos SDLC Monitoring Framework",
     "version": "1.0.0",
     "description": "Continuous SDLC monitoring and improvement framework"
   },

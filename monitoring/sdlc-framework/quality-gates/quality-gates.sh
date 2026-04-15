@@ -1,6 +1,6 @@
 #!/usr/bin/env nix develop -c -- bash
 
-# repos-mcp SDLC Quality Gates Script
+# agentic-repos SDLC Quality Gates Script
 # Automates quality gate checks for CI/CD pipeline
 
 set -euo pipefail

@@ -59,9 +59,10 @@ impl ApiServer {
         &self,
         config: crate::config::AppConfig,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        println!(
-            "API Server starting on {}:{}",
-            config.server.host, config.server.port
+        tracing::info!(
+            host = %config.server.host,
+            port = %config.server.port,
+            "API server starting"
         );
 
         let git_service = Arc::clone(&self.git_service);
@@ -73,14 +74,14 @@ impl ApiServer {
             let service = Arc::new(RbacService::new(storage));
 
             if let Err(e) = service.initialize().await {
-                println!("Warning: Failed to initialize RBAC service: {}", e);
+                tracing::warn!(error = %e, "Failed to initialize RBAC service");
             } else {
-                println!("RBAC system initialized with default roles");
+                tracing::info!("RBAC system initialized with default roles");
             }
 
             Some(service)
         } else {
-            println!("RBAC feature disabled");
+            tracing::info!("RBAC feature disabled");
             None
         };
 
@@ -132,10 +133,13 @@ impl ApiServer {
                     ThrottleConfig,
                 };
                 use crate::storage::local::LocalStorage;
-                use std::path::PathBuf;
                 use std::sync::Arc;
 
-                let local_storage = LocalStorage::new(PathBuf::from("./test_repositories"));
+                // Use the same storage root as GitService (from REPOS_MCP_STORAGE_ROOT)
+                let storage_root = git_service
+                    .get_storage_root()
+                    .unwrap_or_else(|| std::path::PathBuf::from("./repositories"));
+                let local_storage = LocalStorage::new(storage_root);
                 let lfs_storage = LfsStorageAdapter::new(
                     local_storage,
                     lfs_config.storage_path_pattern.clone(),

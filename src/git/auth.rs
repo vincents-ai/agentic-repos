@@ -1,25 +1,102 @@
+use crate::adp::bootstrap::SYSTEM_REPO_PATH;
+use crate::adp::storage::AdpStore;
 use crate::git::GitConfig;
 use russh::keys::ssh_key::PublicKey;
 use std::collections::HashMap;
-use std::fs;
-use tracing::{debug, error, warn};
+use std::path::PathBuf;
+use tracing::{debug, error, info, warn};
+
+const SSH_KEYS_REF_PREFIX: &str = "refs/adp/users";
 
 #[derive(Debug, Clone)]
 pub struct AuthorizedKeysManager {
     authorized_keys: HashMap<String, Vec<String>>,
     config: GitConfig,
+    /// Storage root for locating the system repo.
+    /// When set, keys are read from git-refs instead of flat file.
+    storage_root: Option<PathBuf>,
 }
 
 impl AuthorizedKeysManager {
     pub fn new(config: GitConfig) -> Self {
         Self {
             authorized_keys: HashMap::new(),
+            storage_root: None,
             config,
         }
     }
 
-    /// Load authorized keys from file
+    /// Set the storage root for git-refs-based key loading.
+    pub fn with_storage_root(mut self, storage_root: PathBuf) -> Self {
+        self.storage_root = Some(storage_root);
+        self
+    }
+
+    /// Load authorized keys from git-refs or flat file.
+    /// Git-refs take priority when storage_root is set.
     pub async fn load_authorized_keys(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.storage_root.is_some() {
+            let storage_root = self.storage_root.clone().unwrap();
+            self.load_from_git_refs(&storage_root).await
+        } else {
+            self.load_from_flat_file().await
+        }
+    }
+
+    /// Load SSH keys from git-refs: refs/adp/users/{username}/ssh_keys
+    async fn load_from_git_refs(&mut self, storage_root: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+        let system_repo = storage_root.join(SYSTEM_REPO_PATH);
+
+        // List all user refs
+        let refs = match AdpStore::list_refs(&system_repo, SSH_KEYS_REF_PREFIX) {
+            Ok(refs) => refs,
+            Err(e) => {
+                warn!("No SSH keys found in git-refs ({}), falling back to flat file: {}", SSH_KEYS_REF_PREFIX, e);
+                return self.load_from_flat_file().await;
+            }
+        };
+
+        self.authorized_keys.clear();
+
+        for refname in &refs {
+            // Extract username from ref: refs/adp/users/{username}/ssh_keys
+            let username = refname
+                .strip_prefix(SSH_KEYS_REF_PREFIX)
+                .and_then(|s| s.strip_prefix('/'))
+                .and_then(|s| s.strip_suffix("/ssh_keys"))
+                .unwrap_or("");
+
+            if username.is_empty() {
+                continue;
+            }
+
+            match AdpStore::read_ref_blob(&system_repo, refname) {
+                Ok(value) => {
+                    // Value is a JSON array of public key strings
+                    let keys: Vec<String> = serde_json::from_value(value).unwrap_or_default();
+                    for key in &keys {
+                        if key.starts_with("ssh-") {
+                            self.authorized_keys
+                                .entry(username.to_string())
+                                .or_default()
+                                .push(key.clone());
+                            debug!("Loaded key for user '{}' from git-refs", username);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to read SSH keys ref '{}' for user '{}': {}", refname, username, e);
+                }
+            }
+        }
+
+        info!("Loaded {} users from git-refs SSH keys", self.authorized_keys.len());
+        Ok(())
+    }
+
+    /// Load authorized keys from flat file (legacy fallback)
+    async fn load_from_flat_file(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        use std::fs;
         let authorized_keys_path = &self.config.authorized_keys_path;
 
         if !authorized_keys_path.exists() {

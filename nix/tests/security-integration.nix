@@ -6,7 +6,7 @@
 # - Rate Limiting (connection limits, API limits, per-user, per-IP)
 # - Security Hardening (command injection, path traversal, input validation)
 
-{ pkgs, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
+{ pkgs, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo }:
 
 let
   authenticationTests = [
@@ -17,12 +17,12 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N '''''' -C 'test-client'")
         pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
-        server.succeed("chmod 600 /etc/repos-mcp/authorized_keys")
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey,))
+        server.succeed("chmod 600 /etc/agentic-repos/authorized_keys")
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/auth-test.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/auth-test.git")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("chmod 600 /root/.ssh/config")
@@ -34,8 +34,8 @@ let
       id = "ssh-key-invalid-rejection";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/secure-repo.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/secure-repo.git")
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/unauthorized_key -N '''''' -C 'unauthorized'")
         client.succeed("echo 'Host server' > /root/.ssh/config")
@@ -67,8 +67,8 @@ let
       id = "failed-auth-rate-limiting";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/rate-limit-test.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/rate-limit-test.git")
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/wrong_key -N '''''' -C 'wrong'")
         client.succeed("echo 'Host server' > /root/.ssh/config")
@@ -86,12 +86,12 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519_v1 -N '''''' -C 'v1'")
         pubkey_v1 = client.succeed("cat /root/.ssh/id_ed25519_v1.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey_v1,))
-        server.succeed("chmod 600 /etc/repos-mcp/authorized_keys")
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey_v1,))
+        server.succeed("chmod 600 /etc/agentic-repos/authorized_keys")
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/rotation-test.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/rotation-test.git")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("echo '  IdentityFile /root/.ssh/id_ed25519_v1' >> /root/.ssh/config")
@@ -99,8 +99,8 @@ let
         client.succeed("git clone ssh://root@server:2222/test-tenant/rotation-test.git /tmp/v1-clone")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519_v2 -N '''''' -C 'v2'")
         pubkey_v2 = client.succeed("cat /root/.ssh/id_ed25519_v2.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey_v2,))
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey_v2,))
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'IdentityFile /root/.ssh/id_ed25519_v1' > /root/.ssh/config_for_v1")
         client.fail("ssh -F /root/.ssh/config_for_v1 root@server 'echo test' 2>&1 || true")
@@ -110,11 +110,11 @@ let
       id = "empty-authorized-keys-rejection";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("echo '''''' > /etc/repos-mcp/authorized_keys")
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo '''''' > /etc/agentic-repos/authorized_keys")
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/empty-auth.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/empty-auth.git")
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N '''''' -C 'client'")
         client.succeed("echo 'Host server' > /root/.ssh/config")
@@ -131,15 +131,15 @@ let
       testScript = ''
         ${waitForReposMCP}
         ${setupSSHKeys}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/secret-scan.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/secret-scan.git")
         ${setupGitConfig}
         client.succeed("git clone ssh://root@server:2222/test-tenant/secret-scan.git /tmp/secret-scan")
         client.succeed("cd /tmp/secret-scan && echo 'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE' > config.env")
         client.succeed("cd /tmp/secret-scan && git add config.env")
         client.succeed("cd /tmp/secret-scan && git commit -m 'Add config'")
         result = client.succeed("cd /tmp/secret-scan && git push origin main 2>&1 || echo 'PUSH_BLOCKED'")
-        server.succeed("grep -r 'AKIA' /var/log/repos-mcp/ || echo 'Secret logged or blocked'")
+        server.succeed("grep -r 'AKIA' /var/log/agentic-repos/ || echo 'Secret logged or blocked'")
       '';
     }
     {
@@ -147,15 +147,15 @@ let
       testScript = ''
         ${waitForReposMCP}
         ${setupSSHKeys}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/github-token-scan.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/github-token-scan.git")
         ${setupGitConfig}
         client.succeed("git clone ssh://root@server:2222/test-tenant/github-token-scan.git /tmp/github-scan")
         client.succeed("cd /tmp/github-scan && echo 'GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' > .env")
         client.succeed("cd /tmp/github-scan && git add .env")
         client.succeed("cd /tmp/github-scan && git commit -m 'Add environment'")
         result = client.succeed("cd /tmp/github-scan && git push origin main 2>&1 || echo 'PUSH_BLOCKED'")
-        server.succeed("grep -r 'ghp_' /var/log/repos-mcp/ || echo 'Token logged or blocked'")
+        server.succeed("grep -r 'ghp_' /var/log/agentic-repos/ || echo 'Token logged or blocked'")
       '';
     }
     {
@@ -163,8 +163,8 @@ let
       testScript = ''
         ${waitForReposMCP}
         ${setupSSHKeys}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/private-key-scan.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/private-key-scan.git")
         ${setupGitConfig}
         client.succeed("git clone ssh://root@server:2222/test-tenant/private-key-scan.git /tmp/pkey-scan")
         client.succeed("cd /tmp/pkey-scan && echo '-----BEGIN RSA PRIVATE KEY-----' > key.pem")
@@ -180,8 +180,8 @@ let
       testScript = ''
         ${waitForReposMCP}
         ${setupSSHKeys}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/safe-content.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/safe-content.git")
         ${setupGitConfig}
         client.succeed("git clone ssh://root@server:2222/test-tenant/safe-content.git /tmp/safe-content")
         client.succeed("cd /tmp/safe-content && echo 'This is a normal line of code without any secrets.' > safe.txt")
@@ -197,8 +197,8 @@ let
       testScript = ''
         ${waitForReposMCP}
         ${setupSSHKeys}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/password-scan.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/password-scan.git")
         ${setupGitConfig}
         client.succeed("git clone ssh://root@server:2222/test-tenant/password-scan.git /tmp/pwd-scan")
         client.succeed("cd /tmp/pwd-scan && echo 'database_password = SuperSecretPassword123!' > db.conf")
@@ -214,13 +214,13 @@ let
       id = "connection-rate-limit";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/rate-conn.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/rate-conn.git")
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey,))
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
@@ -274,11 +274,11 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/inject_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/inject_key.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey,))
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/inject-test.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/inject-test.git")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("echo '  IdentityFile /root/.ssh/inject_key' >> /root/.ssh/config")
@@ -294,8 +294,8 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/pipe_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/pipe_key.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey,))
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
@@ -312,8 +312,8 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/traversal_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/traversal_key.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey,))
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
@@ -331,15 +331,15 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/abs_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/abs_key.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey,))
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
         client.succeed("echo '  IdentityFile /root/.ssh/abs_key' >> /root/.ssh/config")
         client.succeed("chmod 600 /root/.ssh/config")
         client.fail("git clone ssh://root@server:2222//etc/passwd /tmp/abs1 2>&1 || true")
-        client.fail("git clone ssh://root@server:2222//var/lib/repos-mcp/../other /tmp/abs2 2>&1 || true")
+        client.fail("git clone ssh://root@server:2222//var/lib/agentic-repos/../other /tmp/abs2 2>&1 || true")
       '';
     }
     {
@@ -349,8 +349,8 @@ let
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/special_key -N ''''''")
         pubkey = client.succeed("cat /root/.ssh/special_key.pub").strip()
-        server.succeed("echo 'root:%s' > /etc/repos-mcp/authorized_keys" % (pubkey,))
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("echo 'root:%s' > /etc/agentic-repos/authorized_keys" % (pubkey,))
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
@@ -373,9 +373,9 @@ let
       id = "host-key-verification";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("test -f /etc/repos-mcp/ssh_host_ed25519_key")
-        server.succeed("test $(stat -c %a /etc/repos-mcp/ssh_host_ed25519_key) = '600'")
-        server.succeed("ssh-keygen -l -f /etc/repos-mcp/ssh_host_ed25519_key.pub")
+        server.succeed("test -f /etc/agentic-repos/ssh_host_ed25519_key")
+        server.succeed("test $(stat -c %a /etc/agentic-repos/ssh_host_ed25519_key) = '600'")
+        server.succeed("ssh-keygen -l -f /etc/agentic-repos/ssh_host_ed25519_key.pub")
       '';
     }
   ];
@@ -385,8 +385,8 @@ let
       id = "brute-force-ssh";
       testScript = ''
         ${waitForReposMCP}
-        server.succeed("mkdir -p /var/lib/repos-mcp/repositories/test-tenant")
-        server.succeed("git init --bare /var/lib/repos-mcp/repositories/test-tenant/brute-force.git")
+        server.succeed("mkdir -p /var/lib/agentic-repos/repositories/test-tenant")
+        server.succeed("git init --bare /var/lib/agentic-repos/repositories/test-tenant/brute-force.git")
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("echo 'Host server' > /root/.ssh/config")
         client.succeed("echo '  StrictHostKeyChecking no' >> /root/.ssh/config")
@@ -394,7 +394,7 @@ let
         for i in range(10):
             client.succeed("ssh-keygen -t ed25519 -f /tmp/key_{{i}} -N '''''' -C 'attempt_{{i}}' 2>/dev/null || true")
             client.fail("ssh -i /tmp/key_{{i}} -o BatchMode=yes root@server 'echo connected' 2>&1 || true")
-        server.succeed("systemctl is-active repos-mcp.service")
+        server.succeed("systemctl is-active agentic-repos.service")
       '';
     }
     {

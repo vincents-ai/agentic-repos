@@ -1,8 +1,8 @@
-# repos-mcp Plugin - Complete Validation & Packaging Summary
+# agentic-repos Plugin - Complete Validation & Packaging Summary
 
 ## Executive Summary
 
-Successfully validated and packaged the repos-mcp Skylet plugin with SSH-enabled configuration and garage-s3 storage backend integration.
+Successfully validated and packaged the agentic-repos Skylet plugin with SSH-enabled configuration and garage-s3 storage backend integration.
 
 **Status**: ✅ READY FOR DEPLOYMENT  
 **Version**: 0.1.0  
@@ -15,7 +15,7 @@ Successfully validated and packaged the repos-mcp Skylet plugin with SSH-enabled
 ### 1. Plugin Validation ✅
 
 **What was done:**
-- Built `librepos_mcp.so` plugin (10.5MB)
+- Built `libagentic_repos.so` plugin (10.5MB)
 - Validated against Skylet v2 ABI specification
 - All 5 validation checks passed
 - Plugin metadata accessible (git-operations v0.1.0)
@@ -51,7 +51,7 @@ Successfully validated and packaged the repos-mcp Skylet plugin with SSH-enabled
 
 **What was tested:**
 - Plugin loads in Skylet runtime
-- Both repos-mcp and garage-s3 plugins load successfully
+- Both agentic-repos and garage-s3 plugins load successfully
 - Plugin discovery and activation working
 - 7 total plugins activated (0 failed)
 - Server running on port 8080
@@ -59,7 +59,7 @@ Successfully validated and packaged the repos-mcp Skylet plugin with SSH-enabled
 **Integration Test Results:**
 ```
 INFO Successfully initialized v2 plugin: garage_s3
-INFO Successfully initialized v2 plugin: repos_mcp
+INFO Successfully initialized v2 plugin: agentic_repos
 INFO Plugin activation complete: 7 loaded, 0 failed
 INFO Server listening on 0.0.0.0:8080
 ```
@@ -74,11 +74,11 @@ INFO Server listening on 0.0.0.0:8080
 - Integration via global registry
 
 **How it works:**
-1. garage-s3 loads with priority 10 (before repos-mcp)
+1. garage-s3 loads with priority 10 (before agentic-repos)
 2. Starts embedded Garage server on port 3900
 3. Registers S3 storage service in global registry
-4. repos-mcp queries registry for storage backends
-5. repos-mcp uses S3 for Git repositories and LFS objects
+4. agentic-repos queries registry for storage backends
+5. agentic-repos uses S3 for Git repositories and LFS objects
 
 ### 5. SSH Configuration ✅
 
@@ -107,20 +107,20 @@ export REPOS_SSH_AUTHORIZED_KEYS_PATH="./data/ssh/authorized_keys"
 
 **Package created:**
 - Automated packaging script (`package.sh`)
-- Distribution tarball: `repos-mcp-plugin-0.1.0.tar.gz` (~20MB compressed)
+- Distribution tarball: `agentic-repos-plugin-0.1.0.tar.gz` (~20MB compressed)
 - Auto-installation script (`install.sh`)
 - Configuration templates
 - Test scripts included
 
 **Package Contents:**
 ```
-repos-mcp-plugin-0.1.0.tar.gz
+agentic-repos-plugin-0.1.0.tar.gz
 ├── plugins/
-│   ├── librepos_mcp.so         # Git operations (10.5MB)
+│   ├── libagentic_repos.so         # Git operations (10.5MB)
 │   └── libgarage_s3.so         # S3 storage (11.5MB)
 ├── config/
 │   ├── skylet-config.yaml      # Skylet configuration (SSH enabled)
-│   └── repos-mcp.env           # Environment variables (SSH enabled)
+│   └── agentic-repos.env           # Environment variables (SSH enabled)
 ├── docs/                        # 8 documentation files
 ├── scripts/                     # 2 test scripts
 ├── install.sh                   # Auto-installer
@@ -174,7 +174,7 @@ export REPOS_SSH_AUTHORIZED_KEYS_PATH="./data/ssh/authorized_keys"
 ```yaml
 plugins:
   - name: git-operations
-    path: ./plugins/librepos_mcp.so
+    path: ./plugins/libagentic_repos.so
     config:
       ssh.enabled: true
       ssh.port: 2222
@@ -208,20 +208,20 @@ storage.default_backend: "s3"
 
 ### 1. Build Plugin
 ```bash
-cd ~/code/vincents-ai/repos-mcp
+cd ~/code/vincents-ai/agentic-repos
 nix build
 ```
 
 ### 2. Create Package
 ```bash
 ./package.sh
-# Creates: dist/repos-mcp-plugin-0.1.0.tar.gz
+# Creates: dist/agentic-repos-plugin-0.1.0.tar.gz
 ```
 
 ### 3. Deploy
 ```bash
-tar -xzf dist/repos-mcp-plugin-0.1.0.tar.gz
-cd repos-mcp-plugin-0.1.0
+tar -xzf dist/agentic-repos-plugin-0.1.0.tar.gz
+cd agentic-repos-plugin-0.1.0
 export SKYLET_DIR=~/code/skylet
 ./install.sh
 ```
@@ -240,7 +240,7 @@ cat ~/.ssh/id_rsa.pub >> data/ssh/authorized_keys
 
 ### 5. Start Skylet
 ```bash
-source repos-mcp.env
+source agentic-repos.env
 ./target/release/skylet server
 ```
 
@@ -400,7 +400,7 @@ git push origin master
          ┌───────┴────────┐
          │                │
     ┌────▼─────┐    ┌────▼──────┐
-    │ repos-mcp│    │ garage-s3 │
+    │ agentic-repos│    │ garage-s3 │
     │ (Git+SSH)│────│  (S3)     │
     │ Port 2222│    │ Port 3900 │
     └──────────┘    └─────┬─────┘
@@ -422,7 +422,7 @@ git push origin master
 - [docs/SKYLET_PLUGIN_VALIDATION.md](./docs/SKYLET_PLUGIN_VALIDATION.md) - Validation guide
 
 ### Resources
-- **GitHub**: https://github.com/vincents-ai/repos-mcp
+- **GitHub**: https://github.com/vincents-ai/agentic-repos
 - **Skylet**: https://github.com/vincents-ai/skylet
 - **Issues**: Report bugs on GitHub
 
@@ -430,7 +430,7 @@ git push origin master
 
 ## Conclusion
 
-The repos-mcp plugin is **fully validated, integrated, and packaged** for production deployment:
+The agentic-repos plugin is **fully validated, integrated, and packaged** for production deployment:
 
 ### ✅ Completed
 - Plugin builds and validates
@@ -458,6 +458,6 @@ The repos-mcp plugin is **fully validated, integrated, and packaged** for produc
 ---
 
 **Version**: 0.1.0  
-**Package**: repos-mcp-plugin-0.1.0.tar.gz  
+**Package**: agentic-repos-plugin-0.1.0.tar.gz  
 **Maintained by**: Vincents AI  
 **Last Updated**: 2026-03-07

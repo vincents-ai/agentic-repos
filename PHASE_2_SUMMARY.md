@@ -1,4 +1,4 @@
-Phase 2 Development Summary: repos-mcp Skynet v2 Git Operations Plugin
+Phase 2 Development Summary: agentic-repos Skynet v2 Git Operations Plugin
 ========================================================================
 
 ## Achievements in Phase 2

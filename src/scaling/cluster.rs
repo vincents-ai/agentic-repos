@@ -307,6 +307,6 @@ mod tests {
         let manager = ClusterManager::new(config);
 
         let status = manager.get_cluster_status().await;
-        assert_eq!(status.cluster_name, "repos-mcp-default");
+        assert_eq!(status.cluster_name, "agentic-repos-default");
     }
 }

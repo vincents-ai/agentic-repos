@@ -3,9 +3,9 @@
 //! Run with: cargo test --test bdd
 
 use cucumber::{gherkin::Step, World};
-use repos_mcp::config::AppConfig;
-use repos_mcp::skynet::interface::{GitOperationsPlugin, PluginRequest, PluginResponse};
-use repos_mcp::skynet::metadata::git_operations_metadata;
+use agentic_repos::config::AppConfig;
+use agentic_repos::skynet::interface::{GitOperationsPlugin, PluginRequest, PluginResponse};
+use agentic_repos::skynet::metadata::git_operations_metadata;
 use serde_json::Value;
 use std::collections::HashMap;
 

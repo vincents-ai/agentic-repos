@@ -2,11 +2,11 @@
 
 ## Overview
 
-This guide documents the validation process for the repos-mcp Skylet plugin. The repos-mcp project is a Skylet v2 plugin that provides Git repository management capabilities through the Skylet runtime.
+This guide documents the validation process for the agentic-repos Skylet plugin. The agentic-repos project is a Skylet v2 plugin that provides Git repository management capabilities through the Skylet runtime.
 
-## What is the repos-mcp Skylet Plugin?
+## What is the agentic-repos Skylet Plugin?
 
-The repos-mcp plugin is a dynamic library (`librepos_mcp.so`) that implements the Skylet v2 ABI. It provides:
+The agentic-repos plugin is a dynamic library (`libagentic_repos.so`) that implements the Skylet v2 ABI. It provides:
 
 - **Repository Operations**: Create, list, delete, and query Git repositories
 - **Multi-tenant Support**: Isolated repository access per tenant
@@ -18,7 +18,7 @@ The repos-mcp plugin is a dynamic library (`librepos_mcp.so`) that implements th
 
 ### 1. Build the Plugin
 
-The plugin is built as part of the repos-mcp project:
+The plugin is built as part of the agentic-repos project:
 
 ```bash
 # Build using nix (recommended)
@@ -29,8 +29,8 @@ cargo build --release
 ```
 
 The plugin will be available at:
-- `target/release/librepos_mcp.so` (Linux)
-- `target/release/librepos_mcp.dylib` (macOS)
+- `target/release/libagentic_repos.so` (Linux)
+- `target/release/libagentic_repos.dylib` (macOS)
 
 ### 2. Install Skylet Plugin Test Harness
 
@@ -87,37 +87,37 @@ The plugin includes comprehensive BDD test scenarios in the `features/` director
 #### Running BDD Tests
 
 ```bash
-# From the repos-mcp directory
-cd /home/shift/code/vincents-ai/repos-mcp
+# From the agentic-repos directory
+cd /home/shift/code/vincents-ai/agentic-repos
 
 # Run all feature tests
 ~/code/skylet/target/release/plugin-test-harness bdd \
   --feature-path ./features \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 
 # Run specific feature file
 ~/code/skylet/target/release/plugin-test-harness bdd \
   --feature-path ./features/01_lifecycle.feature \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 
 # Run tests with specific tags (e.g., smoke tests only)
 ~/code/skylet/target/release/plugin-test-harness bdd \
   --feature-path ./features \
   --tags "@smoke" \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 
 # Generate JSON output for CI/CD
 ~/code/skylet/target/release/plugin-test-harness bdd \
   --feature-path ./features \
   --format json \
-  --plugin-path ./target/release/librepos_mcp.so \
+  --plugin-path ./target/release/libagentic_repos.so \
   > test-results.json
 
 # Generate JUnit XML for test reporting
 ~/code/skylet/target/release/plugin-test-harness bdd \
   --feature-path ./features \
   --format junit \
-  --plugin-path ./target/release/librepos_mcp.so \
+  --plugin-path ./target/release/libagentic_repos.so \
   > test-results.xml
 ```
 
@@ -128,19 +128,19 @@ Test individual plugin actions directly:
 ```bash
 # Test plugin info
 ~/code/skylet/target/release/plugin-test-harness execute \
-  --plugin-path ./target/release/librepos_mcp.so \
+  --plugin-path ./target/release/libagentic_repos.so \
   --action info \
   --args '{}'
 
 # Test health check
 ~/code/skylet/target/release/plugin-test-harness execute \
-  --plugin-path ./target/release/librepos_mcp.so \
+  --plugin-path ./target/release/libagentic_repos.so \
   --action health.check \
   --args '{"id":"test-1","method":"health.check","params":{}}'
 
 # Test repository creation
 ~/code/skylet/target/release/plugin-test-harness execute \
-  --plugin-path ./target/release/librepos_mcp.so \
+  --plugin-path ./target/release/libagentic_repos.so \
   --action repo.create \
   --args '{"id":"test-2","method":"repo.create","params":{"name":"my-repo","tenant_id":"tenant-1"}}'
 ```
@@ -151,7 +151,7 @@ Validate plugin meets Skylet requirements:
 
 ```bash
 ~/code/skylet/target/release/plugin-test-harness validate \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 ```
 
 ### Method 4: Test Suite Configuration
@@ -162,8 +162,8 @@ Create a test suite configuration file:
 # Create plugin-suite.toml
 cat > plugin-suite.toml <<'EOF'
 [[plugins]]
-name = "repos-mcp"
-path = "./target/release/librepos_mcp.so"
+name = "agentic-repos"
+path = "./target/release/libagentic_repos.so"
 timeout_ms = 5000
 
 # Additional configuration
@@ -214,7 +214,7 @@ Successful repository creation:
   "id": "test-123",
   "result": {
     "name": "test-repo",
-    "path": "/var/lib/repos-mcp/tenant-1/test-repo.git",
+    "path": "/var/lib/agentic-repos/tenant-1/test-repo.git",
     "created_at": "2026-03-07T..."
   }
 }
@@ -230,7 +230,7 @@ Error: Cannot load plugin: No such file or directory
 
 **Solution**: Ensure the plugin is built and the path is correct:
 ```bash
-ls -la target/release/librepos_mcp.so
+ls -la target/release/libagentic_repos.so
 ```
 
 ### Plugin Initialization Failed
@@ -247,10 +247,10 @@ Error: Plugin initialization failed
 **Debug**:
 ```bash
 # Check plugin dependencies
-ldd target/release/librepos_mcp.so
+ldd target/release/libagentic_repos.so
 
 # Check file permissions
-chmod +x target/release/librepos_mcp.so
+chmod +x target/release/libagentic_repos.so
 ```
 
 ### Test Harness Not Found
@@ -284,14 +284,14 @@ To load the plugin in the actual Skylet runtime:
 
 1. **Copy plugin to Skylet plugins directory**:
    ```bash
-   cp target/release/librepos_mcp.so ~/code/skylet/plugins/git-operations/
+   cp target/release/libagentic_repos.so ~/code/skylet/plugins/git-operations/
    ```
 
 2. **Configure Skylet** (in `~/code/skylet/config.yaml`):
    ```yaml
    plugins:
      - name: git-operations
-       path: ./plugins/git-operations/librepos_mcp.so
+       path: ./plugins/git-operations/libagentic_repos.so
        enabled: true
        config:
          storage.default_backend: "local"
@@ -338,7 +338,7 @@ jobs:
           ./skylet/target/release/plugin-test-harness bdd \
             --feature-path ./features \
             --format junit \
-            --plugin-path ./target/release/librepos_mcp.so \
+            --plugin-path ./target/release/libagentic_repos.so \
             > test-results.xml
             
       - name: Publish test results
@@ -367,7 +367,7 @@ The BDD test suite covers:
 - [Skylet Documentation](https://github.com/vincents-ai/skylet)
 - [Skylet Plugin Development Guide](https://github.com/vincents-ai/skylet/blob/main/docs/PLUGIN_DEVELOPMENT.md)
 - [Skylet ABI Specification](https://github.com/vincents-ai/skylet/blob/main/docs/PLUGIN_CONTRACT.md)
-- [repos-mcp Architecture](./docs/ARCHITECTURE.md)
+- [agentic-repos Architecture](./docs/ARCHITECTURE.md)
 
 ## Validation Checklist
 
@@ -393,4 +393,4 @@ If you encounter issues during validation:
 2. Review Skylet logs for error messages
 3. Verify plugin dependencies with `ldd`
 4. Test with verbose logging enabled
-5. Report issues at: https://github.com/vincents-ai/repos-mcp/issues
+5. Report issues at: https://github.com/vincents-ai/agentic-repos/issues

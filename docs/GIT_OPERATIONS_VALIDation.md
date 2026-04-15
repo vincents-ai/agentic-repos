@@ -1,14 +1,14 @@
-# repos-mcp Git Operations and LFS Validation Report
+# agentic-repos Git Operations and LFS Validation Report
 
 ## Date: 2026-03-07
 
 ## Summary
 
-Successfully validated all git operations including LFS support for the repos-mcp plugin with local storage backend.
+Successfully validated all git operations including LFS support for the agentic-repos plugin with local storage backend.
 
 ## Test Environment
 
-- **Plugin**: `librepos_mcp.so` (repos-mcp)
+- **Plugin**: `libagentic_repos.so` (agentic-repos)
 - **Storage Backend**: Local filesystem storage
 - **Test Directory**: `./test-git-lfs-$$`
 
@@ -17,7 +17,7 @@ Successfully validated all git operations including LFS support for the repos-mc
 ### 1. Plugin Validation ✅
 
 - **Status**: PASSED
-- **Plugin**: `librepos_mcp.so`
+- **Plugin**: `libagentic_repos.so`
 - **Validation**: All 5 checks passed
   - File exists: ✅
   - Plugin loads: ✅
@@ -42,7 +42,7 @@ Successfully validated all git operations including LFS support for the repos-mc
 - **Type**: Storage Service Plugin (not an action execution plugin)
 - **Exports**: `plugin_create()` instead of `plugin_execute_v2()`
 - **Purpose**: Provides embedded S3-compatible storage via Garage subprocess
-- **Integration**: repos-mcp uses `global_registry()` to access S3 storage backends
+- **Integration**: agentic-repos uses `global_registry()` to access S3 storage backends
 
 - **Key Finding**: garage-s3 plugin embeds and manages Garage as a subprocess,  - Auto-downloads or creates Garage binary if not found
   - Generates configuration
@@ -118,11 +118,11 @@ The tests validated:
 1. **Garage-S3 Plugin Validation**
    - The garage-s3 plugin doesn't export `plugin_execute_v2`, which the test harness expects
    - This is by design - garage-s3 is a storage service plugin,   - It exports `plugin_create()` to provide the `S3StorageService` interface
-   - repos-mcp uses this via the global registry
+   - agentic-repos uses this via the global registry
    - Not a bug, just a different plugin architecture
 
 2. **S3 Integration**
-   - For full LFS with S3 backend, the repos-mcp plugin needs to:
+   - For full LFS with S3 backend, the agentic-repos plugin needs to:
      - Discover garage-s3 from the global registry
      - Use the registered S3 backend for storage operations
      - Currently tested with local storage backend
@@ -145,14 +145,14 @@ The tests validated:
 
 ## Next Steps
 
-1. **Integration Testing**: Test repos-mcp with actual Skylet runtime
+1. **Integration Testing**: Test agentic-repos with actual Skylet runtime
 2. **Performance Testing**: Measure performance under load
 3. **Security Testing**: Verify authentication and authorization
 4. **Documentation**: Add usage examples and API documentation
 
 ## Conclusion
 
-The repos-mcp plugin successfully implements:
+The agentic-repos plugin successfully implements:
 - Skylet v2 ABI compliance
 - Multi-tenant Git repository management
 - Git LFS support

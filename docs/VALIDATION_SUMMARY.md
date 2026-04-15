@@ -4,14 +4,14 @@
 
 ## Overview
 
-Successfully validated the repos-mcp Skylet v2 plugin functionality using the Skylet plugin test harness.
+Successfully validated the agentic-repos Skylet v2 plugin functionality using the Skylet plugin test harness.
 
 ## Plugin Information
 
 - **Name**: git-operations
 - **Version**: 0.1.0
 - **ABI Version**: 2.0
-- **Plugin Path**: `target/release/librepos_mcp.so`
+- **Plugin Path**: `target/release/libagentic_repos.so`
 - **Description**: Multi-tenant Git server with repository management, SSH access, and LFS support
 
 ## Validation Results
@@ -19,7 +19,7 @@ Successfully validated the repos-mcp Skylet v2 plugin functionality using the Sk
 ### Plugin Validation (Passed ✅)
 
 ```
-Validating plugin: ./target/release/librepos_mcp.so
+Validating plugin: ./target/release/libagentic_repos.so
 
   [1/5] File exists: OK
   [2/5] Plugin loads: OK
@@ -38,14 +38,14 @@ Failed: 0
 
 #### Health Check
 ```bash
-$ plugin-test-harness execute -p ./target/release/librepos_mcp.so -a health --args '{}'
+$ plugin-test-harness execute -p ./target/release/libagentic_repos.so -a health --args '{}'
 Response: {"action":"health","status":"Healthy","success":true}
 ```
 **Status**: ✅ Working
 
 #### Plugin Info
 ```bash
-$ plugin-test-harness execute -p ./target/release/librepos_mcp.so -a info --args '{}'
+$ plugin-test-harness execute -p ./target/release/libagentic_repos.so -a info --args '{}'
 Response: {
   "category":"Integration",
   "description":"Multi-tenant Git server with repository management, SSH access, and LFS support",
@@ -181,23 +181,23 @@ The validation covers:
 ```bash
 # Validate plugin
 ~/code/skylet/target/release/plugin-test-harness validate \
-  --plugin-path ./target/release/librepos_mcp.so
+  --plugin-path ./target/release/libagentic_repos.so
 
 # Test health
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ./target/release/librepos_mcp.so \
+  -p ./target/release/libagentic_repos.so \
   -a health \
   --args '{}'
 
 # Get plugin info
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ./target/release/librepos_mcp.so \
+  -p ./target/release/libagentic_repos.so \
   -a info \
   --args '{}'
 
 # List available tools/actions
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ./target/release/librepos_mcp.so \
+  -p ./target/release/libagentic_repos.so \
   -a tools \
   --args '{}'
 ```
@@ -214,7 +214,7 @@ The validation covers:
 
 ## Conclusion
 
-The repos-mcp plugin successfully validates as a Skylet v2 plugin. Core functionality works as expected:
+The agentic-repos plugin successfully validates as a Skylet v2 plugin. Core functionality works as expected:
 - Plugin loads and initializes correctly
 - Health checks return valid status
 - Plugin info is accurate and complete

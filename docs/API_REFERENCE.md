@@ -1,4 +1,4 @@
-# API Reference — repos-mcp (agentic-repos)
+# API Reference — agentic-repos (agentic-repos)
 
 **Base URL:** `http://localhost:8090/api/v1`  
 **Server:** actix-web · Port configurable via `config.yaml`  

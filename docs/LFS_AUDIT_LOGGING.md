@@ -508,7 +508,7 @@ lfs:
 
 **Check 3: Logs for errors**
 ```bash
-journalctl -u repos-mcp | grep -i audit
+journalctl -u agentic-repos | grep -i audit
 ```
 
 ### Issue: Query returns empty results

@@ -2,8 +2,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: repos-mcp-config-seaweedfs
-  namespace: repos-mcp
+  name: agentic-repos-config-seaweedfs
+  namespace: agentic-repos
 data:
   REPOS_MCP_STORAGE__S3__SEAWEEDFS_CACHE: "true"
   REPOS_MCP_STORAGE__S3__SEAWEEDFS_CACHE_DIR: "/seaweedfs/cache"

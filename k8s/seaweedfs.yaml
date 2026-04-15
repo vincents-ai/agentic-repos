@@ -5,14 +5,14 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: seaweedfs-s3-config
-  namespace: repos-mcp
+  namespace: agentic-repos
 data:
   s3.yaml: |
     id:
       accessKey: "weedfs_access"
       secretKey: "weedfs_secret"
     buckets:
-      - name: "repos-mcp-repos"
+      - name: "agentic-repos-repos"
         policy: "public_read"
 
 ---
@@ -20,7 +20,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: seaweedfs-s3
-  namespace: repos-mcp
+  namespace: agentic-repos
   labels:
     app.kubernetes.io/name: seaweedfs-s3
 spec:
@@ -80,7 +80,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: seaweedfs-s3
-  namespace: repos-mcp
+  namespace: agentic-repos
 spec:
   selector:
     app.kubernetes.io/name: seaweedfs-s3

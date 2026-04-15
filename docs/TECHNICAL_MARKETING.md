@@ -1,4 +1,4 @@
-# repos-mcp -- Technical Overview
+# agentic-repos -- Technical Overview
 
 **Multi-Tenant Git Server with Model Context Protocol Integration**
 
@@ -6,7 +6,7 @@
 
 ## What It Is
 
-repos-mcp is a Rust-built Git server that does two things no other Git server does: it runs as a standalone multi-tenant Git server *and* as a first-class Skylet v2 plugin via C FFI, and it exposes native MCP (Model Context Protocol) tool interfaces so AI agents can manage Git repositories directly.
+agentic-repos is a Rust-built Git server that does two things no other Git server does: it runs as a standalone multi-tenant Git server *and* as a first-class Skylet v2 plugin via C FFI, and it exposes native MCP (Model Context Protocol) tool interfaces so AI agents can manage Git repositories directly.
 
 Single binary. Dual mode. ~34,000 lines of Rust across 137 source files.
 
@@ -23,7 +23,7 @@ Single binary. Dual mode. ~34,000 lines of Rust across 137 source files.
                         MCP Protocol (JSON-RPC)
                                 |
                     +-----------v-----------+
-                    |    repos-mcp          |
+                    |    agentic-repos          |
                     |                       |
    Mode A: Standalone    |    Mode B: Skylet v2 Plugin (.so)
    (binary)              |    (cdylib via FFI)
@@ -122,7 +122,7 @@ Full permission list: `RepositoryCreate`, `RepositoryRead`, `RepositoryWrite`, `
 | `storage_remove_tenant_mapping` | Remove tenant's backend mapping |
 | `storage_set_default_backend` | Set default storage backend |
 
-This is what makes repos-mcp unique: AI assistants can programmatically create, manage, and inspect Git repositories through a standardized protocol -- no custom integrations needed.
+This is what makes agentic-repos unique: AI assistants can programmatically create, manage, and inspect Git repositories through a standardized protocol -- no custom integrations needed.
 
 ### Skylet v2 Plugin
 
@@ -235,7 +235,7 @@ Full Kustomize-based deployment with Namespace, Deployment, Service, ConfigMap, 
 
 ### Nix
 
-Flake-based with crane for reproducible builds. UPX binary compression (LZMA). NixOS module available as `nixosModules.repos-mcp`. Docker image via `dockerTools.buildLayeredImage`. Comprehensive Nix checks: build, container, VM tests, integration tests.
+Flake-based with crane for reproducible builds. UPX binary compression (LZMA). NixOS module available as `nixosModules.agentic-repos`. Docker image via `dockerTools.buildLayeredImage`. Comprehensive Nix checks: build, container, VM tests, integration tests.
 
 ### Standalone Binary
 
@@ -247,7 +247,7 @@ Single binary distribution. Works with local filesystem storage -- no external d
 
 ### vs. Gitea, GitLab, Gitee
 
-| | repos-mcp | Gitea | GitLab |
+| | agentic-repos | Gitea | GitLab |
 |---|---|---|---|
 | **MCP Integration** | Native (14 tools) | None | None |
 | **Skylet Plugin** | First-class FFI | Not applicable | Not applicable |
@@ -264,7 +264,7 @@ Single binary distribution. Works with local filesystem storage -- no external d
 
 ### The Key Differentiator
 
-repos-mcp is the only Git server designed from the ground up for AI-agent-driven workflows. The MCP integration is not an add-on or a plugin -- it is a core capability. Any MCP-compatible AI agent can create repositories, manage storage backends, and perform Git operations through a standardized protocol. This makes repos-mcp the natural choice for platforms where AI agents are first-class participants in the development workflow.
+agentic-repos is the only Git server designed from the ground up for AI-agent-driven workflows. The MCP integration is not an add-on or a plugin -- it is a core capability. Any MCP-compatible AI agent can create repositories, manage storage backends, and perform Git operations through a standardized protocol. This makes agentic-repos the natural choice for platforms where AI agents are first-class participants in the development workflow.
 
 ---
 
@@ -318,14 +318,14 @@ nix build
 cargo build --release
 
 # Run standalone
-./target/release/repos-mcp
+./target/release/agentic-repos
 
 # Run as Skylet plugin
-# Copy target/release/librepos_mcp.so to your Skylet plugins directory
+# Copy target/release/libagentic_repos.so to your Skylet plugins directory
 ```
 
 Ports: SSH on `:2222`, HTTP API on `:8090`.
 
 ---
 
-*repos-mcp -- Git infrastructure for the AI-native development stack.*
+*agentic-repos -- Git infrastructure for the AI-native development stack.*

@@ -1,6 +1,6 @@
 # Git LFS Testing Guide
 
-Comprehensive guide for testing Git LFS functionality in repos-mcp.
+Comprehensive guide for testing Git LFS functionality in agentic-repos.
 
 ## Table of Contents
 
@@ -874,7 +874,7 @@ ssh -vT git@localhost -p 2222
 ssh-add -l
 
 # Verify server is running
-ps aux | grep repos-mcp
+ps aux | grep agentic-repos
 ```
 
 **Problem**: 401 Unauthorized on API requests

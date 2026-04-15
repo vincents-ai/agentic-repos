@@ -4,7 +4,7 @@ Feature: Repository Operations
   So that users can create, list, and delete repositories
 
   Background:
-    Given the plugin "./target/release/librepos_mcp.so" is loaded
+    Given the plugin "./target/release/libagentic_repos.so" is loaded
     And the plugin is initialized
 
   @repo @api @smoke

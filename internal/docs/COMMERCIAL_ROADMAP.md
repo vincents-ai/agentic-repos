@@ -1,6 +1,6 @@
 # Commercial Features Roadmap
 
-This document outlines the commercial features for repos-mcp, designed to create clear value differentiation between the open source (AGPL) core and enterprise offerings.
+This document outlines the commercial features for agentic-repos, designed to create clear value differentiation between the open source (AGPL) core and enterprise offerings.
 
 ## Open Source Core (AGPL)
 ✅ **Currently Available:**
@@ -127,7 +127,7 @@ This document outlines the commercial features for repos-mcp, designed to create
 
 ## Market Differentiation
 
-This feature set positions repos-mcp to compete with:
+This feature set positions agentic-repos to compete with:
 - **GitHub Enterprise**: Similar security and compliance features
 - **GitLab**: Comparable CI/CD integration and enterprise features  
 - **Bitbucket**: Enterprise authentication and scaling capabilities

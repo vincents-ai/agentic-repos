@@ -1,8 +1,8 @@
-{ pkgs, system, repos-mcp, garage }:
+{ pkgs, system, agentic-repos, garage }:
 
 let
   inherit (pkgs) lib;
-  testLib = import ./lib.nix { inherit pkgs repos-mcp garage; };
+  testLib = import ./lib.nix { inherit pkgs agentic-repos garage; };
 
   inherit (testLib)
     mkVMTest
@@ -13,43 +13,43 @@ let
     createTestRepo;
 
   gitIntegrationTests = import ./git-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   lfsIntegrationTests = import ./lfs-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   backupIntegrationTests = import ./backup-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   cacheIntegrationTests = import ./cache-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   complianceIntegrationTests = import ./compliance-integration.nix {
-    inherit pkgs system repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs system agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   securityIntegrationTests = import ./security-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   webhooksIntegrationTests = import ./webhooks-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   scalingIntegrationTests = import ./scaling-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   apiRbacIntegrationTests = import ./api-rbac-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
   storageIntegrationTests = import ./storage-integration.nix {
-    inherit pkgs repos-mcp lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
+    inherit pkgs agentic-repos lib mkVMTest mkTestMatrix waitForReposMCP setupSSHKeys setupGitConfig createTestRepo;
   };
 
 in {

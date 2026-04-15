@@ -1,4 +1,4 @@
-{ pkgs, system, repos-mcp, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
+{ pkgs, system, agentic-repos, lib, mkVMTest, mkTestMatrix, waitForReposMCP, setupSSHKeys, setupGitConfig, createTestRepo, ... }:
 
 let
   mkVMTest = { name, testScript, nodes ? {}, ... }@args:
@@ -10,7 +10,7 @@ let
           networking.firewall.enable = false;
 
           environment.systemPackages = with pkgs; [
-            repos-mcp
+            agentic-repos
             git
             curl
             jq
@@ -25,9 +25,9 @@ let
 
           services.postgresql = {
             enable = true;
-            ensureDatabases = [ "repos_mcp" ];
+            ensureDatabases = [ "agentic_repos" ];
             ensureUsers = [{
-              name = "repos_mcp";
+              name = "agentic_repos";
               ensureDBOwnership = true;
             }];
             authentication = ''
@@ -36,46 +36,46 @@ let
             '';
           };
 
-          systemd.services.repos-mcp = {
-            description = "repos-mcp Git server with compliance features";
+          systemd.services.agentic-repos = {
+            description = "agentic-repos Git server with compliance features";
             after = [ "network.target" "postgresql.service" ];
             requires = [ "postgresql.service" ];
             wantedBy = [ "multi-user.target" ];
 
             serviceConfig = {
               Type = "simple";
-              ExecStart = "${repos-mcp}/bin/repos-mcp";
-              WorkingDirectory = "/etc/repos-mcp";
+              ExecStart = "${agentic-repos}/bin/agentic-repos";
+              WorkingDirectory = "/etc/agentic-repos";
               Restart = "always";
               User = "root";
             };
           };
 
-          environment.etc."repos-mcp/config.yaml".text = ''
+          environment.etc."agentic-repos/config.yaml".text = ''
             server:
               host: "0.0.0.0"
               port: 8090
               ssh:
                 port: 2222
-                host_key_path: "/etc/repos-mcp/ssh_host_ed25519_key"
+                host_key_path: "/etc/agentic-repos/ssh_host_ed25519_key"
                 max_connections: 10
                 connection_timeout_secs: 30
 
             auth:
-              authorized_keys_path: "/etc/repos-mcp/authorized_keys"
+              authorized_keys_path: "/etc/agentic-repos/authorized_keys"
 
             rbac:
               enabled: true
               storage_type: "database"
-              database_url: "postgres://repos_mcp@localhost/repos_mcp"
+              database_url: "postgres://agentic_repos@localhost/agentic_repos"
 
             storage:
               type: "local"
               local:
-                path: "/var/lib/repos-mcp"
+                path: "/var/lib/agentic-repos"
 
             database:
-              url: "postgres://repos_mcp@localhost/repos_mcp"
+              url: "postgres://agentic_repos@localhost/agentic_repos"
 
             compliance:
               reports_enabled: true
@@ -116,7 +116,7 @@ let
     builtins.listToAttrs (map (test: {
       name = "${category}-${test.id}";
       value = mkVMTest {
-        name = "repos-mcp-${category}-${test.id}";
+        name = "agentic-repos-${category}-${test.id}";
         inherit (test) testScript;
         nodes = test.nodes or {};
       };
@@ -127,20 +127,20 @@ let
       id = "event-capture-authentication";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
-        server.succeed("mkdir -p /etc/repos-mcp")
-        server.succeed("ssh-keygen -t ed25519 -f /etc/repos-mcp/ssh_host_ed25519_key -N \"\"")
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("mkdir -p /etc/agentic-repos")
+        server.succeed("ssh-keygen -t ed25519 -f /etc/agentic-repos/ssh_host_ed25519_key -N \"\"")
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
 
         client.succeed("mkdir -p /root/.ssh")
         client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
         pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-        cmd = "printf '%s' \"%s\" > /etc/repos-mcp/authorized_keys" % (pubkey,)
+        cmd = "printf '%s' \"%s\" > /etc/agentic-repos/authorized_keys" % (pubkey,)
         server.succeed(cmd)
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(2222)
 
         client.succeed("mkdir -p /root/.ssh")
@@ -160,11 +160,11 @@ let
       id = "event-capture-data-access";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
-        server.succeed("mkdir -p /var/lib/repos-mcp/tenant1/test-repo")
-        server.succeed("cd /var/lib/repos-mcp/tenant1/test-repo && git init --bare")
+        server.succeed("mkdir -p /var/lib/agentic-repos/tenant1/test-repo")
+        server.succeed("cd /var/lib/agentic-repos/tenant1/test-repo && git init --bare")
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
           -H 'Content-Type: application/json' \
@@ -178,7 +178,7 @@ let
       id = "event-capture-modification";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -193,7 +193,7 @@ let
       id = "event-storage-persistence";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -202,7 +202,7 @@ let
 
         initial_count = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/audit/events?tenant_id=tenant1' | jq -r '.total'")
 
-        server.succeed("systemctl restart repos-mcp.service")
+        server.succeed("systemctl restart agentic-repos.service")
         server.wait_for_open_port(8090)
 
         after_restart = server.succeed("curl -s 'http://localhost:8090/api/v1/compliance/audit/events?tenant_id=tenant1' | jq -r '.total'")
@@ -213,7 +213,7 @@ let
       id = "event-query-by-tenant";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -235,7 +235,7 @@ let
       id = "event-query-by-type";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -254,7 +254,7 @@ let
       id = "event-query-by-time-range";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         import datetime
@@ -273,7 +273,7 @@ let
       id = "event-retention-enforcement";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -290,7 +290,7 @@ let
       id = "event-bulk-insert";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         for i in range(10):
@@ -306,7 +306,7 @@ let
       id = "event-pagination";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         for i in range(15):
@@ -328,7 +328,7 @@ let
       id = "user-data-export-json";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -346,7 +346,7 @@ let
       id = "user-data-export-csv";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -364,7 +364,7 @@ let
       id = "user-data-deletion-request";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -382,7 +382,7 @@ let
       id = "user-data-anonymization";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -400,7 +400,7 @@ let
       id = "email-anonymization";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/gdpr/anonymize-field' \
@@ -414,7 +414,7 @@ let
       id = "name-anonymization";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/gdpr/anonymize-field' \
@@ -428,7 +428,7 @@ let
       id = "ip-address-anonymization";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/gdpr/anonymize-field' \
@@ -442,7 +442,7 @@ let
       id = "phone-anonymization";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/gdpr/anonymize-field' \
@@ -456,7 +456,7 @@ let
       id = "deletion-request-status";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/gdpr/deletion' \
@@ -478,7 +478,7 @@ let
       id = "export-data-categories";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         for event_type in ["user_authentication", "data_access", "data_modification"]:
@@ -500,7 +500,7 @@ let
       id = "policy-create";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -514,7 +514,7 @@ let
       id = "policy-list";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -530,7 +530,7 @@ let
       id = "policy-get";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -552,7 +552,7 @@ let
       id = "policy-update";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -576,7 +576,7 @@ let
       id = "policy-delete";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -598,7 +598,7 @@ let
       id = "policy-enforcement-dry-run";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -621,7 +621,7 @@ let
       id = "policy-enforcement-live";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -639,7 +639,7 @@ let
       id = "policy-exception-create";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -663,7 +663,7 @@ let
       id = "policy-summary";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -679,7 +679,7 @@ let
       id = "policy-enforcement-history";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/enforce' \
@@ -698,7 +698,7 @@ let
       id = "report-soc2-generation";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         for i in range(5):
@@ -717,7 +717,7 @@ let
       id = "report-gdpr-generation";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -735,7 +735,7 @@ let
       id = "report-access-control-generation";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -753,7 +753,7 @@ let
       id = "report-security-incident-generation";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST http://localhost:8090/api/v1/compliance/audit/events \
@@ -771,7 +771,7 @@ let
       id = "report-data-retention-generation";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/retention/policies' \
@@ -789,7 +789,7 @@ let
       id = "report-format-json";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/reports/generate' \
@@ -810,7 +810,7 @@ let
       id = "report-format-csv";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/reports/generate' \
@@ -832,7 +832,7 @@ let
       id = "report-list";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/reports/generate' \
@@ -848,7 +848,7 @@ let
       id = "report-get";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/reports/generate' \
@@ -870,7 +870,7 @@ let
       id = "report-delete";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         create_result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/reports/generate' \
@@ -892,7 +892,7 @@ let
       id = "report-accuracy-data-count";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         for i in range(10):
@@ -913,7 +913,7 @@ let
       id = "report-scheduled-generation";
       testScript = ''
         server.wait_for_unit("postgresql.service")
-        server.wait_for_unit("repos-mcp.service")
+        server.wait_for_unit("agentic-repos.service")
         server.wait_for_open_port(8090)
 
         result = server.succeed("curl -s -X POST 'http://localhost:8090/api/v1/compliance/reports/schedules' \

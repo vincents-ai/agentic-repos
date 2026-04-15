@@ -1,20 +1,20 @@
-# repos-mcp Git Operations and LFS Validation Summary
+# agentic-repos Git Operations and LFS Validation Summary
 
 # Date: 2026-03-07
 
 ## Overview
 
-Successfully validated all git operations including LFS support for the repos-mcp plugin with local storage backend.
+Successfully validated all git operations including LFS support for the agentic-repos plugin with local storage backend.
 
 ## Test Results
 
 ### ✅ Plugin Validation (Passed)
 
-- **repos-mcp plugin**: Validated successfully
+- **agentic-repos plugin**: Validated successfully
 - **garage-s3 plugin**: Validated (plugin exports `plugin_create()` instead of `plugin_execute_v2`)
 - **Note**: garage-s3 is a different type of plugin - it storage service plugin that starts/ manages embedded Garage as a subprocess
 
-- repos-mcp uses the storage service via `global_registry()`
+- agentic-repos uses the storage service via `global_registry()`
 
 ### ✅ Local Storage Operations (Passed)
 
@@ -37,7 +37,7 @@ Successfully validated all git operations including LFS support for the repos-mc
 
 ## Key Findings
 
-1. **repos-mcp Architecture**
+1. **agentic-repos Architecture**
    - Uses global storage registry pattern
    - Supports multiple storage backends (local, S3)
    - Implements standard plugin actions (repo.create, repo.list, etc.)
@@ -50,9 +50,9 @@ Successfully validated all git operations including LFS support for the repos-mc
    - Handles S3 operations: buckets, objects, health checks
 
 3. **Integration Pattern**
-   - repos-mcp queries `global_registry()` for storage backends
+   - agentic-repos queries `global_registry()` for storage backends
    - garage-s3 should register itself in the global registry
-   - repos-mcp uses registered S3 backend for Git/LFS storage
+   - agentic-repos uses registered S3 backend for Git/LFS storage
 
 ## Tested Scenarios
 
@@ -66,7 +66,7 @@ Successfully validated all git operations including LFS support for the repos-mc
 - garage-s3 plugin loads
 - Starts embedded Garage server
 - Creates S3 buckets
-- repos-mcp stores Git repositories in S3
+- agentic-repos stores Git repositories in S3
 - **Status**: ⏳ Requires integration work (see below)
 
 ### Scenario 3: Git LFS with S3
@@ -77,7 +77,7 @@ Successfully validated all git operations including LFS support for the repos-mc
 
 ## Integration Requirements
 
-For full S3 integration, the repos-mcp plugin needs to:
+For full S3 integration, the agentic-repos plugin needs to:
 
 1. **Discover garage-s3 Service**
    ```rust
@@ -111,7 +111,7 @@ For full S3 integration, the repos-mcp plugin needs to:
    - **Workaround**: Use direct plugin loading instead of test harness validation
 
 2. **S3 Integration Not Complete**
-   - repos-mcp can use local storage independently
+   - agentic-repos can use local storage independently
    - S3 integration code exists but may need configuration
    - **Recommendation**: Test with actual Skylet runtime that loads both plugins
 
@@ -152,6 +152,6 @@ For full S3 integration, the repos-mcp plugin needs to:
 ## References
 
 - [Plugin Validation Guide](./docs/SKYLET_PLUGIN_VALIDATION.md)
-- [repos-mcp Architecture](./src/skynet/)
+- [agentic-repos Architecture](./src/skynet/)
 - [garage-s3 Plugin](~/code/vincents-ai/skynet/plugins/garage-s3/)
 - [Integration Documentation](./docs/REpos_GARAGE_INTEGRATION.md)

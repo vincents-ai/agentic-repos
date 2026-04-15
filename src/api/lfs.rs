@@ -8,7 +8,7 @@ use crate::config::AppConfig;
 use crate::lfs::{
     record_batch_request, record_download, record_error, record_upload, Action, Actions,
     AuditEvent, AuditEventType, AuditLogger, AuditStorage, BandwidthThrottler, BatchRequest,
-    BatchResponse, LfsLockManager, LfsStorage, ObjectError, Operation, QuotaManager,
+    BatchResponse, LfsLockManager, LfsStorage, LockStorage, ObjectError, Operation, QuotaManager,
     ResponseObject, StorageKey, Transfer,
 };
 
@@ -588,7 +588,7 @@ where
     match &handler.lock_manager {
         Some(lm) => {
             let refspec = req.git_ref.as_ref().map(|r| r.name.as_str());
-            match lm.verify_locks(&tenant, &repo, &requesting_user, refspec, req.limit, req.cursor.as_deref()).await {
+            match lm.verify_locks(&tenant, &repo, &requesting_user, refspec, req.limit, req.cursor.as_deref()) {
                 Ok(response) => HttpResponse::Ok().json(response),
                 Err(e) => HttpResponse::InternalServerError().json(json!({
                     "message": format!("Lock verification failed: {}", e)

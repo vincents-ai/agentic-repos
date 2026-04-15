@@ -1,15 +1,15 @@
-# repos-mcp Integration Test Report
+# agentic-repos Integration Test Report
 
 ## Date: 2026-03-07
 
 ## Summary
 
-Successfully integrated the repos-mcp plugin with the Skylet runtime, including garage-s3 for S3 storage backend. All core functionality validated including git operations and LFS support.
+Successfully integrated the agentic-repos plugin with the Skylet runtime, including garage-s3 for S3 storage backend. All core functionality validated including git operations and LFS support.
 
 ## Integration Environment
 
 - **Skylet Version**: 0.5.0
-- **repos-mcp Plugin**: 0.1.0 (git-operations)
+- **agentic-repos Plugin**: 0.1.0 (git-operations)
 - **garage-s3 Plugin**: 0.2.0
 - **Test Configuration**: Local storage backend
 - **Server**: http://localhost:8080
@@ -20,15 +20,15 @@ Successfully integrated the repos-mcp plugin with the Skylet runtime, including 
 
 **Status**: PASSED
 
-- **repos-mcp plugin**: Loaded successfully as "git-operations v0.1.0"
+- **agentic-repos plugin**: Loaded successfully as "git-operations v0.1.0"
 - **garage-s3 plugin**: Loaded successfully as "garage-s3 v0.2.0"
 - **Bootstrap plugins**: All loaded (config-manager, logging, registry, secrets-manager)
 - **Total plugins**: 7 loaded, 0 failed
 
 **Log Output**:
 ```
-INFO Successfully initialized v2 plugin: repos_mcp
-INFO Activated plugin: repos_mcp
+INFO Successfully initialized v2 plugin: agentic_repos
+INFO Activated plugin: agentic_repos
 INFO Successfully initialized v2 plugin: garage_s3
 INFO Activated plugin: garage_s3
 ```
@@ -129,8 +129,8 @@ INFO Activated plugin: garage_s3
    - **Fix Required**: Update test scripts or update plugin to accept both formats
 
 2. **S3 Integration**
-   - **Status**: garage-s3 plugin loaded but not fully integrated with repos-mcp
-   - **Next Step**: Configure repos-mcp to use garage-s3 via global registry
+   - **Status**: garage-s3 plugin loaded but not fully integrated with agentic-repos
+   - **Next Step**: Configure agentic-repos to use garage-s3 via global registry
    - **Requirement**: Both plugins need to be running together
 
 ## Recommendations
@@ -142,7 +142,7 @@ INFO Activated plugin: garage_s3
    - Update test scripts to use correct names
 
 2. **S3 Integration**: Test full S3 backend integration
-   - Configure repos-mcp to discover garage-s3
+   - Configure agentic-repos to discover garage-s3
    - Test LFS operations with S3 backend
    - Verify large file storage
 
@@ -165,14 +165,14 @@ INFO Activated plugin: garage_s3
    ```bash
    # Use correct action names
    ~/code/skylet/target/release/plugin-test-harness execute \
-     -p ./target/release/librepos_mcp.so \
+     -p ./target/release/libagentic_repos.so \
      -a repo.create \
      --args '{"id":"1","method":"repo.create","params":{"name":"test","tenant_id":"tenant1"}}'
    ```
 
 2. **Test S3 Integration**:
    - Start both plugins together
-   - Configure repos-mcp to use garage-s3
+   - Configure agentic-repos to use garage-s3
    - Test repository operations with S3 backend
 
 3. **Performance Testing**:
@@ -187,9 +187,9 @@ INFO Activated plugin: garage_s3
 
 ## Conclusion
 
-The repos-mcp plugin successfully integrates with the Skylet runtime:
+The agentic-repos plugin successfully integrates with the Skylet runtime:
 
-- ✅ **Plugin Loading**: Both repos-mcp and garage-s3 load successfully
+- ✅ **Plugin Loading**: Both agentic-repos and garage-s3 load successfully
 - ✅ **Health Monitoring**: Plugin health checks work correctly
 - ✅ **Git Operations**: All basic git operations (init, commit, branch) work correctly
 - ✅ **LFS Support**: LFS installation and configuration work correctly
@@ -222,7 +222,7 @@ cd ~/code/skylet
 
 # Test plugin actions (use dots for action names)
 ~/code/skylet/target/release/plugin-test-harness execute \
-  -p ~/code/vincents-ai/repos-mcp/target/release/librepos_mcp.so \
+  -p ~/code/vincents-ai/agentic-repos/target/release/libagentic_repos.so \
   -a repo.create \
   --args '{"id":"1","method":"repo.create","params":{"name":"my-repo","tenant_id":"tenant1"}}'
 ```

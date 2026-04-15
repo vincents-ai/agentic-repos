@@ -13,13 +13,38 @@ pub struct Server {
     config: Arc<AppConfig>,
     git_service: Arc<GitService>,
     feature_flags: FeatureFlags,
+    git_config: GitConfig,
 }
 
 impl Server {
     pub fn new(config: AppConfig) -> Self {
-        let storage = Arc::new(LocalStorage::new(PathBuf::from("./repositories")));
+        // Use REPOS_MCP_STORAGE_ROOT env var, or fall back to ./repositories
+        let storage_root = std::env::var("REPOS_MCP_STORAGE_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("./repositories"));
+        let storage = Arc::new(LocalStorage::new(storage_root.clone()));
 
-        let git_config = GitConfig::default();
+        // Read SSH config from the ADP git-refs (the real config store).
+        // Fall back to defaults if the system repo isn't bootstrapped yet.
+        use crate::adp::bootstrap::SYSTEM_REPO_PATH;
+        use crate::adp::storage::AdpStore;
+        use crate::adp::SERVER_CONFIG_REF;
+        let adp_cfg = {
+            let system_repo = storage_root.join(SYSTEM_REPO_PATH);
+            AdpStore::read_ref_blob(&system_repo, SERVER_CONFIG_REF)
+                .ok()
+                .and_then(|v| serde_json::from_value::<crate::adp::config::ServerConfig>(v).ok())
+                .unwrap_or_default()
+        };
+
+        let git_config = GitConfig {
+            ssh_port: adp_cfg.ssh_port,
+            host_key_path: adp_cfg.ssh_host_key_path,
+            authorized_keys_path: adp_cfg.ssh_authorized_keys_path,
+            max_connections: adp_cfg.ssh_max_connections,
+            connection_timeout_secs: adp_cfg.ssh_connection_timeout_secs,
+            ..GitConfig::default()
+        };
         let git_service = Arc::new(GitService::new(storage, Some(git_config.clone())));
 
         let feature_flags = match &config.features {
@@ -31,11 +56,12 @@ impl Server {
             config: Arc::new(config),
             git_service,
             feature_flags,
+            git_config,
         }
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("Starting repos-mcp server...");
+        info!("Starting agentic-repos server...");
 
         // Bootstrap the system repo before accepting any connections.
         // This is idempotent and safe to call on every start.
@@ -56,10 +82,11 @@ impl Server {
         let feature_flags = self.feature_flags.clone();
 
         // Start SSH server in background
-        info!("Starting SSH server on port 2222...");
+        info!("Starting SSH server on port {}...", self.git_config.ssh_port);
         let ssh_git_service = git_service.clone();
+        let ssh_git_config = self.git_config.clone();
         spawn(async move {
-            let ssh_server = SshServer::new(ssh_git_service, None, None);
+            let ssh_server = SshServer::new(ssh_git_service, Some(ssh_git_config), None);
             if let Err(e) = ssh_server.run().await {
                 error!("SSH server error: {}", e);
             }

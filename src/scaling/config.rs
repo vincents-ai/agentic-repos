@@ -42,7 +42,7 @@ impl Default for ScalingConfig {
             enabled: false,
             instance_id: uuid::Uuid::new_v4().to_string(),
             redis_url: None,
-            cluster_name: "repos-mcp-default".to_string(),
+            cluster_name: "agentic-repos-default".to_string(),
             heartbeat_interval_secs: 5,
             instance_timeout_secs: 30,
             leader_election_timeout_secs: 10,
@@ -75,7 +75,7 @@ impl ScalingConfig {
                 .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string()),
             redis_url: std::env::var("SCALING_REDIS_URL").ok(),
             cluster_name: std::env::var("SCALING_CLUSTER_NAME")
-                .unwrap_or_else(|_| "repos-mcp-default".to_string()),
+                .unwrap_or_else(|_| "agentic-repos-default".to_string()),
             heartbeat_interval_secs: std::env::var("SCALING_HEARTBEAT_INTERVAL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())

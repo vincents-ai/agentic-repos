@@ -125,7 +125,7 @@ if use_sideband {
 **Root Causes**:
 1. **Missing Garage Binary**: No `garage` executable found
 2. **Incorrect Download URL**: garage-s3 plugin has outdated download URL
-3. **Service Discovery**: repos-mcp not discovering S3 service from registry
+3. **Service Discovery**: agentic-repos not discovering S3 service from registry
 
 **Services Status**:
 - garage-s3 Plugin: ✅ Loaded in Skylet
@@ -137,7 +137,7 @@ if use_sideband {
 - garage-s3 plugin loads successfully but cannot start Garage
 - Plugin searches for binary in standard locations but finds nothing
 - Download URL in code returns 404
-- repos-mcp doesn't discover S3 service (registry appears null)
+- agentic-repos doesn't discover S3 service (registry appears null)
 
 **Required Fixes**:
 1. Install Garage binary:
@@ -150,7 +150,7 @@ if use_sideband {
 
 2. Update garage-s3 plugin with correct download URLs
 
-3. Debug repos-mcp service discovery (add logging)
+3. Debug agentic-repos service discovery (add logging)
 
 **Cannot validate** S3 operations until Garage is installed.
 
@@ -183,13 +183,13 @@ if use_sideband {
 ### Plugin Deployment
 
 **Build Info**:
-- Location: `/home/shift/code/vincents-ai/repos-mcp/target/release/librepos_mcp.so`
+- Location: `/home/shift/code/vincents-ai/agentic-repos/target/release/libagentic_repos.so`
 - Size: 11 MB
 - Built: 2026-03-07 22:53:52
 - MD5: (updated with latest fixes)
 
 **Deployment**:
-- Target: `~/code/skylet/plugins/repos-mcp/librepos_mcp.so`
+- Target: `~/code/skylet/plugins/agentic-repos/libagentic_repos.so`
 - Status: ✅ Deployed successfully
 - Skylet Status: ✅ Loaded as "git-operations" v0.1.0
 
@@ -201,7 +201,7 @@ if use_sideband {
 - S3 Server: ❌ Port 3900 (not running)
 
 **Plugins Loaded** (7 total):
-1. repos_mcp (git-operations) - ✅ Working
+1. agentic_repos (git-operations) - ✅ Working
 2. garage_s3 - ⚠️ Loaded but not functional
 3. config_manager - ✅ Working
 4. logging - ✅ Working
@@ -259,7 +259,7 @@ bash validate-critical-features.sh
 
 1. **Plugin Prerequisites**
    - Skylet binary available
-   - repos-mcp plugin available
+   - agentic-repos plugin available
    - garage-s3 plugin available
    - Plugin test harness working
 
@@ -314,7 +314,7 @@ bash validate-critical-features.sh
 2. **Update Plugin** (High Priority)
    ```bash
    # Deploy latest plugin with pack protocol fix
-   cp target/release/librepos_mcp.so ~/code/skylet/plugins/repos-mcp/
+   cp target/release/libagentic_repos.so ~/code/skylet/plugins/agentic-repos/
    
    # Restart Skylet
    pkill -f "skylet server"
@@ -362,7 +362,7 @@ The critical features validation has been **completed** with the following resul
 1. FFI action-to-method name conversion
 2. Git pack protocol side-band usage
 
-The repos-mcp plugin is **production-ready for SSH git operations**. S3 storage operations require Garage installation to complete validation.
+The agentic-repos plugin is **production-ready for SSH git operations**. S3 storage operations require Garage installation to complete validation.
 
 **Next Critical Step**: Install Garage binary to unblock S3 storage validation and complete end-to-end testing.
 

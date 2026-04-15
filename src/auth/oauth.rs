@@ -141,7 +141,7 @@ pub struct OAuthService {
 impl OAuthService {
     pub fn new(config: OAuthConfig) -> Result<Self, AuthError> {
         let http_client = Client::builder()
-            .user_agent("repos-mcp-oauth")
+            .user_agent("agentic-repos-oauth")
             .build()
             .map_err(|e| AuthError::HttpClient(e.to_string()))?;
 

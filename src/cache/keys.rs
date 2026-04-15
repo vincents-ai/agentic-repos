@@ -161,41 +161,41 @@ mod tests {
 
     #[test]
     fn test_tenant_key() {
-        let key = CacheKey::tenant("repos-mcp", "tenant-123");
-        assert_eq!(key.to_redis_key(), "repos-mcp:tenant:tenant-123");
+        let key = CacheKey::tenant("agentic-repos", "tenant-123");
+        assert_eq!(key.to_redis_key(), "agentic-repos:tenant:tenant-123");
     }
 
     #[test]
     fn test_repository_key() {
-        let key = CacheKey::repository("repos-mcp", "tenant-123", "my-repo");
-        assert_eq!(key.to_redis_key(), "repos-mcp:repo:tenant-123:my-repo");
+        let key = CacheKey::repository("agentic-repos", "tenant-123", "my-repo");
+        assert_eq!(key.to_redis_key(), "agentic-repos:repo:tenant-123:my-repo");
     }
 
     #[test]
     fn test_session_key() {
-        let key = CacheKey::session("repos-mcp", "session-abc");
-        assert_eq!(key.to_redis_key(), "repos-mcp:session:session-abc");
+        let key = CacheKey::session("agentic-repos", "session-abc");
+        assert_eq!(key.to_redis_key(), "agentic-repos:session:session-abc");
     }
 
     #[test]
     fn test_lfs_object_key() {
-        let key = CacheKey::lfs_object("repos-mcp", "tenant-123", "oid123");
-        assert_eq!(key.to_redis_key(), "repos-mcp:lfs:tenant-123:oid123");
+        let key = CacheKey::lfs_object("agentic-repos", "tenant-123", "oid123");
+        assert_eq!(key.to_redis_key(), "agentic-repos:lfs:tenant-123:oid123");
     }
 
     #[test]
     fn test_permission_key() {
-        let key = CacheKey::permission("repos-mcp", "user-1", "repo:tenant:repo1");
+        let key = CacheKey::permission("agentic-repos", "user-1", "repo:tenant:repo1");
         assert_eq!(
             key.to_redis_key(),
-            "repos-mcp:perm:user-1:repo:tenant:repo1"
+            "agentic-repos:perm:user-1:repo:tenant:repo1"
         );
     }
 
     #[test]
     fn test_chained_key() {
-        let key = CacheKey::new("repos-mcp").with("custom").with("path");
-        assert_eq!(key.to_redis_key(), "repos-mcp:custom:path");
+        let key = CacheKey::new("agentic-repos").with("custom").with("path");
+        assert_eq!(key.to_redis_key(), "agentic-repos:custom:path");
     }
 
     #[test]
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_tenant_pattern() {
-        let pattern = CacheKey::tenant_pattern("repos-mcp", "tenant-123");
-        assert_eq!(pattern, "repos-mcp:tenant:tenant-123:*");
+        let pattern = CacheKey::tenant_pattern("agentic-repos", "tenant-123");
+        assert_eq!(pattern, "agentic-repos:tenant:tenant-123:*");
     }
 }

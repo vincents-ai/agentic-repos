@@ -1,14 +1,12 @@
 pub mod audit;
 pub mod auth;
 pub mod gc;
-pub mod lock_cleanup;
 pub mod locks;
 pub mod metrics;
 pub mod models;
 pub mod pointer;
 pub mod quota;
 pub mod storage;
-pub mod test_utils;
 pub mod throttle;
 pub mod verify;
 
@@ -18,8 +16,7 @@ pub use audit::{
 };
 pub use auth::{LfsAuthResponse, LfsClaims, LfsOperation, LfsTokenGenerator};
 pub use gc::{GcConfig, GcResult, LfsGarbageCollector};
-pub use lock_cleanup::LockCleanupScheduler;
-pub use locks::{LfsLockManager, LockManagerError};
+pub use locks::{InMemoryLockStorage, LfsLockManager, LockManagerError, LockStorage};
 pub use metrics::{
     encode_metrics, record_batch_request, record_download, record_error, record_gc_deletion,
     record_gc_run, record_gc_scan, record_lock_cleanup, record_quota_exceeded, record_quota_usage,

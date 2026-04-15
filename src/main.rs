@@ -1,12 +1,12 @@
-use repos_mcp::{adp::bootstrap_system_repo, config::AppConfig, server::run_server};
+use agentic_repos::{adp::bootstrap_system_repo, config::AppConfig, server::run_server};
 use std::path::PathBuf;
 
 /// Simple subcommand handling without pulling in a CLI framework dependency.
 ///
 /// Usage:
-///   repos-mcp               — start the server (default)
-///   repos-mcp init          — bootstrap the system repo and exit
-///   repos-mcp init --storage <path>  — bootstrap at a custom storage root
+///   agentic-repos              — start the server (default)
+///   agentic-repos init          — bootstrap the system repo and exit
+///   agentic-repos init --storage <path>  — bootstrap at a custom storage root
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = std::env::args().collect();
@@ -28,6 +28,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         bootstrap_system_repo(&storage_root)?;
         return Ok(());
     }
+
+    // Initialise tracing for the normal server start path
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .init();
 
     let config = AppConfig::from_env()?;
     run_server(config).await?;

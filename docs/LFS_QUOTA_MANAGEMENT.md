@@ -1,6 +1,6 @@
 # Git LFS Storage Quota Management
 
-Complete guide to configuring and managing storage quotas for Git LFS in repos-mcp.
+Complete guide to configuring and managing storage quotas for Git LFS in agentic-repos.
 
 ## Overview
 
@@ -219,7 +219,7 @@ rate(lfs_quota_exceeded_total[5m])
 ### Increase Quota
 
 1. Update `config.yaml` with new quota value
-2. Restart repos-mcp server
+2. Restart agentic-repos server
 3. Verify with quota API endpoint
 
 No data migration needed.
@@ -230,7 +230,7 @@ No data migration needed.
 
 1. Run garbage collection first to free space (see `LFS_GC.md`)
 2. Update `config.yaml` with new quota value
-3. Restart repos-mcp server
+3. Restart agentic-repos server
 4. Monitor for quota exceeded errors
 
 ### Disable Quotas
@@ -249,7 +249,7 @@ Existing usage data is preserved but not enforced.
 
 **Cause**: In-memory usage cache may be stale.
 
-**Solution**: Restart the repos-mcp server to refresh usage cache from storage.
+**Solution**: Restart the agentic-repos server to refresh usage cache from storage.
 
 ### Quota Shows 0 Usage Despite Objects
 
@@ -456,5 +456,5 @@ lfs:
 
 For issues or questions:
 
-- GitHub Issues: https://github.com/vincents-ai/repos-mcp/issues
+- GitHub Issues: https://github.com/vincents-ai/agentic-repos/issues
 - Security issues: See [SECURITY.md](../SECURITY.md)

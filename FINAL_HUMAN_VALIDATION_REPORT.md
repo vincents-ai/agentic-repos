@@ -59,7 +59,7 @@ drwxr-xr-x 1 shift users 104 Mar  7 23:03 .git
 $ cat README.md
 # Human Validation Test Repository
 
-This repository was created to validate SSH git operations for repos-mcp.
+This repository was created to validate SSH git operations for agentic-repos.
 
 ## Tests Performed
 - Git clone via SSH
@@ -290,7 +290,7 @@ sudo cp target/release/garage /usr/local/bin/
 
 ### Bottom Line
 
-**The repos-mcp plugin is 80% validated for SSH operations.**
+**The agentic-repos plugin is 80% validated for SSH operations.**
 
 - **Clone/Pull**: ✅ Production ready
 - **Push**: ⚠️ Needs receive-pack fix (1-2 hours)

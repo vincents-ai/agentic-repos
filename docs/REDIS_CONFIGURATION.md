@@ -1,6 +1,6 @@
 # Redis Cache Configuration
 
-This document describes the Redis cache configuration for repos-mcp.
+This document describes the Redis cache configuration for agentic-repos.
 
 ## Configuration Options
 
@@ -10,7 +10,7 @@ This document describes the Redis cache configuration for repos-mcp.
 cache:
   enabled: true
   url: "redis://127.0.0.1:6379"
-  key_prefix: "repos-mcp"
+  key_prefix: "agentic-repos"
   default_ttl_secs: 3600
   max_connections: 10
   connection_timeout_secs: 5
@@ -25,7 +25,7 @@ cache:
 |--------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable/disable Redis caching |
 | `url` | string | `redis://127.0.0.1:6379` | Redis connection URL |
-| `key_prefix` | string | `repos-mcp` | Prefix for all cache keys |
+| `key_prefix` | string | `agentic-repos` | Prefix for all cache keys |
 | `default_ttl_secs` | u64 | `3600` | Default TTL for cached items (1 hour) |
 | `max_connections` | u32 | `10` | Maximum connection pool size |
 | `connection_timeout_secs` | u64 | `5` | Connection timeout in seconds |
@@ -87,14 +87,14 @@ All cache keys follow a hierarchical namespace pattern:
 
 | Category | Pattern | Example |
 |----------|---------|---------|
-| Repository | `repos-mcp:repo:{tenant}:{name}:{type}` | `repos-mcp:repo:tenant1:myrepo:metadata` |
-| Session | `repos-mcp:session:{session_id}` | `repos-mcp:session:abc123-def456` |
-| User | `repos-mcp:user:{user_id}:{type}` | `repos-mcp:user:123:sessions` |
-| API | `repos-mcp:api:{endpoint}:{hash}` | `repos-mcp:api:repos:a1b2c3d4` |
-| LFS | `repos-mcp:lfs:{tenant}:{oid}:{type}` | `repos-mcp:lfs:tenant1:sha256:exists` |
-| Permission | `repos-mcp:perm:{user}:{resource}` | `repos-mcp:perm:user1:repo:tenant:repo` |
-| Branch List | `repos-mcp:branches:{tenant}:{repo}` | `repos-mcp:branches:tenant1:myrepo` |
-| Repo List | `repos-mcp:repos:{tenant}:page:{n}` | `repos-mcp:repos:tenant1:page:1` |
+| Repository | `agentic-repos:repo:{tenant}:{name}:{type}` | `agentic-repos:repo:tenant1:myrepo:metadata` |
+| Session | `agentic-repos:session:{session_id}` | `agentic-repos:session:abc123-def456` |
+| User | `agentic-repos:user:{user_id}:{type}` | `agentic-repos:user:123:sessions` |
+| API | `agentic-repos:api:{endpoint}:{hash}` | `agentic-repos:api:repos:a1b2c3d4` |
+| LFS | `agentic-repos:lfs:{tenant}:{oid}:{type}` | `agentic-repos:lfs:tenant1:sha256:exists` |
+| Permission | `agentic-repos:perm:{user}:{resource}` | `agentic-repos:perm:user1:repo:tenant:repo` |
+| Branch List | `agentic-repos:branches:{tenant}:{repo}` | `agentic-repos:branches:tenant1:myrepo` |
+| Repo List | `agentic-repos:repos:{tenant}:page:{n}` | `agentic-repos:repos:tenant1:page:1` |
 
 ## Connection Pool
 
@@ -143,10 +143,10 @@ conn.expire("key", Duration::from_secs(120)).await?;
 
 ```rust
 // Delete by pattern
-let count: u64 = conn.delete_pattern("repos-mcp:repo:tenant1:*").await?;
+let count: u64 = conn.delete_pattern("agentic-repos:repo:tenant1:*").await?;
 
 // List keys
-let keys: Vec<String> = conn.keys("repos-mcp:session:*").await?;
+let keys: Vec<String> = conn.keys("agentic-repos:session:*").await?;
 ```
 
 ### Set Operations (for session tracking)

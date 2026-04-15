@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Implemented VM test infrastructure for repos-mcp and successfully exposed a **critical git protocol bug** that prevents clone operations from completing.
+Implemented VM test infrastructure for agentic-repos and successfully exposed a **critical git protocol bug** that prevents clone operations from completing.
 
 **Status**: ✅ Test infrastructure working, ❌ Core functionality blocked by protocol bug
 
@@ -26,12 +26,12 @@ server:
   port: 8090
   ssh:
     port: 2222
-    host_key_path: "/etc/repos-mcp/ssh_host_ed25519_key"
+    host_key_path: "/etc/agentic-repos/ssh_host_ed25519_key"
 
 # Fixed systemd service to use WorkingDirectory
 serviceConfig = {
-  ExecStart = "${repos-mcp}/bin/repos-mcp";
-  WorkingDirectory = "/etc/repos-mcp";  # Binary finds config.yaml here
+  ExecStart = "${agentic-repos}/bin/agentic-repos";
+  WorkingDirectory = "/etc/agentic-repos";  # Binary finds config.yaml here
 }
 ```
 
@@ -79,7 +79,7 @@ client # Cloning into '/tmp/test-repo'...
 **What We Know**:
 1. ✅ SSH connection succeeds
 2. ✅ Authentication completes
-3. ✅ `repos-mcp` service running and logging "Starting upload-pack protocol handler"
+3. ✅ `agentic-repos` service running and logging "Starting upload-pack protocol handler"
 4. ❌ Git protocol negotiation never completes
 5. ❌ Client waits indefinitely for packfile
 
@@ -94,9 +94,9 @@ client # Warning: Permanently added '[server]:2222' (ED25519) to the list of kno
 
 **Server Logs Show**:
 ```
-repos-mcp[926]: Config loaded: host=0.0.0.0, port=8090
-repos-mcp[926]: Starting SSH server on port 2222...
-repos-mcp[926]: API Server starting on 0.0.0.0:8090
+agentic-repos[926]: Config loaded: host=0.0.0.0, port=8090
+agentic-repos[926]: Starting SSH server on port 2222...
+agentic-repos[926]: API Server starting on 0.0.0.0:8090
 # SSH connection accepted but no protocol completion logged
 ```
 
@@ -145,7 +145,7 @@ loop {
    - Storage paths configured
 
 3. **Service Management**
-   - repos-mcp starts cleanly
+   - agentic-repos starts cleanly
    - Restarts work correctly
    - Port bindings successful
 
@@ -294,7 +294,7 @@ These issues were already documented:
 
 ```bash
 # Run specific VM test
-cd /home/shift/code/vincents-ai/repos-mcp
+cd /home/shift/code/vincents-ai/agentic-repos
 nix build .#checks.x86_64-linux.auth-ssh-ed25519-key -L
 
 # View test logs
@@ -326,4 +326,4 @@ This session successfully:
 
 The test infrastructure is **production-ready** and successfully doing its job by catching real bugs. The git protocol bug must be fixed before further test implementation can proceed.
 
-**Value Delivered**: Test suite prevented a broken system from being deployed. The protocol bug would have made repos-mcp completely non-functional for actual git operations.
+**Value Delivered**: Test suite prevented a broken system from being deployed. The protocol bug would have made agentic-repos completely non-functional for actual git operations.

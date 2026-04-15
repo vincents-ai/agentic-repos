@@ -81,7 +81,13 @@ struct RepoPath(PathBuf);
 
 impl RepoPath {
     fn new(owner: &str, repo: &str, root: &std::path::Path) -> Self {
-        Self(root.join(owner).join(format!("{}.git", repo)))
+        // System repo uses bare path without .git suffix
+        let suffix = if owner == "_adp" && repo == "system" {
+            repo.to_string()
+        } else {
+            format!("{}.git", repo)
+        };
+        Self(root.join(owner).join(suffix))
     }
 
     fn as_path(&self) -> &std::path::Path {

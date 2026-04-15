@@ -56,3 +56,4 @@ internal/
 # Dispatcher internal state
 .internal/
 test-git-*
+test-git-2817323/

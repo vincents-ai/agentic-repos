@@ -16,6 +16,7 @@ use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
 use crate::scaling::{ClusterManager, HealthChecker, ScalingConfig};
 use crate::sdlc::{InMemorySdlcStore, SdlcService};
+use crate::server::AppConfigurator;
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
 use routes::cluster::ClusterState;
 use std::sync::Arc;
@@ -60,6 +61,14 @@ impl ApiServer {
     pub async fn run(
         &self,
         config: crate::config::AppConfig,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.run_with_configurator(config, None).await
+    }
+
+    pub async fn run_with_configurator(
+        &self,
+        config: crate::config::AppConfig,
+        app_configurator: Option<std::sync::Arc<AppConfigurator>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(
             host = %config.server.host,
@@ -200,6 +209,11 @@ impl ApiServer {
                         crate::web::WebUI::configure(cfg, Arc::new(web_ui));
                     });
                 }
+            }
+
+            // Apply external app configurator (e.g., adp-web-ui SPA fallback)
+            if let Some(ref configurator) = app_configurator {
+                app = app.configure(|cfg| configurator(cfg));
             }
 
             app

@@ -4,16 +4,22 @@ use crate::config::AppConfig;
 use crate::features::FeatureFlags;
 use crate::git::{ssh::SshServer, GitConfig, GitService};
 use crate::storage::local::LocalStorage;
+use actix_web::web::ServiceConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::spawn;
 use tracing::{error, info};
+
+/// Callback type for extending the actix App with additional routes/services.
+pub type AppConfigurator = Box<dyn Fn(&mut ServiceConfig) + Send + Sync>;
 
 pub struct Server {
     config: Arc<AppConfig>,
     git_service: Arc<GitService>,
     feature_flags: FeatureFlags,
     git_config: GitConfig,
+    /// Optional callback to add extra routes/services to the actix App
+    app_configurator: Option<Arc<AppConfigurator>>,
 }
 
 impl Server {
@@ -57,7 +63,15 @@ impl Server {
             git_service,
             feature_flags,
             git_config,
+            app_configurator: None,
         }
+    }
+
+    /// Set a callback to extend the actix App with additional routes/services.
+    /// Called during HttpServer::new, after all agentic-repos routes are configured.
+    pub fn with_app_configurator(mut self, configurator: AppConfigurator) -> Self {
+        self.app_configurator = Some(Arc::new(configurator));
+        self
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -98,7 +112,7 @@ impl Server {
         let api_server = ApiServer::new(git_service.clone(), feature_flags, lfs_config);
 
         // Run API server - this will block
-        api_server.run(config).await
+        api_server.run_with_configurator(config, self.app_configurator.clone()).await
     }
 }
 

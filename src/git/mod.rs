@@ -204,38 +204,43 @@ impl GitService {
         &self,
         owner: Option<&str>,
     ) -> GitServiceResult<Vec<RepositoryInfo>> {
-        let base_path = if let Some(owner) = owner {
-            PathBuf::from(owner)
-        } else {
-            PathBuf::from("")
-        };
-
-        let entries = self.storage.list(&base_path).await?;
         let mut repositories = Vec::new();
 
-        for entry in entries {
-            let path = PathBuf::from(&entry);
-
-            if !self.storage.exists(&path).await? {
-                continue;
-            }
-
-            let parts: Vec<&str> = entry.split('/').collect();
-            if parts.len() < 2 {
-                continue;
-            }
-
-            let entry_owner = parts[0];
-            let repo_name = parts[1];
-
-            if let Some(filter_owner) = owner {
-                if entry_owner != filter_owner {
-                    continue;
+        if let Some(owner) = owner {
+            // List repos under a specific owner
+            let base_path = PathBuf::from(owner);
+            let entries = self.storage.list(&base_path).await?;
+            for entry in entries {
+                let path = PathBuf::from(&entry);
+                if !self.storage.exists(&path).await? { continue; }
+                let parts: Vec<&str> = entry.split('/').collect();
+                if parts.len() < 2 { continue; }
+                let repo_name = parts[1].strip_suffix(".git").unwrap_or(parts[1]);
+                if let Ok(repo_info) = self.get_repository(owner, repo_name).await {
+                    repositories.push(repo_info);
                 }
             }
-
-            if let Ok(repo_info) = self.get_repository(entry_owner, repo_name).await {
-                repositories.push(repo_info);
+        } else {
+            // List all: enumerate owner directories, then list repos within each
+            let top_entries = self.storage.list(&PathBuf::from("")).await?;
+            for top in &top_entries {
+                let parts: Vec<&str> = top.split('/').collect();
+                if parts.len() != 1 { continue; }
+                let entry_owner = parts[0];
+                // Skip internal namespaces
+                if entry_owner.starts_with('_') || entry_owner.starts_with('.') { continue; }
+                let base_path = PathBuf::from(entry_owner);
+                let entries = self.storage.list(&base_path).await?;
+                for entry in entries {
+                    let path = PathBuf::from(&entry);
+                    if !self.storage.exists(&path).await? { continue; }
+                    let parts: Vec<&str> = entry.split('/').collect();
+                    if parts.len() < 2 { continue; }
+                    let repo_name = parts[1].strip_suffix(".git").unwrap_or(parts[1]);
+                    if let Ok(repo_info) = self.get_repository(entry_owner, repo_name).await {
+                        repositories.push(repo_info);
+                    }
+                }
             }
         }
 

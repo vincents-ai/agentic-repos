@@ -143,7 +143,7 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(svc))
-                .configure(configure_sdlc_routes),
+                .service(web::scope("/sdlc").configure(configure_sdlc_routes)),
         )
         .await;
         let req = test::TestRequest::get().uri("/sdlc/metrics").to_request();
@@ -157,7 +157,7 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(svc))
-                .configure(configure_sdlc_routes),
+                .service(web::scope("/sdlc").configure(configure_sdlc_routes)),
         )
         .await;
         let metric = QualityMetric::new("test_cov", MetricCategory::TestCoverage, 90.0, 80.0, "%");
@@ -175,7 +175,7 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(svc))
-                .configure(configure_sdlc_routes),
+                .service(web::scope("/sdlc").configure(configure_sdlc_routes)),
         )
         .await;
         let gate = QualityGate::new("merge-gate", SdlcPhase::Implementation).with_condition(
@@ -199,7 +199,7 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(svc))
-                .configure(configure_sdlc_routes),
+                .service(web::scope("/sdlc").configure(configure_sdlc_routes)),
         )
         .await;
         let req = test::TestRequest::get().uri("/sdlc/dashboard").to_request();
@@ -213,7 +213,7 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(svc))
-                .configure(configure_sdlc_routes),
+                .service(web::scope("/sdlc").configure(configure_sdlc_routes)),
         )
         .await;
         let assessment = SdlcAssessment::new("Q1", AssessmentPeriod::q(2026, 1), "bot")

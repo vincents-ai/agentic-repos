@@ -386,13 +386,45 @@ impl russh::server::Handler for SshHandler {
         }
 
         let auth_manager = self.auth_manager.lock().await;
-        let key_fingerprint = public_key
-            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256)
-            .to_string();
+        let fingerprint = public_key
+            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256);
+        let key_fingerprint = fingerprint.to_string();
+        let fingerprint_hex = hex::encode(fingerprint.as_bytes());
 
+        // Phase 1: Resolve identity from key fingerprint → username
+        // This uses the git-refs identity store (ADR-031)
+        let resolved_user: Option<String> = self
+            .git_service
+            .get_storage_root()
+            .and_then(|root| {
+                let system_repo = root.join(crate::adp::bootstrap::SYSTEM_REPO_PATH);
+                crate::adp::storage::AdpStore::resolve_key_identity(&system_repo, &fingerprint_hex).ok().flatten()
+            });
+
+        if let Some(ref username) = resolved_user {
+            // Phase 2: Verify the key is still listed in user's ssh_keys
+            // (defense in depth — the fingerprint ref maps to username,
+            //  but we double-check the key is authorized)
+            if auth_manager.is_key_authorized(username, public_key) {
+                info!(
+                    "Authentication successful for user: {} (resolved from key) from {} with key fingerprint: {}",
+                    username, self.peer_ip, key_fingerprint
+                );
+                if let Err(e) = self
+                    .log_auth_event(username, &self.peer_ip, &key_fingerprint, "success")
+                    .await
+                {
+                    error!("Failed to log authentication event: {}", e);
+                }
+                self.authenticated_user = Some(username.clone());
+                return Ok(russh::server::Auth::Accept);
+            }
+        }
+
+        // Fallback: legacy flat-file auth (no identity refs configured yet)
         if auth_manager.is_key_authorized(user, public_key) {
             info!(
-                "Authentication successful for user: {} from {} with key fingerprint: {}",
+                "Authentication successful (legacy) for user: {} from {} with key fingerprint: {}",
                 user, self.peer_ip, key_fingerprint
             );
             // SECURITY: Log successful authentication with audit trail
@@ -541,6 +573,15 @@ impl russh::server::Handler for SshHandler {
                             .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
 
+                        // Per-repo access control (ADR-031)
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Pull) {
+                            let error_msg = format!("ERROR: Access denied for repository '{}'\n", repository);
+                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                            session.exit_status_request(channel, 1)?;
+                            session.eof(channel)?;
+                            return Ok(());
+                        }
+
                         if !full_path.exists() {
                             let error_msg =
                                 format!("Error: Repository '{}' not found\n", repository);
@@ -631,6 +672,15 @@ impl russh::server::Handler for SshHandler {
                         let storage_root = self.git_service.get_storage_root()
                             .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
+
+                        // Per-repo access control (ADR-031)
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Push) {
+                            let error_msg = format!("ERROR: Write access denied for repository '{}'\n", repository);
+                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                            session.exit_status_request(channel, 1)?;
+                            session.eof(channel)?;
+                            return Ok(());
+                        }
 
                         if !full_path.exists() {
                             let error_msg =
@@ -855,6 +905,41 @@ impl Drop for SshHandler {
 }
 
 impl SshHandler {
+    /// Check if the authenticated user has the required permission for a repo.
+    ///
+    /// Returns true if access is granted, false if denied.
+    /// Uses AdpStore::check_repo_access which reads refs/adp/access/config
+    /// from the target repo (ADR-031).
+    fn check_repo_access(
+        &self,
+        repo_path: &std::path::Path,
+        permission: crate::adp::access::Permission,
+    ) -> bool {
+        let username = match &self.authenticated_user {
+            Some(u) => u,
+            None => {
+                warn!("Access denied: no authenticated user for repo {:?}", repo_path);
+                return false;
+            }
+        };
+
+        match crate::adp::storage::AdpStore::check_repo_access(repo_path, username, &permission) {
+            Ok(true) => {
+                debug!("Access granted: user '{}' has {:?} on {:?}", username, permission, repo_path);
+                true
+            }
+            Ok(false) => {
+                warn!("Access denied: user '{}' lacks {:?} on {:?}", username, permission, repo_path);
+                false
+            }
+            Err(e) => {
+                // On error, default to deny for write, allow for read (fail-open for reads)
+                error!("Access check error for user '{}' on {:?}: {}", username, repo_path, e);
+                matches!(permission, crate::adp::access::Permission::Pull)
+            }
+        }
+    }
+
     /// Log authentication events for security audit trail
     async fn log_auth_event(
         &self,
@@ -1094,5 +1179,133 @@ mod tests {
         }
 
         assert!(true);
+    }
+
+    // -----------------------------------------------------------------
+    // Per-repo access control tests (ADR-031)
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_check_repo_access_unauthenticated_denied() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: None,
+        };
+
+        // Create a repo dir (doesn't need to be a real repo for check_repo_access)
+        let repo_dir = tempfile::tempdir().unwrap();
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
+    }
+
+    #[tokio::test]
+    async fn test_check_repo_access_default_allows_pull_denies_push() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: Some("alice".to_string()),
+        };
+
+        // Bare repo with no access config → default: Pull allowed, Push denied
+        let repo_dir = tempfile::tempdir().unwrap();
+        gix::init(repo_dir.path()).unwrap();
+
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
+    }
+
+    #[tokio::test]
+    async fn test_check_repo_access_owner_allowed() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: Some("alice".to_string()),
+        };
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        gix::init(repo_dir.path()).unwrap();
+
+        // Write access config with alice as owner
+        let config = crate::adp::access::AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string()],
+            admins: vec![],
+            rules: vec![],
+        };
+        crate::adp::storage::AdpStore::write_access_config(repo_dir.path(), &config).unwrap();
+
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Admin));
+    }
+
+    #[tokio::test]
+    async fn test_check_repo_access_restricted_repo_denies_unknown_user() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: Some("eve".to_string()),
+        };
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        gix::init(repo_dir.path()).unwrap();
+
+        // Write access config that only allows alice
+        let config = crate::adp::access::AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string()],
+            admins: vec![],
+            rules: vec![crate::adp::access::PathRule {
+                user: "alice".to_string(),
+                paths: vec!["refs/heads/*".to_string()],
+                permissions: vec![crate::adp::access::Permission::Pull],
+            }],
+        };
+        crate::adp::storage::AdpStore::write_access_config(repo_dir.path(), &config).unwrap();
+
+        // eve is not in any rule
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
     }
 }

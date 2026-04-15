@@ -15,7 +15,7 @@
 //! Ref management uses the `gix` high-level Repository API; object operations
 //! (blob/tree/commit creation) use `gix` (git2 fully removed).
 
-use crate::adp::access::AccessConfig;
+use crate::adp::access::{AccessConfig, Permission};
 use crate::adp::is_version_sidecar;
 use crate::adp::schema::RefSchema;
 use crate::adp::{ACCESS_CONFIG_REF, SCHEMA_PREFIX};
@@ -306,6 +306,109 @@ impl AdpStore {
         let value = serde_json::to_value(config)?;
         Self::write_ref_blob(repo_path, ACCESS_CONFIG_REF, &value)
     }
+
+    // -------------------------------------------------------------------------
+    // Identity helpers
+    // -------------------------------------------------------------------------
+
+    /// Resolve a key fingerprint to a username.
+    ///
+    /// Reads `refs/adp/keys/{fingerprint_hex}` from the system repo.
+    /// Returns `None` if the key is not registered.
+    pub fn resolve_key_identity(system_repo_path: &Path, fingerprint_hex: &str) -> Result<Option<String>> {
+        let refname = format!("refs/adp/keys/{}", fingerprint_hex);
+        match Self::read_ref_blob(system_repo_path, &refname) {
+            Ok(value) => {
+                let username = value["username"].as_str()
+                    .ok_or_else(|| AdpStoreError::NotFound(format!(
+                        "{}: missing 'username' field", refname
+                    )))?;
+                Ok(Some(username.to_string()))
+            }
+            Err(AdpStoreError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Register a user's SSH public key in the system repo.
+    ///
+    /// Creates two refs pointing to the same identity data:
+    /// - `refs/adp/keys/{fingerprint_hex}` → `{"username": "..."}`
+    /// - `refs/adp/users/{username}/identity` → `{"username": "..."}`
+    ///
+    /// Also updates `refs/adp/users/{username}/ssh_keys` with the key string.
+    ///
+    /// `fingerprint_hex` is the SHA-256 hex digest of the key (64 chars),
+    /// pre-computed by the caller (who has access to the russh key types).
+    pub fn register_user_key(
+        system_repo_path: &Path,
+        username: &str,
+        fingerprint_hex: &str,
+        public_key_openssh: &str,
+    ) -> Result<()> {
+        let identity_value = serde_json::json!({ "username": username });
+
+        // Write key → username mapping
+        let key_ref = format!("refs/adp/keys/{}", fingerprint_hex);
+        Self::write_ref_blob(system_repo_path, &key_ref, &identity_value)?;
+
+        // Write username → identity mapping
+        let user_ref = format!("refs/adp/users/{}/identity", username);
+        Self::write_ref_blob(system_repo_path, &user_ref, &identity_value)?;
+
+        // Update ssh_keys array
+        let ssh_keys_ref = format!("refs/adp/users/{}/ssh_keys", username);
+        let mut keys: Vec<String> = match Self::read_ref_blob(system_repo_path, &ssh_keys_ref) {
+            Ok(v) => serde_json::from_value(v).unwrap_or_default(),
+            Err(AdpStoreError::NotFound(_)) => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        // Compare by key data (base64 portion, ignoring comment)
+        let new_key_data = openssh_key_data(public_key_openssh);
+        if !keys.iter().any(|k| openssh_key_data(k) == new_key_data) {
+            keys.push(public_key_openssh.to_string());
+        }
+        let keys_value = serde_json::to_value(&keys)?;
+        Self::write_ref_blob(system_repo_path, &ssh_keys_ref, &keys_value)?;
+
+        Ok(())
+    }
+
+    /// Check if a user has permission to perform an operation on a repo.
+    ///
+    /// Reads `refs/adp/access/config` from the target repo and evaluates the
+    /// rules against the username and operation.
+    pub fn check_repo_access(
+        repo_path: &Path,
+        username: &str,
+        operation: &Permission,
+    ) -> Result<bool> {
+        let config = match Self::read_access_config(repo_path)? {
+            Some(c) => c,
+            None => {
+                // No access config → default: public read, deny write
+                return Ok(matches!(operation, Permission::Pull));
+            }
+        };
+
+        // Owners and admins have full access
+        if config.owners.iter().any(|o| o == username)
+            || config.admins.iter().any(|a| a == username)
+        {
+            return Ok(true);
+        }
+
+        // Evaluate rules in order; first match wins
+        for rule in &config.rules {
+            if rule.user == "*" || rule.user == username {
+                if rule.permissions.contains(operation) {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
 }
 
 impl Default for AdpStore {
@@ -317,6 +420,21 @@ impl Default for AdpStore {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Extract the base64 key data from an OpenSSH public key string.
+/// Input: `"ssh-ed25519 AAAAC3Nza... user@host"`
+/// Output: `"AAAAC3Nza..."` (the key type and base64 data, without comment)
+fn openssh_key_data(openssh_str: &str) -> &str {
+    // Split into parts: key_type, base64_data, optional_comment
+    let parts: Vec<&str> = openssh_str.split_whitespace().collect();
+    if parts.len() >= 2 {
+        // Return first two parts (key_type + base64 data)
+        // We actually compare on the base64 data part (index 1)
+        parts.get(1).map(|s| *s).unwrap_or("")
+    } else {
+        openssh_str.trim()
+    }
+}
 
 fn next_sidecar_ref(gix_repo: &gix::Repository, primary_ref: &str) -> Result<String> {
     let after_prefix = primary_ref.strip_prefix("refs/adp/").unwrap_or(primary_ref);
@@ -498,5 +616,190 @@ mod tests {
         let refs = AdpStore::list_refs(dir.path(), "refs/adp/schema/").unwrap();
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0], "refs/adp/schema/task");
+    }
+
+    // ---------------------------------------------------------------------
+    // Identity tests
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn test_register_user_key_writes_identity_refs() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        let fingerprint_hex = "abcdef0123456789".repeat(4); // 64-char hex
+        AdpStore::register_user_key(
+            dir.path(),
+            "alice",
+            &fingerprint_hex,
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestkey alice@example.com",
+        )
+        .unwrap();
+
+        // Key → username mapping
+        let username = AdpStore::resolve_key_identity(dir.path(), &fingerprint_hex)
+            .unwrap()
+            .unwrap();
+        assert_eq!(username, "alice");
+
+        // User identity ref
+        let identity = AdpStore::read_ref_blob(
+            dir.path(),
+            "refs/adp/users/alice/identity",
+        )
+        .unwrap();
+        assert_eq!(identity["username"].as_str().unwrap(), "alice");
+
+        // SSH keys array
+        let keys: Vec<String> = AdpStore::read_ref_blob(
+            dir.path(),
+            "refs/adp/users/alice/ssh_keys",
+        )
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+        assert_eq!(keys.len(), 1);
+        assert!(keys[0].starts_with("ssh-ed25519"));
+    }
+
+    #[test]
+    fn test_resolve_key_identity_returns_none_for_unknown() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        let result = AdpStore::resolve_key_identity(dir.path(), "nonexistent_hex_hash").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_register_user_key_deduplicates() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        let fingerprint_hex = "a1b2c3d4e5f6".repeat(5).chars().take(64).collect::<String>();
+        let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestkey alice@example.com";
+
+        AdpStore::register_user_key(dir.path(), "alice", &fingerprint_hex, key).unwrap();
+        AdpStore::register_user_key(dir.path(), "alice", &fingerprint_hex, key).unwrap();
+
+        let keys: Vec<String> = AdpStore::read_ref_blob(
+            dir.path(),
+            "refs/adp/users/alice/ssh_keys",
+        )
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+        assert_eq!(keys.len(), 1, "should not duplicate identical keys");
+    }
+
+    // ---------------------------------------------------------------------
+    // Access control tests
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn test_check_repo_access_default_allows_read_denies_write() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        // No access config written → default behavior
+        assert!(AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Pull).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Push).unwrap());
+    }
+
+    #[test]
+    fn test_check_repo_access_owner_has_full_access() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        let config = AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string()],
+            admins: vec![],
+            rules: vec![],
+        };
+        AdpStore::write_access_config(dir.path(), &config).unwrap();
+
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Pull).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Push).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Admin).unwrap());
+    }
+
+    #[test]
+    fn test_check_repo_access_admin_has_full_access() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        let config = AccessConfig {
+            version: "1".to_string(),
+            owners: vec![],
+            admins: vec!["bob".to_string()],
+            rules: vec![],
+        };
+        AdpStore::write_access_config(dir.path(), &config).unwrap();
+
+        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Pull).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Push).unwrap());
+    }
+
+    #[test]
+    fn test_check_repo_access_rules_grant_permissions() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        let config = AccessConfig {
+            version: "1".to_string(),
+            owners: vec![],
+            admins: vec![],
+            rules: vec![
+                PathRule {
+                    user: "carol".to_string(),
+                    paths: vec!["refs/heads/*".to_string()],
+                    permissions: vec![Permission::Pull],
+                },
+                PathRule {
+                    user: "*".to_string(),
+                    paths: vec!["refs/heads/*".to_string()],
+                    permissions: vec![Permission::Pull],
+                },
+            ],
+        };
+        AdpStore::write_access_config(dir.path(), &config).unwrap();
+
+        // carol matches her specific rule (Pull) and wildcard (Pull)
+        assert!(AdpStore::check_repo_access(dir.path(), "carol", &Permission::Pull).unwrap());
+        // carol does NOT have Push — neither rule grants it to her
+        assert!(!AdpStore::check_repo_access(dir.path(), "carol", &Permission::Push).unwrap());
+
+        // dave matches wildcard rule (Pull only)
+        assert!(AdpStore::check_repo_access(dir.path(), "dave", &Permission::Pull).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "dave", &Permission::Push).unwrap());
+    }
+
+    #[test]
+    fn test_check_repo_access_denies_unknown_user_in_restricted_repo() {
+        let dir = TempDir::new().unwrap();
+        init_bare_repo(dir.path());
+
+        let config = AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string()],
+            admins: vec![],
+            rules: vec![PathRule {
+                user: "alice".to_string(),
+                paths: vec!["refs/heads/*".to_string()],
+                permissions: vec![Permission::Pull, Permission::Push],
+            }],
+        };
+        AdpStore::write_access_config(dir.path(), &config).unwrap();
+
+        // eve is not in any rule
+        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Pull).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Push).unwrap());
     }
 }

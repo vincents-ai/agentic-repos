@@ -1,4 +1,4 @@
-use agentic_repos::{adp::bootstrap_system_repo, config::AppConfig, server::run_server};
+use agentic_repos::{adp::{bootstrap_system_repo, register_admin_key}, config::AppConfig, server::run_server};
 use std::path::PathBuf;
 
 /// Simple subcommand handling without pulling in a CLI framework dependency.
@@ -7,6 +7,7 @@ use std::path::PathBuf;
 ///   agentic-repos              — start the server (default)
 ///   agentic-repos init          — bootstrap the system repo and exit
 ///   agentic-repos init --storage <path>  — bootstrap at a custom storage root
+///   agentic-repos init --admin-key <key> --admin-username <name> — register admin key
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = std::env::args().collect();
@@ -26,6 +27,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .init();
 
         bootstrap_system_repo(&storage_root)?;
+
+        // Register admin key if provided
+        if let Some(admin_key) = parse_flag_value(&args, "--admin-key") {
+            let admin_username = parse_flag_value(&args, "--admin-username")
+                .unwrap_or_else(|| "admin".to_string());
+            register_admin_key(&storage_root, &admin_username, &admin_key)?;
+        }
+
         return Ok(());
     }
 
@@ -49,6 +58,17 @@ fn parse_storage_flag(args: &[String]) -> Option<PathBuf> {
     args.windows(2).find_map(|pair| {
         if pair[0] == "--storage" {
             Some(PathBuf::from(&pair[1]))
+        } else {
+            None
+        }
+    })
+}
+
+/// Parse `--flag <value>` from the argument list, returning the value if present.
+fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
+    args.windows(2).find_map(|pair| {
+        if pair[0] == flag {
+            Some(pair[1].clone())
         } else {
             None
         }

@@ -279,6 +279,7 @@ impl std::fmt::Display for SdlcPhase {
 #[cfg(test)]
 mod tests {
     use crate::sdlc::service::InMemorySdlcStore;
+    use serial_test::serial;
     use std::sync::Arc;
     use super::*;
 
@@ -287,6 +288,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_export_empty_service() {
         let svc = make_service();
         let result = export_sdlc_metrics(&svc);
@@ -294,6 +296,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_export_with_metrics() {
         let svc = make_service();
         let metric_name = format!("test_export_cov_{}", std::process::id());
@@ -340,6 +343,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_export_with_dora_metrics() {
         let svc = make_service();
         let mut dora = DoraMetrics {
@@ -364,6 +368,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_export_with_gates() {
         SDLC_GATE_STATUS.reset();
         let svc = make_service();
@@ -395,6 +400,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_export_blocking_gate() {
         let svc = make_service();
         svc.record_metric(QualityMetric::new(
@@ -423,6 +429,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_export_with_assessment() {
         let svc = make_service();
         let assessment = SdlcAssessment::new("Q1 2026", AssessmentPeriod::q(2026, 1), "bot")
@@ -444,6 +451,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_record_gate_evaluation() {
         record_gate_evaluation("test-gate", &GateStatus::Passed);
         record_gate_evaluation("test-gate", &GateStatus::Failed);
@@ -454,6 +462,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_record_assessment_counter() {
         record_assessment("ci-bot");
         record_assessment("ci-bot");
@@ -463,6 +472,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_encode_all_metrics_includes_sdlc() {
         let svc = make_service();
         svc.record_metric(QualityMetric::new(

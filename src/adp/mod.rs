@@ -42,7 +42,7 @@ pub mod secrets;
 pub mod storage;
 
 pub use access::{AccessConfig, PathRule, Permission, UserEntry};
-pub use bootstrap::bootstrap_system_repo;
+pub use bootstrap::{bootstrap_system_repo, register_admin_key};
 pub use config::{RepoConfig, ServerConfig};
 pub use lfs_config::LfsConfig;
 pub use identity::CallerIdentity;
@@ -70,6 +70,12 @@ pub const REPO_CONFIG_REF: &str = "refs/adp/config/repo";
 
 /// The special ref name for global server settings (system repo only).
 pub const SERVER_CONFIG_REF: &str = "refs/adp/config/server";
+
+/// Sub-namespace for SSH key → user identity mappings.
+pub const KEYS_PREFIX: &str = "refs/adp/keys/";
+
+/// Sub-namespace for per-user identity refs.
+pub const USERS_PREFIX: &str = "refs/adp/users/";
 
 /// Returns true if the ref is an ADP private ref (access or config).
 /// These are stripped from the git wire protocol for non-privileged clients.

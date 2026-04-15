@@ -103,6 +103,61 @@ pub fn bootstrap_system_repo(storage_root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Register an initial admin SSH key in the system repo.
+///
+/// This is called by `agentic-repos init --admin-key <key>` after
+/// bootstrapping. It:
+/// 1. Parses the OpenSSH public key string to compute the fingerprint
+/// 2. Writes identity refs (key→username, user→identity, ssh_keys)
+/// 3. Adds "admin" to the system repo's access config owners list
+pub fn register_admin_key(
+    storage_root: &Path,
+    admin_username: &str,
+    public_key_openssh: &str,
+) -> Result<()> {
+    let system_repo_path = storage_root.join(SYSTEM_REPO_PATH);
+
+    // Compute fingerprint hex from the openssh key
+    let fingerprint_hex = compute_fingerprint_hex_from_openssh(public_key_openssh)
+        .map_err(|e| BootstrapError::Git(format!("Failed to parse admin key: {}", e)))?;
+
+    info!(
+        "Registering admin key for '{}' with fingerprint {}",
+        admin_username, fingerprint_hex
+    );
+
+    // Write identity refs
+    AdpStore::register_user_key(
+        &system_repo_path,
+        admin_username,
+        &fingerprint_hex,
+        public_key_openssh,
+    )?;
+
+    // Update access config to add admin user as owner
+    let mut access_config = AdpStore::read_access_config(&system_repo_path)?
+        .unwrap_or_default();
+
+    if !access_config.owners.contains(&admin_username.to_string()) {
+        access_config.owners.push(admin_username.to_string());
+        AdpStore::write_access_config(&system_repo_path, &access_config)?;
+        info!("Added '{}' as system repo owner", admin_username);
+    }
+
+    info!("Admin key registration complete");
+    Ok(())
+}
+
+/// Compute the SHA-256 hex fingerprint from an OpenSSH public key string.
+fn compute_fingerprint_hex_from_openssh(openssh_key: &str) -> std::result::Result<String, String> {
+    use russh::keys::ssh_key::HashAlg;
+
+    let public_key = russh::keys::ssh_key::PublicKey::from_openssh(openssh_key)
+        .map_err(|e| format!("Invalid OpenSSH key: {}", e))?;
+    let fingerprint = public_key.fingerprint(HashAlg::Sha256);
+    Ok(hex::encode(fingerprint.as_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +204,48 @@ mod tests {
         // Values should still be readable
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
         assert!(AdpStore::read_ref_blob(&system_path, SERVER_CONFIG_REF).is_ok());
+    }
+
+    #[test]
+    fn test_register_admin_key() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        // Generate a test Ed25519 key
+        use russh::keys::{Algorithm, PrivateKey};
+        let private_key = PrivateKey::random(&mut rand_core::OsRng, Algorithm::Ed25519).unwrap();
+        let openssh_key = private_key.public_key().to_openssh().unwrap();
+
+        register_admin_key(dir.path(), "admin", &openssh_key).unwrap();
+
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+
+        // Verify identity ref was created
+        let identity = AdpStore::read_ref_blob(&system_path, "refs/adp/users/admin/identity").unwrap();
+        assert_eq!(identity["username"].as_str().unwrap(), "admin");
+
+        // Verify SSH keys array was created
+        let keys = AdpStore::read_ref_blob(&system_path, "refs/adp/users/admin/ssh_keys").unwrap();
+        assert_eq!(keys.as_array().unwrap().len(), 1);
+
+        // Verify admin was added to access config owners
+        let access_cfg = AdpStore::read_access_config(&system_path).unwrap().unwrap();
+        assert!(access_cfg.owners.contains(&"admin".to_string()));
+    }
+
+    #[test]
+    fn test_register_admin_key_with_custom_username() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        use russh::keys::{Algorithm, PrivateKey};
+        let private_key = PrivateKey::random(&mut rand_core::OsRng, Algorithm::Ed25519).unwrap();
+        let openssh_key = private_key.public_key().to_openssh().unwrap();
+
+        register_admin_key(dir.path(), "alice", &openssh_key).unwrap();
+
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+        let access_cfg = AdpStore::read_access_config(&system_path).unwrap().unwrap();
+        assert!(access_cfg.owners.contains(&"alice".to_string()));
     }
 }

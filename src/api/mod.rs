@@ -133,13 +133,11 @@ impl ApiServer {
                 .app_data(rbac_service_data.clone().unwrap_or_else(|| web::Data::new(Arc::new(RbacService::new(Arc::new(InMemoryRbacStorage::new()))))))
                 .wrap(Logger::default())
                 .route("/metrics", web::get().to(metrics_endpoint))
-                .service(web::scope("/api/v1").configure(routes::configure_routes))
                 .service(web::scope("/api/v1/compliance").configure(|cfg| {
                     configure_compliance_routes(cfg, compliance_state.clone());
-                }))
-                .service(web::scope("/api/v1/compliance").configure(|cfg| {
                     crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(cfg, dora_nis2_state.clone());
-                }));
+                }))
+                .service(web::scope("/api/v1").configure(routes::configure_routes));
 
             if feature_flags.git_lfs && lfs_config.enabled {
                 use crate::lfs::storage::LfsStorageAdapter;

@@ -26,6 +26,5 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(web::scope("/analytics").configure(crate::analytics::handlers::configure_analytics_routes))
         .service(web::scope("/replication").configure(crate::replication::handlers::configure_replication_routes))
         .service(web::scope("/cicd").configure(crate::cicd::webhooks::handlers::configure_cicd_routes))
-        .service(web::scope("/lfs-locks").configure(crate::api::lfs_locks::configure_locks_routes))
-        .default_service(web::route().to(handlers::not_found));
+        .service(web::scope("/lfs-locks").configure(crate::api::lfs_locks::configure_locks_routes));
 }

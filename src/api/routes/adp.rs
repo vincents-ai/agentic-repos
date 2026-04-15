@@ -40,11 +40,11 @@ pub fn configure_adp_routes(cfg: &mut web::ServiceConfig) {
                 web::scope("/schemas")
                     .route("", web::get().to(list_schemas))
                     .route("", web::post().to(create_schema))
+                    .route("/resolve", web::get().to(resolve_schema_handler))
                     .route("/{id}", web::get().to(get_schema))
                     .route("/{id}", web::put().to(update_schema))
                     .route("/{id}", web::delete().to(delete_schema))
-                    .route("/{id}/versions", web::get().to(list_schema_versions))
-                    .route("/resolve", web::get().to(resolve_schema_handler)),
+                    .route("/{id}/versions", web::get().to(list_schema_versions)),
             )
             .service(
                 web::scope("/refs")

@@ -6,18 +6,15 @@ use actix_web::{web, HttpResponse, Result as ActixResult};
 use std::sync::Arc;
 
 pub fn configure_sdlc_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/sdlc")
-            .route("/metrics", web::get().to(get_metrics))
-            .route("/metrics", web::post().to(record_metric))
-            .route("/gates", web::get().to(list_gates))
-            .route("/gates", web::post().to(create_gate))
-            .route("/gates/{id}/evaluate", web::post().to(evaluate_gate))
-            .route("/gates/evaluate-all", web::post().to(evaluate_all_gates))
-            .route("/assessments", web::get().to(list_assessments))
-            .route("/assessments", web::post().to(create_assessment))
-            .route("/dashboard", web::get().to(get_dashboard)),
-    );
+    cfg.route("/metrics", web::get().to(get_metrics))
+        .route("/metrics", web::post().to(record_metric))
+        .route("/gates", web::get().to(list_gates))
+        .route("/gates", web::post().to(create_gate))
+        .route("/gates/{id}/evaluate", web::post().to(evaluate_gate))
+        .route("/gates/evaluate-all", web::post().to(evaluate_all_gates))
+        .route("/assessments", web::get().to(list_assessments))
+        .route("/assessments", web::post().to(create_assessment))
+        .route("/dashboard", web::get().to(get_dashboard));
 }
 
 async fn get_metrics(service: web::Data<Arc<SdlcService>>) -> ActixResult<HttpResponse> {

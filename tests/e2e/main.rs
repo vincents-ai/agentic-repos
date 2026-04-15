@@ -620,3 +620,58 @@ async fn e2e_api_identity_and_binary_name() {
         "Metrics should be Prometheus format"
     );
 }
+
+// ── Webhooks ─────────────────────────────────────────────────────────────
+
+#[tokio::test]
+#[serial]
+async fn e2e_webhook_routes_exist() {
+    harness_or_skip!(harness);
+
+    // POST /api/v1/webhooks — should return 403 (auth required) not 404 (route missing)
+    let create_resp = harness.post_json(
+        "/api/v1/webhooks",
+        &serde_json::json!({
+            "url": "http://127.0.0.1:9999/webhook",
+            "secret": "test-webhook-secret",
+            "secret_keys": [],
+            "events": ["push", "branch_create"],
+            "tenant_id": "default"
+        }),
+    ).await;
+
+    let status = create_resp.status();
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "POST /api/v1/webhooks should return 403 (auth required), got {}",
+        status
+    );
+
+    // GET /api/v1/webhooks — should also return 403
+    let list_resp = harness.get("/api/v1/webhooks?tenant_id=default").await;
+    assert_eq!(
+        list_resp.status(),
+        StatusCode::FORBIDDEN,
+        "GET /api/v1/webhooks should return 403 (auth required), got {}",
+        list_resp.status()
+    );
+
+    // GET /api/v1/webhooks/{id} — should return 403
+    let get_resp = harness.get("/api/v1/webhooks/00000000-0000-0000-0000-000000000000").await;
+    assert_eq!(
+        get_resp.status(),
+        StatusCode::FORBIDDEN,
+        "GET /api/v1/webhooks/{{id}} should return 403 (auth required), got {}",
+        get_resp.status()
+    );
+
+    // DELETE /api/v1/webhooks/{id} — should return 403
+    let delete_resp = harness.delete("/api/v1/webhooks/00000000-0000-0000-0000-000000000000").await;
+    assert_eq!(
+        delete_resp.status(),
+        StatusCode::FORBIDDEN,
+        "DELETE /api/v1/webhooks/{{id}} should return 403 (auth required), got {}",
+        delete_resp.status()
+    );
+}

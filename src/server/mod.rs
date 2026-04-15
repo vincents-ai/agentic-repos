@@ -18,8 +18,8 @@ pub struct Server {
 
 impl Server {
     pub fn new(config: AppConfig) -> Self {
-        // Use REPOS_MCP_STORAGE_ROOT env var, or fall back to ./repositories
-        let storage_root = std::env::var("REPOS_MCP_STORAGE_ROOT")
+        // Use AGENTIC_REPOS_STORAGE_ROOT env var, or fall back to ./repositories
+        let storage_root = std::env::var("AGENTIC_REPOS_STORAGE_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("./repositories"));
         let storage = Arc::new(LocalStorage::new(storage_root.clone()));

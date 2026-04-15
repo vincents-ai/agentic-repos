@@ -99,7 +99,7 @@ pub struct LfsThrottleConfig {
 impl AppConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Check for config path from environment variable
-        if let Ok(path) = std::env::var("REPOS_MCP_CONFIG") {
+        if let Ok(path) = std::env::var("AGENTIC_REPOS_CONFIG") {
             return Self::from_file(&path);
         }
 
@@ -123,8 +123,8 @@ impl AppConfig {
 
     /// Detect the storage root from environment or CLI flags.
     fn detect_storage_root() -> Option<std::path::PathBuf> {
-        // 1. REPOS_MCP_STORAGE_ROOT env var
-        if let Ok(path) = std::env::var("REPOS_MCP_STORAGE_ROOT") {
+        // 1. AGENTIC_REPOS_STORAGE_ROOT env var
+        if let Ok(path) = std::env::var("AGENTIC_REPOS_STORAGE_ROOT") {
             return Some(std::path::PathBuf::from(path));
         }
 

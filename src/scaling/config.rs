@@ -56,7 +56,7 @@ impl Default for SessionAffinityConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            cookie_name: "REPOS_MCP_INSTANCE".to_string(),
+            cookie_name: "AGENTIC_REPOS_INSTANCE".to_string(),
             header_name: "X-Repos-MCP-Instance".to_string(),
             ttl_secs: 3600,
         }
@@ -104,7 +104,7 @@ impl SessionAffinityConfig {
                 .map(|v| v == "true")
                 .unwrap_or(false),
             cookie_name: std::env::var("SESSION_AFFINITY_COOKIE_NAME")
-                .unwrap_or_else(|_| "REPOS_MCP_INSTANCE".to_string()),
+                .unwrap_or_else(|_| "AGENTIC_REPOS_INSTANCE".to_string()),
             header_name: std::env::var("SESSION_AFFINITY_HEADER_NAME")
                 .unwrap_or_else(|_| "X-Repos-MCP-Instance".to_string()),
             ttl_secs: std::env::var("SESSION_AFFINITY_TTL_SECS")

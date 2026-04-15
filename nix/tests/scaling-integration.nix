@@ -777,7 +777,7 @@ let
           session = instance1.succeed("curl -s -X POST http://localhost:8090/api/v1/sessions")
           instance1.log(f"Session: {session}")
 
-          response = instance1.succeed(f"curl -s -H 'Cookie: REPOS_MCP_INSTANCE=test-session' http://localhost:8090/api/v1/session/validate")
+          response = instance1.succeed(f"curl -s -H 'Cookie: AGENTIC_REPOS_INSTANCE=test-session' http://localhost:8090/api/v1/session/validate")
           instance1.log(f"Validation: {response}")
 
         with subtest("Session header routing works"):

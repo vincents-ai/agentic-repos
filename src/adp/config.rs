@@ -10,7 +10,7 @@
 //!
 //! The server needs exactly ONE piece of information before the system repo
 //! is available: the storage root path (where `_adp/system/` lives).
-//! This comes from `REPOS_MCP_STORAGE_ROOT` env var or `--storage` CLI flag.
+//! This comes from `AGENTIC_REPOS_STORAGE_ROOT` env var or `--storage` CLI flag.
 //! Everything else reads from git refs.
 
 use serde::{Deserialize, Serialize};

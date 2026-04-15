@@ -101,7 +101,7 @@ impl E2eHarness {
         // Start the server subprocess — config comes from git-refs in the system repo
         info!("Starting agentic-repos server on HTTP :{}, SSH :{}", http_port, ssh_port);
         let child = Command::new(&binary_path)
-            .env("REPOS_MCP_STORAGE_ROOT", &storage_root)
+            .env("AGENTIC_REPOS_STORAGE_ROOT", &storage_root)
             .env("RUST_LOG", "info,agentic_repos=debug")
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -206,6 +206,11 @@ impl E2eHarness {
     pub async fn post(&self, path: &str) -> reqwest::Response {
         let url = format!("{}{}", self.http_url(), path);
         self.client().post(&url).send().await.unwrap()
+    }
+
+    pub async fn delete(&self, path: &str) -> reqwest::Response {
+        let url = format!("{}{}", self.http_url(), path);
+        self.client().delete(&url).send().await.unwrap()
     }
 
     fn client(&self) -> reqwest::Client {

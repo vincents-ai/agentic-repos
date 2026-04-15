@@ -8,6 +8,8 @@ use crate::compliance::dora::{DoraService, InMemoryDoraStore};
 use crate::compliance::dora_nis2_handlers::DoraNis2State;
 use crate::compliance::handlers::{ComplianceState, configure_compliance_routes};
 use crate::compliance::nis2::{InMemoryNis2Store, Nis2Service};
+use crate::webhooks::service::WebhookService;
+use crate::webhooks::storage::InMemoryWebhookStorage;
 use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
@@ -69,7 +71,7 @@ impl ApiServer {
         let feature_flags = self.feature_flags.clone();
         let lfs_config = self.lfs_config.clone();
 
-        let _rbac_service = if feature_flags.rbac {
+        let rbac_service_data: Option<web::Data<Arc<RbacService>>> = if feature_flags.rbac {
             let storage = Arc::new(InMemoryRbacStorage::new());
             let service = Arc::new(RbacService::new(storage));
 
@@ -79,7 +81,7 @@ impl ApiServer {
                 tracing::info!("RBAC system initialized with default roles");
             }
 
-            Some(service)
+            Some(web::Data::new(service))
         } else {
             tracing::info!("RBAC feature disabled");
             None
@@ -103,6 +105,7 @@ impl ApiServer {
 
         let config_clone = config.clone();
         let sdlc_service = web::Data::new(Arc::new(SdlcService::new(Arc::new(InMemorySdlcStore::new()))));
+        let webhook_service = web::Data::new(Arc::new(WebhookService::new(Arc::new(InMemoryWebhookStorage::new()))));
         let compliance_state = web::Data::new(ComplianceState::new(crate::compliance::ComplianceConfig::default()));
         let dora_nis2_state = web::Data::new(Arc::new(DoraNis2State {
             dora: Arc::new(DoraService::new(Arc::new(InMemoryDoraStore::new()))),
@@ -114,8 +117,11 @@ impl ApiServer {
                 .app_data(web::Data::new(lfs_config.clone()))
                 .app_data(cluster_state.clone())
                 .app_data(sdlc_service.clone())
+                .app_data(webhook_service.clone())
                 .app_data(compliance_state.clone())
                 .app_data(dora_nis2_state.clone())
+                // RBAC service — required by require_permission middleware
+                .app_data(rbac_service_data.clone().unwrap_or_else(|| web::Data::new(Arc::new(RbacService::new(Arc::new(InMemoryRbacStorage::new()))))))
                 .wrap(Logger::default())
                 .route("/metrics", web::get().to(metrics_endpoint))
                 .service(web::scope("/api/v1").configure(routes::configure_routes))
@@ -135,7 +141,7 @@ impl ApiServer {
                 use crate::storage::local::LocalStorage;
                 use std::sync::Arc;
 
-                // Use the same storage root as GitService (from REPOS_MCP_STORAGE_ROOT)
+                // Use the same storage root as GitService (from AGENTIC_REPOS_STORAGE_ROOT)
                 let storage_root = git_service
                     .get_storage_root()
                     .unwrap_or_else(|| std::path::PathBuf::from("./repositories"));

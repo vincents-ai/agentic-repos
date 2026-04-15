@@ -348,7 +348,7 @@ in
       environment = lib.mkMerge [
         {
           RUST_LOG = cfg.logging.level;
-          REPOS_MCP_CONFIG = "${configFile}";
+          AGENTIC_REPOS_CONFIG = "${configFile}";
           PATH = lib.mkForce (lib.makeBinPath [ pkgs.git pkgs.openssh ] + ":/run/current-system/sw/bin");
         }
         cfg.environment

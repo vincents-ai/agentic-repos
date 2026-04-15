@@ -30,7 +30,7 @@ redis = "0.25"          # Rate limiting and quota tracking
 
 ### Port Configuration
 
-- **Default SSH port**: 2222 (configurable via `REPOS_MCP_SSH_PORT`)
+- **Default SSH port**: 2222 (configurable via `AGENTIC_REPOS_SSH_PORT`)
 - **Rationale**: Avoid requiring root privileges, simplifies container deployment
 
 ### SSH Connection Flow

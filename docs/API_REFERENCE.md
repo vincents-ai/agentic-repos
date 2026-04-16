@@ -1,7 +1,7 @@
 # API Reference — agentic-repos (agentic-repos)
 
 **Base URL:** `http://localhost:8090/api/v1`  
-**Server:** actix-web · Port configurable via `config.yaml`  
+**Server:** actix-web · Port configurable via git-refs config (`refs/adp/config/server`)  
 **Format:** JSON request/response bodies
 
 ---
@@ -127,12 +127,17 @@ Response: `text/plain` Prometheus exposition format.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/adp/schema` | List schemas |
-| POST | `/adp/schema` | Create schema |
-| GET | `/adp/schema/{id}` | Get schema |
-| DELETE | `/adp/schema/{id}` | Delete schema |
-| GET | `/adp/access/config` | Get access control config |
-| POST | `/adp/access/config` | Update access control config |
+| GET | `/adp/repos/{owner}/{repo}/adp/schemas` | List schemas |
+| POST | `/adp/repos/{owner}/{repo}/adp/schemas` | Create schema |
+| GET | `/adp/repos/{owner}/{repo}/adp/schemas/{id}` | Get schema |
+| PUT | `/adp/repos/{owner}/{repo}/adp/schemas/{id}` | Update schema (requires version bump) |
+| DELETE | `/adp/repos/{owner}/{repo}/adp/schemas/{id}` | Delete schema |
+| GET | `/adp/repos/{owner}/{repo}/adp/schemas/resolve?ref={ref}` | Resolve schema for a ref |
+| GET | `/adp/repos/{owner}/{repo}/adp/refs` | List refs (with optional `?prefix=` filter) |
+| GET | `/adp/repos/{owner}/{repo}/adp/refs/{path}` | Get ref content |
+| GET | `/adp/repos/{owner}/{repo}/adp/blobs/{sha}` | Get blob by SHA |
+| GET | `/adp/repos/{owner}/{repo}/adp/access/config` | Get access control config |
+| POST | `/adp/repos/{owner}/{repo}/adp/access/config` | Update access control config |
 
 ---
 
@@ -151,7 +156,7 @@ Response: `text/plain` Prometheus exposition format.
 { "name": "db-password", "data": { "value": "s3cret123" } }
 ```
 
-Secrets are AES-256-GCM encrypted at rest in git refs (`refs/secrets/{name}`).
+Secrets are AGE-encrypted with SOPS two-layer key wrapping (ADR-024). Per-repo keypairs, root key on server filesystem. `refs/secrets/*` is stripped from git wire protocol.
 
 ---
 
@@ -206,6 +211,20 @@ Secrets are AES-256-GCM encrypted at rest in git refs (`refs/secrets/{name}`).
 | POST | `/webhooks/{id}/test` | Test webhook delivery |
 | GET | `/webhooks/{id}/deliveries` | List deliveries |
 | POST | `/webhooks/{id}/deliveries/{did}/retry` | Retry delivery |
+
+**Create Webhook Request:**
+```json
+{
+  "url": "https://example.com/webhook",
+  "secret": "webhook-secret",
+  "events": ["push", "branch_create"],
+  "secret_keys": [],
+  "entity_schemas": [],
+  "tenant_id": "default"
+}
+```
+
+`secret_keys` controls which secrets the webhook may access in payload (egress control, ADR-024). `entity_schemas` filters which schema-typed entity events to fire for (EntityCreated/EntityUpdated/EntityDeleted).
 
 ---
 
@@ -406,7 +425,7 @@ Secrets are AES-256-GCM encrypted at rest in git refs (`refs/secrets/{name}`).
 
 ## Feature Flags
 
-Endpoint availability depends on feature flags in `config.yaml` or environment variables:
+Endpoint availability depends on feature flags in git-refs config (`refs/adp/config/server` in `_adp/system` repo):
 
 | Flag | Enables |
 |------|---------|

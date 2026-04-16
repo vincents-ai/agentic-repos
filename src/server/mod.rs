@@ -1,4 +1,5 @@
 use crate::adp::bootstrap_system_repo;
+use crate::adp::bootstrap::bootstrap_engram_schemas;
 use crate::api::ApiServer;
 use crate::config::AppConfig;
 use crate::features::FeatureFlags;
@@ -8,7 +9,7 @@ use actix_web::web::ServiceConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::spawn;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Callback type for extending the actix App with additional routes/services.
 pub type AppConfigurator = Box<dyn Fn(&mut ServiceConfig) + Send + Sync>;
@@ -89,6 +90,11 @@ impl Server {
         match bootstrap_system_repo(&storage_root) {
             Ok(()) => info!("System repo bootstrap OK"),
             Err(e) => error!("System repo bootstrap failed (non-fatal): {}", e),
+        }
+
+        // Bootstrap engram entity schemas into system repo
+        if let Err(e) = bootstrap_engram_schemas(&storage_root) {
+            warn!("Engram schema bootstrap failed (non-fatal): {}", e);
         }
 
         let config = (*self.config).clone();

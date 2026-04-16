@@ -12,8 +12,10 @@
 use crate::adp::access::AccessConfig;
 use crate::adp::config::ServerConfig;
 use crate::adp::lfs_config::{LfsConfig, LFS_CONFIG_REF};
+use crate::adp::schema::{FieldConfig, RefSchema, UiHints};
 use crate::adp::storage::{AdpStore, AdpStoreError};
 use crate::adp::SERVER_CONFIG_REF;
+use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, info, warn};
 
@@ -101,6 +103,193 @@ pub fn bootstrap_system_repo(storage_root: &Path) -> Result<()> {
 
     info!("System repo bootstrap complete");
     Ok(())
+}
+
+/// Bootstrap engram entity schemas into the system repo.
+///
+/// Writes RefSchema definitions for all 11 engram entity types.
+/// Idempotent — skips schemas that already exist.
+pub fn bootstrap_engram_schemas(storage_root: &Path) -> Result<()> {
+    let system_repo_path = storage_root.join(SYSTEM_REPO_PATH);
+
+    let schemas = vec![
+        schema_def("engram-task", "refs/engram/task/*", "Engram Task",
+            json_schema_task(), ui_hints_task()),
+        schema_def("engram-context", "refs/engram/context/*", "Engram Context",
+            json_schema_generic("context"), default_ui()),
+        schema_def("engram-reasoning", "refs/engram/reasoning/*", "Engram Reasoning",
+            json_schema_generic("reasoning"), default_ui()),
+        schema_def("engram-knowledge", "refs/engram/knowledge/*", "Engram Knowledge",
+            json_schema_generic("knowledge"), default_ui()),
+        schema_def("engram-session", "refs/engram/session/*", "Engram Session",
+            json_schema_session(), ui_hints_session()),
+        schema_def("engram-adr", "refs/engram/adr/*", "Engram ADR",
+            json_schema_adr(), ui_hints_adr()),
+        schema_def("engram-theory", "refs/engram/theory/*", "Engram Theory",
+            json_schema_generic("theory"), default_ui()),
+        schema_def("engram-state-reflection", "refs/engram/state_reflection/*", "Engram State Reflection",
+            json_schema_generic("state_reflection"), default_ui()),
+        schema_def("engram-doc-fragment", "refs/engram/doc_fragment/*", "Engram DocFragment",
+            json_schema_generic("doc_fragment"), default_ui()),
+        schema_def("engram-compliance", "refs/engram/compliance/*", "Engram Compliance",
+            json_schema_generic("compliance"), default_ui()),
+        schema_def("engram-workflow", "refs/engram/workflow/*", "Engram Workflow",
+            json_schema_generic("workflow"), default_ui()),
+    ];
+
+    let mut created = 0u32;
+    let mut skipped = 0u32;
+
+    for schema in schemas {
+        if AdpStore::read_schema(&system_repo_path, &schema.id)?.is_some() {
+            skipped += 1;
+            continue;
+        }
+        AdpStore::write_schema(&system_repo_path, &schema)?;
+        created += 1;
+    }
+
+    info!(
+        created = created,
+        skipped = skipped,
+        "Bootstrapped engram schemas"
+    );
+    Ok(())
+}
+
+fn schema_def(
+    id: &str,
+    namespace_pattern: &str,
+    title: &str,
+    schema: serde_json::Value,
+    ui: Option<UiHints>,
+) -> RefSchema {
+    use chrono::Utc;
+    RefSchema {
+        id: id.to_string(),
+        namespace_pattern: namespace_pattern.to_string(),
+        title: title.to_string(),
+        description: Some(format!("Engram {} entity", id.strip_prefix("engram-").unwrap_or(id))),
+        version: "1.0.0".to_string(),
+        author: Some("agentic-repos/bootstrap".to_string()),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        schema,
+        ui,
+    }
+}
+
+fn default_ui() -> Option<UiHints> { None }
+
+fn ui_hints_task() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["title".into(), "status".into(), "priority".into()],
+        detail_fields: vec!["title".into(), "description".into(), "status".into(), "priority".into()],
+        fields: {
+            let mut m = HashMap::new();
+            m.insert("status".into(), FieldConfig {
+                widget: Some("badge".into()),
+                color_map: {
+                    let mut c = HashMap::new();
+                    c.insert("todo".into(), "gray".into());
+                    c.insert("in_progress".into(), "blue".into());
+                    c.insert("done".into(), "green".into());
+                    c.insert("blocked".into(), "red".into());
+                    c
+                },
+            });
+            m.insert("priority".into(), FieldConfig {
+                widget: Some("badge".into()),
+                color_map: {
+                    let mut c = HashMap::new();
+                    c.insert("low".into(), "gray".into());
+                    c.insert("medium".into(), "yellow".into());
+                    c.insert("high".into(), "orange".into());
+                    c.insert("critical".into(), "red".into());
+                    c
+                },
+            });
+            m
+        },
+    })
+}
+
+fn ui_hints_session() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["name".into(), "agent".into()],
+        detail_fields: vec!["name".into(), "agent".into(), "started_at".into()],
+        fields: Default::default(),
+    })
+}
+
+fn ui_hints_adr() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["title".into(), "number".into()],
+        detail_fields: vec!["title".into(), "number".into(), "context".into()],
+        fields: Default::default(),
+    })
+}
+
+fn json_schema_task() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["title", "status"],
+        "properties": {
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "status": { "type": "string", "enum": ["todo", "in_progress", "done", "blocked", "cancelled"] },
+            "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+            "agent": { "type": "string" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+fn json_schema_session() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+            "name": { "type": "string" },
+            "agent": { "type": "string" },
+            "started_at": { "type": "string", "format": "date-time" },
+            "ended_at": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+fn json_schema_adr() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["title", "number", "context"],
+        "properties": {
+            "title": { "type": "string" },
+            "number": { "type": "integer" },
+            "context": { "type": "string" },
+            "status": { "type": "string", "enum": ["proposed", "accepted", "deprecated", "superseded"] }
+        }
+    })
+}
+
+fn json_schema_generic(entity_type: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["title", "content"],
+        "properties": {
+            "title": { "type": "string" },
+            "content": { "type": "string" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "agent": { "type": "string" },
+            "entity_type": { "type": "string", "const": entity_type },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+        }
+    })
 }
 
 /// Register an initial admin SSH key in the system repo.
@@ -354,5 +543,38 @@ mod tests {
         let key2 = std::fs::read_to_string(&key_path).unwrap();
 
         assert_eq!(key1, key2, "root key should not change on second bootstrap");
+    }
+
+    #[test]
+    fn test_bootstrap_engram_schemas() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+        bootstrap_engram_schemas(dir.path()).unwrap();
+
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+
+        // All 11 schemas should exist
+        let schemas = AdpStore::list_schemas(&system_path).unwrap();
+        assert_eq!(schemas.len(), 11, "expected 11 engram schemas, got {}", schemas.len());
+
+        // Check specific schema
+        let task_schema = AdpStore::read_schema(&system_path, "engram-task").unwrap();
+        assert!(task_schema.is_some());
+        let task = task_schema.unwrap();
+        assert_eq!(task.namespace_pattern, "refs/engram/task/*");
+        assert_eq!(task.version, "1.0.0");
+    }
+
+    #[test]
+    fn test_bootstrap_engram_schemas_idempotent() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        bootstrap_engram_schemas(dir.path()).unwrap();
+        bootstrap_engram_schemas(dir.path()).unwrap();
+
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+        let schemas = AdpStore::list_schemas(&system_path).unwrap();
+        assert_eq!(schemas.len(), 11, "should still be exactly 11 schemas after double bootstrap");
     }
 }

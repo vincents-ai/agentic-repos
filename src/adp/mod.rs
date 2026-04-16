@@ -34,10 +34,12 @@
 pub mod access;
 pub mod bootstrap;
 pub mod config;
+pub mod entity_lifecycle;
 pub mod glob;
 pub mod identity;
 pub mod lfs_config;
 pub mod schema;
+pub mod schema_validation;
 pub mod secrets;
 pub mod storage;
 

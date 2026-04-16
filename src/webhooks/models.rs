@@ -21,6 +21,10 @@ pub enum WebhookEvent {
     SystemHealth,
     SystemError,
     SystemConfig,
+    // Schema-typed entity events
+    EntityCreated,
+    EntityUpdated,
+    EntityDeleted,
 }
 
 impl std::fmt::Display for WebhookEvent {
@@ -42,6 +46,9 @@ impl std::fmt::Display for WebhookEvent {
             WebhookEvent::SystemHealth => "system.health",
             WebhookEvent::SystemError => "system.error",
             WebhookEvent::SystemConfig => "system.config",
+            WebhookEvent::EntityCreated => "entity.created",
+            WebhookEvent::EntityUpdated => "entity.updated",
+            WebhookEvent::EntityDeleted => "entity.deleted",
         };
         write!(f, "{}", s)
     }
@@ -83,6 +90,11 @@ pub struct Webhook {
     /// If contains "*", webhook can access all secrets.
     #[serde(default)]
     pub secret_keys: Vec<String>,
+    /// Allowed schema IDs that this webhook subscribes to.
+    /// If empty, webhook fires for all schema types.
+    /// Example: ["engram-task", "engram-session"]
+    #[serde(default)]
+    pub entity_schemas: Vec<String>,
     pub events: HashSet<WebhookEvent>,
     pub tenant_id: String,
     pub active: bool,
@@ -108,6 +120,7 @@ impl Webhook {
             active: true,
             created_at: now,
             updated_at: now,
+            entity_schemas: Vec::new(),
         }
     }
 

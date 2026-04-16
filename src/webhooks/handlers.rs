@@ -15,6 +15,9 @@ pub struct CreateWebhookRequest {
     /// Allowed secret keys for egress. Empty = no secrets accessible, ["*"] = all secrets.
     #[serde(default)]
     pub secret_keys: Vec<String>,
+    /// Allowed schema IDs for entity events. Empty = all schemas.
+    #[serde(default)]
+    pub entity_schemas: Vec<String>,
     pub events: Vec<WebhookEvent>,
     pub tenant_id: String,
 }
@@ -35,6 +38,7 @@ pub struct WebhookResponse {
     pub id: String,
     pub url: String,
     pub secret_keys: Vec<String>,
+    pub entity_schemas: Vec<String>,
     pub events: Vec<String>,
     pub tenant_id: String,
     pub active: bool,
@@ -60,6 +64,7 @@ impl From<Webhook> for WebhookResponse {
             id: webhook.id.to_string(),
             url: webhook.url,
             secret_keys: webhook.secret_keys,
+            entity_schemas: webhook.entity_schemas,
             events: webhook.events.iter().map(|e| e.to_string()).collect(),
             tenant_id: webhook.tenant_id,
             active: webhook.active,
@@ -121,6 +126,7 @@ pub async fn create_webhook(
             req.url.clone(),
             req.secret.clone(),
             req.secret_keys.clone(),
+            req.entity_schemas.clone(),
             events,
             req.tenant_id.clone(),
         )

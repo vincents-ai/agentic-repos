@@ -69,6 +69,7 @@ impl WebhookService {
         url: String,
         secret: Option<String>,
         secret_keys: Vec<String>,
+        entity_schemas: Vec<String>,
         events: HashSet<WebhookEvent>,
         tenant_id: String,
     ) -> WebhookResult<Webhook> {
@@ -76,6 +77,7 @@ impl WebhookService {
 
         let mut webhook = Webhook::new(url, secret, events, tenant_id);
         webhook.secret_keys = secret_keys;
+        webhook.entity_schemas = entity_schemas;
         self.storage.create(webhook.clone()).await?;
 
         info!(
@@ -339,6 +341,7 @@ mod tests {
                 "https://example.com/hook".to_string(),
                 Some("mysecret".to_string()),
                 vec![],
+                vec![],
                 HashSet::from([WebhookEvent::Push]),
                 "tenant-1".to_string(),
             )
@@ -356,6 +359,7 @@ mod tests {
                 "not-a-url".to_string(),
                 None,
                 vec![],
+                vec![],
                 HashSet::from([WebhookEvent::Push]),
                 "tenant-1".to_string(),
             )
@@ -370,6 +374,7 @@ mod tests {
             .register_webhook(
                 "https://example.com/hook".to_string(),
                 None,
+                vec![],
                 vec![],
                 HashSet::from([WebhookEvent::Push]),
                 "t1".to_string(),
@@ -387,6 +392,7 @@ mod tests {
             .register_webhook(
                 "https://example.com/hook".to_string(),
                 None,
+                vec![],
                 vec![],
                 HashSet::from([WebhookEvent::Push]),
                 "t1".to_string(),
@@ -410,6 +416,7 @@ mod tests {
             .register_webhook(
                 "https://example.com/hook".to_string(),
                 None,
+                vec![],
                 vec![],
                 HashSet::from([WebhookEvent::Push]),
                 "t1".to_string(),
@@ -481,6 +488,7 @@ mod tests {
                 "ftp://example.com/hook".to_string(),
                 None,
                 vec![],
+                vec![],
                 HashSet::from([WebhookEvent::Push]),
                 "t".to_string(),
             )
@@ -490,6 +498,7 @@ mod tests {
             .register_webhook(
                 "file:///etc/passwd".to_string(),
                 None,
+                vec![],
                 vec![],
                 HashSet::from([WebhookEvent::Push]),
                 "t".to_string(),

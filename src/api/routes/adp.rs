@@ -208,6 +208,30 @@ fn validate_schema(schema: &RefSchema) -> Result<(), ApiError> {
     if schema.version.is_empty() {
         return Err(ApiError::bad_request("Schema version must not be empty"));
     }
+
+    // Reject platform-internal namespaces
+    if schema.namespace_pattern.starts_with("refs/adp/") {
+        return Err(ApiError::bad_request(
+            "Namespace pattern 'refs/adp/*' is reserved for platform use. \
+             Use a user-facing namespace like refs/engram/*, refs/webhooks/*, etc.",
+        ));
+    }
+
+    // Validate that the schema field is a valid JSON Schema
+    if !schema.schema.is_object() {
+        return Err(ApiError::bad_request(
+            "Schema field must be a JSON object",
+        ));
+    }
+    // Try to compile it — this catches invalid JSON Schema syntax
+    use crate::adp::schema::SchemaValidator;
+    if let Err(e) = SchemaValidator::compile(&schema.schema) {
+        return Err(ApiError::bad_request(&format!(
+            "Invalid JSON Schema: {}",
+            e
+        )));
+    }
+
     Ok(())
 }
 
@@ -245,8 +269,41 @@ fn validate_access_config(config: &AccessConfig) -> Result<(), ApiError> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Repo-level schema endpoints
+/// Check if a new schema's namespace_pattern overlaps with existing schemas.
+/// Logs a warning but does not reject — overlap is allowed, most-specific wins.
+fn check_namespace_overlap(
+    repo_path: &std::path::Path,
+    new_pattern: &str,
+    new_id: &str,
+) -> Result<(), ApiError> {
+    if let Ok(schemas) = AdpStore::list_schemas(repo_path) {
+        for existing in &schemas {
+            if existing.id == new_id {
+                continue; // Skip self
+            }
+            // Check if patterns could match the same refs
+            if patterns_overlap(&existing.namespace_pattern, new_pattern) {
+                tracing::warn!(
+                    new_schema = %new_id,
+                    new_pattern = %new_pattern,
+                    existing_schema = %existing.id,
+                    existing_pattern = %existing.namespace_pattern,
+                    "Schema namespace overlap detected — most-specific match wins"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Simple overlap check: two patterns overlap if they share a common prefix
+/// up to the first wildcard.
+fn patterns_overlap(a: &str, b: &str) -> bool {
+    let prefix_a = a.split('*').next().unwrap_or("");
+    let prefix_b = b.split('*').next().unwrap_or("");
+    // If either prefix is a prefix of the other, they overlap
+    prefix_a.starts_with(prefix_b) || prefix_b.starts_with(prefix_a)
+}
 // ---------------------------------------------------------------------------
 
 pub async fn list_schemas(
@@ -272,6 +329,9 @@ pub async fn create_schema(
     let schema = payload.into_inner();
 
     validate_schema(&schema)?;
+
+    // Check namespace overlap with existing schemas
+    check_namespace_overlap(rp.as_path(), &schema.namespace_pattern, &schema.id)?;
 
     // Check if schema already exists
     if AdpStore::read_schema(rp.as_path(), &schema.id)
@@ -322,6 +382,19 @@ pub async fn update_schema(
     }
 
     validate_schema(&schema)?;
+
+    // Check namespace overlap
+    check_namespace_overlap(rp.as_path(), &schema.namespace_pattern, &schema.id)?;
+
+    // Require version bump on update
+    if let Ok(Some(existing)) = AdpStore::read_schema(rp.as_path(), &id) {
+        if schema.version == existing.version {
+            return Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&format!(
+                "Version must be bumped (current: {})",
+                existing.version
+            ))));
+        }
+    }
 
     schema.updated_at = chrono::Utc::now();
 

@@ -157,10 +157,75 @@ pub fn bootstrap_engram_schemas(storage_root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Bootstrap operational schemas (webhook-config, deploy-target, ci-pipeline,
+/// team-member, review-checklist) into the system repo.
+pub fn bootstrap_operational_schemas(storage_root: &Path) -> Result<()> {
+    let system_repo_path = storage_root.join(SYSTEM_REPO_PATH);
+
+    let schemas = vec![
+        schema_def_with_desc(
+            "webhook-config", "refs/webhooks/*", "Webhook Configuration",
+            "Outbound webhook configuration stored in git refs",
+            json_schema_webhook_config(), ui_hints_webhook_config(),
+        ),
+        schema_def_with_desc(
+            "deploy-target", "refs/deploy/*", "Deploy Target",
+            "Deployment target configuration (staging, production, etc.)",
+            json_schema_deploy_target(), ui_hints_deploy_target(),
+        ),
+        schema_def_with_desc(
+            "ci-pipeline", "refs/ci/*", "CI Pipeline",
+            "Continuous integration pipeline definition",
+            json_schema_ci_pipeline(), ui_hints_ci_pipeline(),
+        ),
+        schema_def_with_desc(
+            "team-member", "refs/team/*", "Team Member",
+            "Team member profile and role assignment",
+            json_schema_team_member(), ui_hints_team_member(),
+        ),
+        schema_def_with_desc(
+            "review-checklist", "refs/review/*", "Review Checklist",
+            "Code review checklist template",
+            json_schema_review_checklist(), ui_hints_review_checklist(),
+        ),
+    ];
+
+    let mut created = 0u32;
+    let mut skipped = 0u32;
+
+    for schema in schemas {
+        if AdpStore::read_schema(&system_repo_path, &schema.id)?.is_some() {
+            skipped += 1;
+            continue;
+        }
+        AdpStore::write_schema(&system_repo_path, &schema)?;
+        created += 1;
+    }
+
+    info!(
+        created = created,
+        skipped = skipped,
+        "Bootstrapped operational schemas"
+    );
+    Ok(())
+}
+
 fn schema_def(
     id: &str,
     namespace_pattern: &str,
     title: &str,
+    schema: serde_json::Value,
+    ui: Option<UiHints>,
+) -> RefSchema {
+    let description = format!("Engram {} entity", id.strip_prefix("engram-").unwrap_or(id));
+    schema_def_with_desc(id, namespace_pattern, title, &description, schema, ui)
+}
+
+fn schema_def_with_desc(
+    id: &str,
+    namespace_pattern: &str,
+    title: &str,
+    description: &str,
     schema: serde_json::Value,
     ui: Option<UiHints>,
 ) -> RefSchema {
@@ -169,7 +234,7 @@ fn schema_def(
         id: id.to_string(),
         namespace_pattern: namespace_pattern.to_string(),
         title: title.to_string(),
-        description: Some(format!("Engram {} entity", id.strip_prefix("engram-").unwrap_or(id))),
+        description: Some(description.to_string()),
         version: "1.0.0".to_string(),
         author: Some("agentic-repos/bootstrap".to_string()),
         created_at: Utc::now(),
@@ -289,6 +354,188 @@ fn json_schema_generic(entity_type: &str) -> serde_json::Value {
             "created_at": { "type": "string", "format": "date-time" },
             "updated_at": { "type": "string", "format": "date-time" }
         }
+    })
+}
+
+// ── Operational schema definitions ─────────────────────────────────────────
+
+fn json_schema_webhook_config() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["url", "events"],
+        "properties": {
+            "url": { "type": "string", "format": "uri" },
+            "secret": { "type": "string" },
+            "events": { "type": "array", "items": { "type": "string" } },
+            "secret_keys": { "type": "array", "items": { "type": "string" }, "description": "Secret keys this webhook may access" },
+            "active": { "type": "boolean", "default": true },
+            "tenant_id": { "type": "string" },
+            "entity_schemas": { "type": "array", "items": { "type": "string" } },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+fn ui_hints_webhook_config() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["url".into(), "events".into(), "active".into()],
+        detail_fields: vec!["url".into(), "events".into(), "secret_keys".into(), "active".into()],
+        fields: HashMap::new(),
+    })
+}
+
+fn json_schema_deploy_target() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["name", "environment"],
+        "properties": {
+            "name": { "type": "string" },
+            "environment": { "type": "string", "enum": ["staging", "production", "preview", "development"] },
+            "url": { "type": "string", "format": "uri" },
+            "branch": { "type": "string", "description": "Branch to deploy from" },
+            "auto_deploy": { "type": "boolean", "default": false },
+            "variables": { "type": "object", "additionalProperties": { "type": "string" } },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+fn ui_hints_deploy_target() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["name".into(), "environment".into(), "branch".into()],
+        detail_fields: vec!["name".into(), "environment".into(), "url".into(), "auto_deploy".into()],
+        fields: {
+            let mut m = HashMap::new();
+            m.insert("environment".into(), FieldConfig {
+                widget: Some("badge".to_string()),
+                color_map: {
+                    let mut cm = HashMap::new();
+                    cm.insert("production".into(), "red".into());
+                    cm.insert("staging".into(), "amber".into());
+                    cm.insert("preview".into(), "blue".into());
+                    cm.insert("development".into(), "green".into());
+                    cm
+                },
+            });
+            m
+        },
+    })
+}
+
+fn json_schema_ci_pipeline() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["name", "steps"],
+        "properties": {
+            "name": { "type": "string" },
+            "trigger": { "type": "string", "enum": ["push", "pull_request", "schedule", "manual"] },
+            "branch_filter": { "type": "string" },
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["name", "command"],
+                    "properties": {
+                        "name": { "type": "string" },
+                        "command": { "type": "string" },
+                        "working_dir": { "type": "string" },
+                        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+                        "timeout_seconds": { "type": "integer", "minimum": 1 }
+                    }
+                }
+            },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+fn ui_hints_ci_pipeline() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["name".into(), "trigger".into()],
+        detail_fields: vec!["name".into(), "trigger".into(), "steps".into()],
+        fields: HashMap::new(),
+    })
+}
+
+fn json_schema_team_member() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["username", "role"],
+        "properties": {
+            "username": { "type": "string" },
+            "email": { "type": "string", "format": "email" },
+            "role": { "type": "string", "enum": ["owner", "admin", "developer", "viewer"] },
+            "teams": { "type": "array", "items": { "type": "string" } },
+            "ssh_public_key": { "type": "string" },
+            "joined_at": { "type": "string", "format": "date-time" },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+fn ui_hints_team_member() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["username".into(), "role".into(), "email".into()],
+        detail_fields: vec!["username".into(), "email".into(), "role".into(), "teams".into()],
+        fields: {
+            let mut m = HashMap::new();
+            m.insert("role".into(), FieldConfig {
+                widget: Some("badge".to_string()),
+                color_map: {
+                    let mut cm = HashMap::new();
+                    cm.insert("owner".into(), "purple".into());
+                    cm.insert("admin".into(), "red".into());
+                    cm.insert("developer".into(), "blue".into());
+                    cm.insert("viewer".into(), "green".into());
+                    cm
+                },
+            });
+            m
+        },
+    })
+}
+
+fn json_schema_review_checklist() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["name", "items"],
+        "properties": {
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["check"],
+                    "properties": {
+                        "check": { "type": "string" },
+                        "required": { "type": "boolean", "default": true },
+                        "category": { "type": "string" },
+                        "auto": { "type": "boolean", "default": false, "description": "Can be auto-verified" }
+                    }
+                }
+            },
+            "applies_to": { "type": "array", "items": { "type": "string" }, "description": "Branches or paths this checklist applies to" },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+fn ui_hints_review_checklist() -> Option<UiHints> {
+    Some(UiHints {
+        view: Some("entity-list".to_string()),
+        list_fields: vec!["name".into(), "description".into()],
+        detail_fields: vec!["name".into(), "description".into(), "items".into()],
+        fields: HashMap::new(),
     })
 }
 
@@ -576,5 +823,50 @@ mod tests {
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
         let schemas = AdpStore::list_schemas(&system_path).unwrap();
         assert_eq!(schemas.len(), 11, "should still be exactly 11 schemas after double bootstrap");
+    }
+
+    #[test]
+    fn test_bootstrap_operational_schemas() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        bootstrap_operational_schemas(dir.path()).unwrap();
+
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+        let schemas = AdpStore::list_schemas(&system_path).unwrap();
+        assert_eq!(schemas.len(), 5, "should have 5 operational schemas");
+
+        let ids: Vec<&str> = schemas.iter().map(|s| s.id.as_str()).collect();
+        assert!(ids.contains(&"webhook-config"));
+        assert!(ids.contains(&"deploy-target"));
+        assert!(ids.contains(&"ci-pipeline"));
+        assert!(ids.contains(&"team-member"));
+        assert!(ids.contains(&"review-checklist"));
+    }
+
+    #[test]
+    fn test_bootstrap_operational_schemas_idempotent() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        bootstrap_operational_schemas(dir.path()).unwrap();
+        bootstrap_operational_schemas(dir.path()).unwrap();
+
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+        let schemas = AdpStore::list_schemas(&system_path).unwrap();
+        assert_eq!(schemas.len(), 5, "should still be exactly 5 schemas after double bootstrap");
+    }
+
+    #[test]
+    fn test_all_bootstrapped_schemas() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        bootstrap_engram_schemas(dir.path()).unwrap();
+        bootstrap_operational_schemas(dir.path()).unwrap();
+
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+        let schemas = AdpStore::list_schemas(&system_path).unwrap();
+        assert_eq!(schemas.len(), 16, "11 engram + 5 operational = 16 total schemas");
     }
 }

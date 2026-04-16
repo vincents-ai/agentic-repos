@@ -1,5 +1,5 @@
 use crate::adp::bootstrap_system_repo;
-use crate::adp::bootstrap::bootstrap_engram_schemas;
+use crate::adp::bootstrap::{bootstrap_engram_schemas, bootstrap_operational_schemas};
 use crate::api::ApiServer;
 use crate::config::AppConfig;
 use crate::features::FeatureFlags;
@@ -95,6 +95,11 @@ impl Server {
         // Bootstrap engram entity schemas into system repo
         if let Err(e) = bootstrap_engram_schemas(&storage_root) {
             warn!("Engram schema bootstrap failed (non-fatal): {}", e);
+        }
+
+        // Bootstrap operational schemas (webhook-config, deploy-target, etc.)
+        if let Err(e) = bootstrap_operational_schemas(&storage_root) {
+            warn!("Operational schema bootstrap failed (non-fatal): {}", e);
         }
 
         let config = (*self.config).clone();

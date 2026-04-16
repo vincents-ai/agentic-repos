@@ -111,14 +111,16 @@ impl AppConfig {
             }
         }
 
-        // Try git-refs config from system repo
+        // Try git-refs config from system repo (canonical config store)
         if let Some(storage_root) = Self::detect_storage_root() {
             if let Ok(config) = Self::from_git_refs(&storage_root) {
                 return Ok(config);
             }
         }
 
-        Self::from_file("config.yaml")
+        // No config found — use defaults (init command writes to git-refs)
+        tracing::warn!("No configuration found in git-refs or environment. Using defaults. Run 'agentic-repos init' to bootstrap.");
+        Ok(Self::default())
     }
 
     /// Detect the storage root from environment or CLI flags.

@@ -1,19 +1,30 @@
-//! Secrets service — manages encrypted secrets stored in git refs.
+//! Secrets service — manages AGE-encrypted secrets stored in git refs.
 //!
 //! Implements ADR-024: secrets are stored as SOPS-encrypted JSON blobs at
-//! `refs/secrets/{name}` in each repository. The encryption uses AES-256-GCM
-//! with per-repository keys managed by `compliance/encryption.rs`.
+//! `refs/secrets/{name}` in each repository. Encryption uses AGE with per-repo
+//! keypairs managed by `adp::secrets::key_manager::RepoKeyManager`.
 //!
-//! Egress control: plaintext secrets never leave via git protocol (refs/secrets/*
-//! is stripped from wire protocol). API access is restricted to authorised users
-//! and webhook egress requires explicit per-key allowlist.
+//! ## Key hierarchy:
+//! - Layer 1: Root AGE key (filesystem) encrypts per-repo private keys
+//! - Layer 2: Per-repo AGE keypair encrypts SOPS secret blobs
+//!
+//! ## Egress control:
+//! Plaintext secrets never leave via git protocol (`refs/secrets/*` is stripped
+//! from wire protocol). API access is restricted to authorised users and webhook
+//! egress requires explicit per-key allowlist.
 
-use crate::compliance::encryption::{EncryptionService, InMemoryEncryptionKeyStore};
+use crate::adp::secrets::key_manager::RepoKeyManager;
+use crate::adp::secrets::sops::SecretsManager;
+use crate::adp::secrets::{
+    repo_private_key_ref, repo_public_key_ref,
+    PUBLIC_KEY_PREFIX, SECRETS_PREFIX,
+};
+use crate::adp::storage::AdpStore;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
-use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum SecretError {
@@ -23,10 +34,12 @@ pub enum SecretError {
     InvalidName(String),
     #[error("Encryption error: {0}")]
     Encryption(String),
+    #[error("Key management error: {0}")]
+    KeyManagement(String),
     #[error("Git error: {0}")]
     Git(String),
-    #[error("Lock poisoned")]
-    LockPoisoned,
+    #[error("Root key not configured")]
+    RootKeyNotConfigured,
 }
 
 /// Metadata for a stored secret.
@@ -47,39 +60,137 @@ pub struct StoredSecret {
     pub meta: SecretMeta,
 }
 
-/// The JSON blob stored at refs/secrets/{name} (encrypted payload + metadata).
+/// The JSON blob stored at refs/secrets/{name} (SOPS encrypted payload + metadata).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SecretBlob {
-    /// Encrypted data (base64-encoded AES-256-GCM ciphertext).
-    encrypted: String,
-    /// Nonce used for encryption (base64-encoded).
-    nonce: String,
-    /// Encryption key ID used.
-    key_id: Uuid,
-    /// SHA-256 hash of the plaintext for integrity verification.
-    plaintext_hash: String,
-    /// Metadata about the secret.
+    /// The SOPS-encrypted JSON blob (contains age-encrypted ciphertext).
+    sops_data: String,
+    /// Metadata about the secret (unencrypted — just names/versions).
     meta: SecretMeta,
 }
 
-/// Secrets service — manages encrypted secrets in git refs.
+/// Secrets service — manages AGE-encrypted secrets in git refs.
 pub struct SecretsService {
-    encryption: std::sync::Arc<EncryptionService>,
+    /// Per-repo key manager using root AGE wrapping key.
+    key_manager: RepoKeyManager,
+    /// Storage root for locating the system repo.
+    storage_root: PathBuf,
 }
 
 impl SecretsService {
-    pub fn new(encryption: std::sync::Arc<EncryptionService>) -> Self {
-        Self { encryption }
+    /// Create a new SecretsService with the given root key path and storage root.
+    pub fn new(root_key_path: PathBuf, storage_root: PathBuf) -> Self {
+        let key_manager = RepoKeyManager::new(root_key_path);
+        Self {
+            key_manager,
+            storage_root,
+        }
     }
 
-    /// Create with an in-memory encryption key store (for development/testing).
+    /// Create with a test root key for development/testing.
     pub fn in_memory() -> Self {
-        let store = InMemoryEncryptionKeyStore::shared();
-        let encryption = std::sync::Arc::new(EncryptionService::new(store));
-        // Create a default key
-        encryption.create_key("default").expect("failed to create default key");
-        Self { encryption }
+        use age::secrecy::ExposeSecret;
+        use age::x25519::Identity;
+
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("wrapping-key.age");
+
+        let identity = Identity::generate();
+        std::fs::write(&key_path, identity.to_string().expose_secret()).unwrap();
+
+        // Leak the tempdir to keep it alive for the test
+        std::mem::forget(dir);
+
+        // Also create a system repo
+        let storage_dir = tempfile::tempdir().unwrap();
+        let storage_root = storage_dir.path().to_path_buf();
+        let system_repo = storage_root.join("_adp/system");
+        std::fs::create_dir_all(&system_repo).unwrap();
+        gix::init_bare(&system_repo).unwrap();
+        std::mem::forget(storage_dir);
+
+        Self::new(key_path, storage_root)
     }
+
+    // ── Repo key management ──
+
+    /// Get or create the AGE keypair for a repo.
+    /// Returns the public key string.
+    fn ensure_repo_keypair(&self, repo_path: &Path) -> Result<String, SecretError> {
+        // Check if public key exists in user repo
+        if let Ok(value) = AdpStore::read_ref_blob(repo_path, PUBLIC_KEY_PREFIX) {
+            if let Some(pk) = value.get("public_key").and_then(|v| v.as_str()) {
+                return Ok(pk.to_string());
+            }
+        }
+
+        // Generate new keypair
+        let repo_id = self.repo_id_from_path(repo_path);
+        let (encrypted_private, public_key) = self
+            .key_manager
+            .generate_keypair(&repo_id)
+            .map_err(|e| SecretError::KeyManagement(e.to_string()))?;
+
+        // Store encrypted private key in system repo
+        let system_repo = self.storage_root.join("_adp/system");
+        let private_ref = repo_private_key_ref(&repo_id);
+        let private_value =
+            serde_json::json!({ "encrypted_key": base64::engine::general_purpose::STANDARD.encode(&encrypted_private) });
+        AdpStore::write_ref_blob(&system_repo, &private_ref, &private_value)
+            .map_err(|e| SecretError::Git(e.to_string()))?;
+
+        // Store public key in system repo
+        let public_ref = repo_public_key_ref(&repo_id);
+        let public_value = serde_json::json!({ "public_key": public_key });
+        AdpStore::write_ref_blob(&system_repo, &public_ref, &public_value)
+            .map_err(|e| SecretError::Git(e.to_string()))?;
+
+        // Store public key in user repo
+        let user_pk_value = serde_json::json!({ "public_key": public_key });
+        AdpStore::write_ref_blob(repo_path, PUBLIC_KEY_PREFIX, &user_pk_value)
+            .map_err(|e| SecretError::Git(e.to_string()))?;
+
+        tracing::info!(repo_id = %repo_id, public_key = %public_key, "provisioned AGE keypair for repo");
+        Ok(public_key)
+    }
+
+    /// Decrypt the repo's private key from the system repo.
+    fn decrypt_repo_private_key(&self, repo_path: &Path) -> Result<String, SecretError> {
+        let repo_id = self.repo_id_from_path(repo_path);
+        let system_repo = self.storage_root.join("_adp/system");
+        let private_ref = repo_private_key_ref(&repo_id);
+
+        let value = AdpStore::read_ref_blob(&system_repo, &private_ref)
+            .map_err(|e| SecretError::KeyManagement(e.to_string()))?;
+
+        let encrypted_b64 = value["encrypted_key"]
+            .as_str()
+            .ok_or_else(|| SecretError::KeyManagement("missing encrypted_key field".to_string()))?;
+
+        let encrypted = base64::engine::general_purpose::STANDARD
+            .decode(encrypted_b64)
+            .map_err(|e| SecretError::KeyManagement(format!("invalid base64: {}", e)))?;
+
+        self.key_manager
+            .decrypt_private_key(&encrypted)
+            .map_err(|e| SecretError::KeyManagement(e.to_string()))
+    }
+
+    /// Derive a repo ID from its filesystem path.
+    /// Uses a flat string (owner--repo) to avoid ref name issues with slashes.
+    fn repo_id_from_path(&self, repo_path: &Path) -> String {
+        let path_str = repo_path.to_string_lossy();
+        let stripped = path_str
+            .trim_end_matches(".git")
+            .trim_end_matches('/');
+        let parts: Vec<&str> = stripped.rsplitn(3, '/').collect();
+        match parts.len() {
+            n if n >= 2 => format!("{}--{}", parts[1], parts[0]),
+            _ => stripped.replace('/', "--"),
+        }
+    }
+
+    // ── CRUD operations ──
 
     /// List all secret names in a repository.
     pub fn list_secrets(
@@ -87,8 +198,7 @@ impl SecretsService {
         repo_path: &Path,
         prefix: Option<&str>,
     ) -> Result<Vec<String>, SecretError> {
-        let gix_repo =
-            gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
+        let gix_repo = gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
 
         let platform = gix_repo
             .references()
@@ -97,7 +207,7 @@ impl SecretsService {
             .all()
             .map_err(|e| SecretError::Git(e.to_string()))?;
 
-        let secret_prefix = "refs/secrets/";
+        let secret_prefix = SECRETS_PREFIX;
         let filter_prefix = match prefix {
             Some(p) => format!("{}{}", secret_prefix, p),
             None => secret_prefix.to_string(),
@@ -108,7 +218,6 @@ impl SecretsService {
             let r = r.map_err(|e| SecretError::Git(e.to_string()))?;
             let name = r.name().as_bstr().to_string();
             if name.starts_with(&filter_prefix) && name.starts_with(secret_prefix) {
-                // Strip the refs/secrets/ prefix to get the secret name
                 if let Some(secret_name) = name.strip_prefix(secret_prefix) {
                     result.push(secret_name.to_string());
                 }
@@ -126,27 +235,15 @@ impl SecretsService {
     ) -> Result<StoredSecret, SecretError> {
         self.validate_name(secret_name)?;
 
-        let refname = format!("refs/secrets/{}", secret_name);
+        let refname = format!("{}{}", SECRETS_PREFIX, secret_name);
         let blob_json = self.read_ref_json(repo_path, &refname)?;
 
         let blob: SecretBlob =
             serde_json::from_value(blob_json).map_err(|e| SecretError::Encryption(e.to_string()))?;
 
-        // Decrypt
-        let encrypted_data = crate::compliance::encryption::EncryptedData {
-            key_id: blob.key_id,
-            nonce_b64: blob.nonce,
-            ciphertext_b64: blob.encrypted,
-            encrypted_at: blob.meta.updated_at,
-            plaintext_hash: blob.plaintext_hash,
-        };
-
-        let plaintext_bytes = self
-            .encryption
-            .decrypt(&encrypted_data)
-            .map_err(|e| SecretError::Encryption(e.to_string()))?;
-
-        let data: HashMap<String, String> = serde_json::from_slice(&plaintext_bytes)
+        // Decrypt using repo's private key
+        let private_key = self.decrypt_repo_private_key(repo_path)?;
+        let data = SecretsManager::decrypt_map(&blob.sops_data, &private_key)
             .map_err(|e| SecretError::Encryption(e.to_string()))?;
 
         Ok(StoredSecret {
@@ -165,7 +262,7 @@ impl SecretsService {
     ) -> Result<StoredSecret, SecretError> {
         self.validate_name(secret_name)?;
 
-        let refname = format!("refs/secrets/{}", secret_name);
+        let refname = format!("{}{}", SECRETS_PREFIX, secret_name);
 
         // Check it doesn't already exist
         if self.ref_exists(repo_path, &refname)? {
@@ -197,9 +294,8 @@ impl SecretsService {
     ) -> Result<StoredSecret, SecretError> {
         self.validate_name(secret_name)?;
 
-        let refname = format!("refs/secrets/{}", secret_name);
+        let refname = format!("{}{}", SECRETS_PREFIX, secret_name);
 
-        // Read existing
         let (existing_data, mut meta) = if self.ref_exists(repo_path, &refname)? {
             let existing = self.get_secret(repo_path, secret_name)?;
             (existing.data, existing.meta)
@@ -207,7 +303,6 @@ impl SecretsService {
             return Err(SecretError::NotFound(secret_name.to_string()));
         };
 
-        // Merge or replace
         let data = if replace {
             new_data
         } else {
@@ -224,14 +319,10 @@ impl SecretsService {
     }
 
     /// Delete a secret by removing its git ref.
-    pub fn delete_secret(
-        &self,
-        repo_path: &Path,
-        secret_name: &str,
-    ) -> Result<(), SecretError> {
+    pub fn delete_secret(&self, repo_path: &Path, secret_name: &str) -> Result<(), SecretError> {
         self.validate_name(secret_name)?;
 
-        let refname = format!("refs/secrets/{}", secret_name);
+        let refname = format!("{}{}", SECRETS_PREFIX, secret_name);
 
         if !self.ref_exists(repo_path, &refname)? {
             return Err(SecretError::NotFound(secret_name.to_string()));
@@ -266,19 +357,15 @@ impl SecretsService {
         data: &HashMap<String, String>,
         meta: SecretMeta,
     ) -> Result<StoredSecret, SecretError> {
-        let plaintext = serde_json::to_vec(data)
-            .map_err(|e| SecretError::Encryption(e.to_string()))?;
+        // Ensure repo has an AGE keypair
+        let public_key = self.ensure_repo_keypair(repo_path)?;
 
-        let encrypted = self
-            .encryption
-            .encrypt(&plaintext)
+        // Encrypt with repo's public key via SOPS
+        let sops_data = SecretsManager::encrypt_map(data, &public_key)
             .map_err(|e| SecretError::Encryption(e.to_string()))?;
 
         let blob = SecretBlob {
-            encrypted: encrypted.ciphertext_b64,
-            nonce: encrypted.nonce_b64,
-            key_id: encrypted.key_id,
-            plaintext_hash: encrypted.plaintext_hash,
+            sops_data,
             meta: meta.clone(),
         };
 
@@ -295,8 +382,7 @@ impl SecretsService {
     }
 
     fn ref_exists(&self, repo_path: &Path, refname: &str) -> Result<bool, SecretError> {
-        let gix_repo =
-            gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
+        let gix_repo = gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
         match gix_repo
             .try_find_reference(refname)
             .map_err(|e| SecretError::Git(e.to_string()))?
@@ -306,9 +392,12 @@ impl SecretsService {
         }
     }
 
-    fn read_ref_json(&self, repo_path: &Path, refname: &str) -> Result<serde_json::Value, SecretError> {
-        let gix_repo =
-            gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
+    fn read_ref_json(
+        &self,
+        repo_path: &Path,
+        refname: &str,
+    ) -> Result<serde_json::Value, SecretError> {
+        let gix_repo = gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
 
         let reference = gix_repo
             .try_find_reference(refname)
@@ -337,7 +426,9 @@ impl SecretsService {
                     .entries
                     .iter()
                     .find(|e| e.filename == "data")
-                    .ok_or_else(|| SecretError::Git(format!("{}/tree/data not found", refname)))?;
+                    .ok_or_else(|| {
+                        SecretError::Git(format!("{}/tree/data not found", refname))
+                    })?;
                 let blob_obj = gix_repo
                     .find_object(entry.oid)
                     .map_err(|e| SecretError::Git(e.to_string()))?;
@@ -355,19 +446,16 @@ impl SecretsService {
         refname: &str,
         value: &serde_json::Value,
     ) -> Result<(), SecretError> {
-        let gix_repo =
-            gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
+        let gix_repo = gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
 
         let json_bytes = serde_json::to_vec_pretty(value)
             .map_err(|e| SecretError::Encryption(e.to_string()))?;
 
-        // Create blob
         let blob = gix::objs::Blob { data: json_bytes };
         let blob_id = gix_repo
             .write_object(&blob)
             .map_err(|e| SecretError::Git(e.to_string()))?;
 
-        // Create tree with "data" entry
         let tree = gix::objs::Tree {
             entries: vec![gix::objs::tree::Entry {
                 mode: gix::objs::tree::EntryMode::from(gix::objs::tree::EntryKind::Blob),
@@ -379,7 +467,6 @@ impl SecretsService {
             .write_object(&tree)
             .map_err(|e| SecretError::Git(e.to_string()))?;
 
-        // Find parent commit if ref exists
         let parent_commit_id = gix_repo
             .try_find_reference(refname)
             .map_err(|e| SecretError::Git(e.to_string()))?
@@ -426,8 +513,7 @@ impl SecretsService {
     }
 
     fn delete_ref(&self, repo_path: &Path, refname: &str) -> Result<(), SecretError> {
-        let gix_repo =
-            gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
+        let gix_repo = gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
 
         use gix::refs::FullName;
         use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
@@ -445,12 +531,79 @@ impl SecretsService {
 
         Ok(())
     }
+
+    // ── Egress control ──
+
+    /// Resolve allowed secret keys for webhook egress.
+    ///
+    /// Takes a repo path and a list of allowed key names (from webhook config).
+    /// Returns only the secrets that are in the allowlist, decrypted.
+    /// Returns an error if any requested key is not found.
+    ///
+    /// This is the ONLY method that returns plaintext secrets for external use.
+    /// All egress is audit-logged.
+    pub fn resolve_secret_keys(
+        &self,
+        repo_path: &Path,
+        allowed_keys: &[String],
+        webhook_id: &str,
+    ) -> Result<HashMap<String, String>, SecretError> {
+        if allowed_keys.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Validate no wildcards
+        for key in allowed_keys {
+            if key.contains('*') || key.contains('?') {
+                return Err(SecretError::InvalidName(format!(
+                    "Wildcard '{}' not allowed in secret key allowlist",
+                    key
+                )));
+            }
+        }
+
+        let private_key = self.decrypt_repo_private_key(repo_path)?;
+        let mut resolved = HashMap::new();
+
+        for key_name in allowed_keys {
+            let refname = format!("{}{}", SECRETS_PREFIX, key_name);
+
+            match self.read_ref_json(repo_path, &refname) {
+                Ok(blob_json) => {
+                    let blob: SecretBlob = serde_json::from_value(blob_json)
+                        .map_err(|e| SecretError::Encryption(e.to_string()))?;
+
+                    let data = SecretsManager::decrypt_map(&blob.sops_data, &private_key)
+                        .map_err(|e| SecretError::Encryption(e.to_string()))?;
+
+                    tracing::info!(
+                        webhook_id = %webhook_id,
+                        secret_key = %key_name,
+                        keys_count = data.len(),
+                        "webhook egress: resolved secret key"
+                    );
+
+                    // Merge all key-value pairs from this secret
+                    resolved.extend(data);
+                }
+                Err(SecretError::NotFound(_)) => {
+                    tracing::warn!(
+                        webhook_id = %webhook_id,
+                        secret_key = %key_name,
+                        "webhook egress: requested secret key not found, skipping"
+                    );
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(resolved)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn make_service() -> SecretsService {
         SecretsService::in_memory()
@@ -459,10 +612,7 @@ mod tests {
     fn make_repo() -> PathBuf {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_path_buf();
-        // Init a bare gix repo
         gix::init_bare(&path).unwrap();
-        // Keep the tempdir alive for the test
-        // We leak it intentionally — test-only
         std::mem::forget(dir);
         path
     }
@@ -608,7 +758,6 @@ mod tests {
         let svc = make_service();
         let repo = make_repo();
 
-        // Create a secret with special characters
         let data = HashMap::from([
             ("connection_string".to_string(),
              "host=db.example.com;port=5432;user=admin;password=p@$$w0rd!".to_string()),
@@ -621,5 +770,22 @@ mod tests {
         let retrieved = svc.get_secret(&repo, "db-config").unwrap();
         assert_eq!(retrieved.data["connection_string"], data["connection_string"]);
         assert_eq!(retrieved.data["json_config"], data["json_config"]);
+    }
+
+    #[test]
+    fn test_repo_keypair_provisioned_on_first_secret() {
+        let svc = make_service();
+        let repo = make_repo();
+
+        // No public key yet
+        assert!(AdpStore::read_ref_blob(&repo, PUBLIC_KEY_PREFIX).is_err());
+
+        let data = HashMap::from([("key".to_string(), "val".to_string())]);
+        svc.create_secret(&repo, "test", data).unwrap();
+
+        // Public key should now exist in user repo
+        let pk_ref = AdpStore::read_ref_blob(&repo, PUBLIC_KEY_PREFIX).unwrap();
+        let public_key = pk_ref["public_key"].as_str().unwrap();
+        assert!(public_key.starts_with("age1"));
     }
 }

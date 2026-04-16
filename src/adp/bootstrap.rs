@@ -148,6 +148,73 @@ pub fn register_admin_key(
     Ok(())
 }
 
+/// Default path for the root AGE wrapping key.
+pub const DEFAULT_ROOT_KEY_PATH: &str = "/etc/adp/wrapping-key.age";
+
+/// Ref for the root public key in the system repo.
+pub const ROOT_PUBLIC_KEY_REF: &str = "refs/adp/config/public-key";
+
+/// Bootstrap the root AGE wrapping key.
+///
+/// Generates a new AGE identity if the key file doesn't exist, writes it to
+/// `root_key_path`, and stores the public key in the system repo at
+/// `refs/adp/config/public-key`.
+///
+/// Returns the path to the root key file.
+pub fn bootstrap_root_key(
+    storage_root: &Path,
+    root_key_path: &Path,
+) -> Result<std::path::PathBuf> {
+    use age::secrecy::ExposeSecret;
+    use age::x25519::Identity;
+
+    let system_repo_path = storage_root.join(SYSTEM_REPO_PATH);
+
+    if root_key_path.exists() {
+        info!("Root AGE key already exists at {:?}", root_key_path);
+    } else {
+        info!("Generating root AGE wrapping key at {:?}", root_key_path);
+
+        // Create parent directory
+        if let Some(parent) = root_key_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let identity = Identity::generate();
+        let identity_str = identity.to_string();
+        std::fs::write(root_key_path, identity_str.expose_secret())?;
+
+        // Set restrictive permissions on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(root_key_path, perms)?;
+        }
+
+        info!("Root AGE key generated successfully");
+    }
+
+    // Read the key and derive public key
+    let key_str = std::fs::read_to_string(root_key_path)?;
+    let identity: Identity = key_str
+        .trim()
+        .parse()
+        .map_err(|e| BootstrapError::Git(format!("Failed to parse root AGE key: {}", e)))?;
+    let recipient = identity.to_public();
+    let public_key_str = recipient.to_string();
+
+    // Store public key in system repo
+    let public_key_value = serde_json::json!({
+        "public_key": public_key_str,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+    });
+    AdpStore::write_ref_blob(&system_repo_path, ROOT_PUBLIC_KEY_REF, &public_key_value)?;
+
+    info!("Root public key stored in system repo: {}", public_key_str);
+    Ok(root_key_path.to_path_buf())
+}
+
 /// Compute the SHA-256 hex fingerprint from an OpenSSH public key string.
 fn compute_fingerprint_hex_from_openssh(openssh_key: &str) -> std::result::Result<String, String> {
     use russh::keys::ssh_key::HashAlg;
@@ -247,5 +314,45 @@ mod tests {
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
         let access_cfg = AdpStore::read_access_config(&system_path).unwrap().unwrap();
         assert!(access_cfg.owners.contains(&"alice".to_string()));
+    }
+
+    #[test]
+    fn test_bootstrap_root_key_generates_and_stores() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        let key_path = dir.path().join("wrapping-key.age");
+        assert!(!key_path.exists());
+
+        bootstrap_root_key(dir.path(), &key_path).unwrap();
+
+        // Key file should exist
+        assert!(key_path.exists());
+
+        // Key should be parseable as AGE identity
+        let key_str = std::fs::read_to_string(&key_path).unwrap();
+        let _: age::x25519::Identity = key_str.trim().parse().unwrap();
+
+        // Public key should be in system repo
+        let system_path = dir.path().join(SYSTEM_REPO_PATH);
+        let pubkey_ref = AdpStore::read_ref_blob(&system_path, "refs/adp/config/public-key").unwrap();
+        assert!(pubkey_ref["public_key"].is_string());
+        assert!(pubkey_ref["public_key"].as_str().unwrap().starts_with("age1"));
+    }
+
+    #[test]
+    fn test_bootstrap_root_key_idempotent() {
+        let dir = TempDir::new().unwrap();
+        bootstrap_system_repo(dir.path()).unwrap();
+
+        let key_path = dir.path().join("wrapping-key.age");
+        bootstrap_root_key(dir.path(), &key_path).unwrap();
+        let key1 = std::fs::read_to_string(&key_path).unwrap();
+
+        // Second call should not regenerate
+        bootstrap_root_key(dir.path(), &key_path).unwrap();
+        let key2 = std::fs::read_to_string(&key_path).unwrap();
+
+        assert_eq!(key1, key2, "root key should not change on second bootstrap");
     }
 }

@@ -42,7 +42,7 @@ pub mod secrets;
 pub mod storage;
 
 pub use access::{AccessConfig, PathRule, Permission, UserEntry};
-pub use bootstrap::{bootstrap_system_repo, register_admin_key};
+pub use bootstrap::{bootstrap_system_repo, bootstrap_root_key, register_admin_key, DEFAULT_ROOT_KEY_PATH, ROOT_PUBLIC_KEY_REF};
 pub use config::{RepoConfig, ServerConfig};
 pub use lfs_config::LfsConfig;
 pub use identity::CallerIdentity;

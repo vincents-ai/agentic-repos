@@ -1,4 +1,4 @@
-use agentic_repos::{adp::{bootstrap_system_repo, register_admin_key}, config::AppConfig, server::run_server};
+use agentic_repos::{adp::{bootstrap_system_repo, bootstrap_root_key, register_admin_key, DEFAULT_ROOT_KEY_PATH}, config::AppConfig, server::run_server};
 use std::path::PathBuf;
 
 /// Simple subcommand handling without pulling in a CLI framework dependency.
@@ -27,6 +27,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .init();
 
         bootstrap_system_repo(&storage_root)?;
+
+        // Bootstrap root AGE key for secrets infrastructure
+        let root_key_path = parse_flag_value(&args, "--root-key-path")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_ROOT_KEY_PATH));
+        bootstrap_root_key(&storage_root, &root_key_path)?;
 
         // Register admin key if provided
         if let Some(admin_key) = parse_flag_value(&args, "--admin-key") {

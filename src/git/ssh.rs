@@ -1009,6 +1009,7 @@ mod tests {
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
+            secrets_root_key_path: None,
         };
 
         let server = SshServer::new(git_service, Some(config), None);
@@ -1081,6 +1082,7 @@ mod tests {
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
+            secrets_root_key_path: None,
         };
 
         let storage = Arc::new(LocalStorage::new(temp_dir.path().to_path_buf()));

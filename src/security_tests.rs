@@ -36,6 +36,7 @@ mod integration_tests {
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: RateLimitConfig::default(),
+            secrets_root_key_path: None,
         };
 
         let auth_manager = AuthorizedKeysManager::new(config.clone());

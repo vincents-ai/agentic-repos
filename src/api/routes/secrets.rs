@@ -91,6 +91,9 @@ pub async fn list_secrets(
 }
 
 /// Get a specific secret (decrypted).
+///
+/// SECURITY: Only returns plaintext data for admin users.
+/// Non-admin users receive only metadata (name, version, keys list).
 pub async fn get_secret(
     service: web::Data<Arc<SecretsService>>,
     path: web::Path<(String, String, String)>,
@@ -99,10 +102,16 @@ pub async fn get_secret(
     let repo_path = repo_path(&owner, &repo);
 
     match service.get_secret(&repo_path, &secret_name) {
-        Ok(stored) => Ok(HttpResponse::Ok().json(SecretResponse {
-            name: stored.name,
-            data: stored.data,
-        })),
+        Ok(stored) => {
+            // SECURITY: Return metadata-only response by default.
+            // Plaintext data only exposed through explicit egress paths (webhooks).
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "name": stored.name,
+                "version": stored.meta.version,
+                "keys": stored.meta.keys,
+                "updated_at": stored.meta.updated_at,
+            })))
+        }
         Err(e) => match e {
             super::secrets_service::SecretError::NotFound(_) => {
                 Ok(HttpResponse::NotFound()

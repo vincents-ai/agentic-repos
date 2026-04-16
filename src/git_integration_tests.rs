@@ -66,6 +66,7 @@ mod integration_tests {
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
+            secrets_root_key_path: None,
         };
 
         create_test_authorized_keys(&config.authorized_keys_path, &public_key_path);
@@ -314,6 +315,7 @@ mod integration_tests {
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
+            secrets_root_key_path: None,
         };
 
         std::fs::write(

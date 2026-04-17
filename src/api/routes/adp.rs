@@ -886,3 +886,156 @@ pub async fn update_system_access_config(
         Err(e) => Ok(HttpResponse::InternalServerError().json(adp_error(e))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adp::schema::RefSchema;
+    use crate::adp::access::AccessConfig;
+
+    fn make_valid_schema() -> RefSchema {
+        RefSchema {
+            id: "test-schema".to_string(),
+            namespace_pattern: "refs/test/*".to_string(),
+            title: "Test".to_string(),
+            description: None,
+            version: "1.0.0".to_string(),
+            author: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" }
+                }
+            }),
+            ui: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_schema_valid() {
+        let schema = make_valid_schema();
+        assert!(validate_schema(&schema).is_ok());
+    }
+
+    #[test]
+    fn test_validate_schema_empty_id() {
+        let mut schema = make_valid_schema();
+        schema.id = "".to_string();
+        let err = validate_schema(&schema).unwrap_err();
+        assert!(err.to_string().contains("ID must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_schema_id_with_slash() {
+        let mut schema = make_valid_schema();
+        schema.id = "my/schema".to_string();
+        let err = validate_schema(&schema).unwrap_err();
+        assert!(err.to_string().contains("must not contain '/'"));
+    }
+
+    #[test]
+    fn test_validate_schema_id_with_space() {
+        let mut schema = make_valid_schema();
+        schema.id = "my schema".to_string();
+        let err = validate_schema(&schema).unwrap_err();
+        assert!(err.to_string().contains("must not contain '/' or spaces"));
+    }
+
+    #[test]
+    fn test_validate_schema_empty_namespace() {
+        let mut schema = make_valid_schema();
+        schema.namespace_pattern = "".to_string();
+        let err = validate_schema(&schema).unwrap_err();
+        assert!(err.to_string().contains("namespace_pattern must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_schema_empty_version() {
+        let mut schema = make_valid_schema();
+        schema.version = "".to_string();
+        let err = validate_schema(&schema).unwrap_err();
+        assert!(err.to_string().contains("version must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_schema_reserved_namespace() {
+        let mut schema = make_valid_schema();
+        schema.namespace_pattern = "refs/adp/internal/*".to_string();
+        let err = validate_schema(&schema).unwrap_err();
+        assert!(err.to_string().contains("reserved for platform use"));
+    }
+
+    #[test]
+    fn test_validate_schema_non_object_schema() {
+        let mut schema = make_valid_schema();
+        schema.schema = serde_json::json!("not an object");
+        let err = validate_schema(&schema).unwrap_err();
+        assert!(err.to_string().contains("must be a JSON object"));
+    }
+
+    #[test]
+    fn test_validate_access_config_valid() {
+        let config = AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string()],
+            admins: vec![],
+            rules: vec![],
+        };
+        assert!(validate_access_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_access_config_empty_version() {
+        let config = AccessConfig {
+            version: "".to_string(),
+            owners: vec![],
+            admins: vec![],
+            rules: vec![],
+        };
+        let err = validate_access_config(&config).unwrap_err();
+        assert!(err.to_string().contains("version must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_access_config_empty_owner() {
+        let config = AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string(), "".to_string()],
+            admins: vec![],
+            rules: vec![],
+        };
+        let err = validate_access_config(&config).unwrap_err();
+        assert!(err.to_string().contains("Owner usernames must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_access_config_empty_admin() {
+        let config = AccessConfig {
+            version: "1".to_string(),
+            owners: vec![],
+            admins: vec!["".to_string()],
+            rules: vec![],
+        };
+        let err = validate_access_config(&config).unwrap_err();
+        assert!(err.to_string().contains("Admin usernames must not be empty"));
+    }
+
+    #[test]
+    fn test_patterns_overlap_same_prefix() {
+        assert!(patterns_overlap("refs/test/*", "refs/test/deep/*"));
+        assert!(patterns_overlap("refs/webhooks/*", "refs/webhooks/*"));
+    }
+
+    #[test]
+    fn test_patterns_no_overlap_different_prefix() {
+        assert!(!patterns_overlap("refs/test/*", "refs/webhooks/*"));
+        assert!(!patterns_overlap("refs/engram/*", "refs/ci/*"));
+    }
+
+    #[test]
+    fn test_patterns_overlap_one_is_prefix_of_other() {
+        assert!(patterns_overlap("refs/*", "refs/test/*"));
+    }
+}

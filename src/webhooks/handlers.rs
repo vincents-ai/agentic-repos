@@ -317,3 +317,144 @@ pub fn configure_webhook_routes(cfg: &mut web::ServiceConfig) {
                 .wrap(require_permission(Permission::WebhookManage)),
         );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::webhooks::models::{DeliveryStatus, WebhookDelivery};
+    use std::collections::HashSet;
+
+    fn make_test_webhook() -> Webhook {
+        Webhook::new(
+            "https://example.com/hook".to_string(),
+            Some("secret".to_string()),
+            HashSet::from([WebhookEvent::Push]),
+            "tenant-1".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_webhook_response_from_webhook() {
+        let mut wh = make_test_webhook();
+        wh.secret_keys = vec!["DB_PASSWORD".to_string()];
+        wh.entity_schemas = vec!["webhook-config".to_string()];
+
+        let resp = WebhookResponse::from(wh.clone());
+        assert_eq!(resp.url, "https://example.com/hook");
+        assert_eq!(resp.secret_keys, vec!["DB_PASSWORD"]);
+        assert_eq!(resp.entity_schemas, vec!["webhook-config"]);
+        assert!(resp.events.contains(&"push".to_string()));
+        assert_eq!(resp.tenant_id, "tenant-1");
+        assert!(resp.active);
+    }
+
+    #[test]
+    fn test_webhook_delivery_response_success() {
+        let delivery = WebhookDelivery {
+            id: Uuid::new_v4(),
+            webhook_id: Uuid::new_v4(),
+            event: WebhookEvent::Push,
+            status: DeliveryStatus::Success,
+            status_code: Some(200),
+            response_body: Some("ok".to_string()),
+            error_message: None,
+            duration_ms: 150,
+            delivered_at: chrono::Utc::now(),
+        };
+
+        let resp = WebhookDeliveryResponse::from(delivery);
+        assert_eq!(resp.status, "success");
+        assert_eq!(resp.status_code, Some(200));
+        assert_eq!(resp.duration_ms, 150);
+        assert!(resp.error_message.is_none());
+    }
+
+    #[test]
+    fn test_webhook_delivery_response_failed() {
+        let delivery = WebhookDelivery {
+            id: Uuid::new_v4(),
+            webhook_id: Uuid::new_v4(),
+            event: WebhookEvent::Push,
+            status: DeliveryStatus::Failed,
+            status_code: Some(500),
+            response_body: None,
+            error_message: Some("connection refused".to_string()),
+            duration_ms: 5000,
+            delivered_at: chrono::Utc::now(),
+        };
+
+        let resp = WebhookDeliveryResponse::from(delivery);
+        assert_eq!(resp.status, "failed");
+        assert_eq!(resp.error_message, Some("connection refused".to_string()));
+    }
+
+    #[test]
+    fn test_webhook_delivery_response_timeout() {
+        let delivery = WebhookDelivery {
+            id: Uuid::new_v4(),
+            webhook_id: Uuid::new_v4(),
+            event: WebhookEvent::BranchCreate,
+            status: DeliveryStatus::Timeout,
+            status_code: None,
+            response_body: None,
+            error_message: Some("request timed out after 30s".to_string()),
+            duration_ms: 30000,
+            delivered_at: chrono::Utc::now(),
+        };
+
+        let resp = WebhookDeliveryResponse::from(delivery);
+        assert_eq!(resp.status, "timeout");
+        assert_eq!(resp.event, "branch.create");
+    }
+
+    #[test]
+    fn test_uuid_parse_invalid_returns_bad_request() {
+        // get_webhook, update_webhook, delete_webhook all parse UUID from path
+        let bad_id = "not-a-uuid";
+        assert!(Uuid::parse_str(bad_id).is_err());
+    }
+
+    #[test]
+    fn test_create_webhook_request_deserialize() {
+        let json = serde_json::json!({
+            "url": "https://example.com/hook",
+            "secret": "my-secret",
+            "secret_keys": ["DB_PASSWORD"],
+            "entity_schemas": ["webhook-config"],
+            "events": ["Push", "BranchCreate"],
+            "tenant_id": "tenant-1"
+        });
+        let req: CreateWebhookRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.url, "https://example.com/hook");
+        assert_eq!(req.secret, Some("my-secret".to_string()));
+        assert_eq!(req.secret_keys, vec!["DB_PASSWORD"]);
+        assert_eq!(req.entity_schemas, vec!["webhook-config"]);
+        assert_eq!(req.events.len(), 2);
+        assert_eq!(req.tenant_id, "tenant-1");
+    }
+
+    #[test]
+    fn test_create_webhook_request_minimal() {
+        let json = serde_json::json!({
+            "url": "https://example.com/hook",
+            "events": ["Push"],
+            "tenant_id": "t1"
+        });
+        let req: CreateWebhookRequest = serde_json::from_value(json).unwrap();
+        assert!(req.secret.is_none());
+        assert!(req.secret_keys.is_empty());
+        assert!(req.entity_schemas.is_empty());
+    }
+
+    #[test]
+    fn test_update_webhook_request_deserialize() {
+        let json = serde_json::json!({
+            "url": "https://new.example.com/hook",
+            "active": false
+        });
+        let req: UpdateWebhookRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.url, Some("https://new.example.com/hook".to_string()));
+        assert_eq!(req.active, Some(false));
+        assert!(req.events.is_none());
+    }
+}

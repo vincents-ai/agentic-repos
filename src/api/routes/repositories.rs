@@ -250,3 +250,70 @@ fn is_valid_repository_name(name: &str) -> bool {
         && !name.starts_with('-')
         && !name.ends_with('-')
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_repo_name_alphanumeric() {
+        assert!(is_valid_repository_name("my-repo"));
+        assert!(is_valid_repository_name("repo_123"));
+        assert!(is_valid_repository_name("MyRepo"));
+        assert!(is_valid_repository_name("a"));
+    }
+
+    #[test]
+    fn test_valid_repo_name_with_dashes_and_underscores() {
+        assert!(is_valid_repository_name("my-awesome-repo"));
+        assert!(is_valid_repository_name("repo_v2_final"));
+        assert!(is_valid_repository_name("a-b_c"));
+    }
+
+    #[test]
+    fn test_invalid_repo_name_empty() {
+        assert!(!is_valid_repository_name(""));
+    }
+
+    #[test]
+    fn test_invalid_repo_name_too_long() {
+        let long_name = "a".repeat(101);
+        assert!(!is_valid_repository_name(&long_name));
+        // Exactly 100 chars is fine
+        let max_name = "a".repeat(100);
+        assert!(is_valid_repository_name(&max_name));
+    }
+
+    #[test]
+    fn test_invalid_repo_name_starts_with_dash() {
+        assert!(!is_valid_repository_name("-repo"));
+    }
+
+    #[test]
+    fn test_invalid_repo_name_ends_with_dash() {
+        assert!(!is_valid_repository_name("repo-"));
+    }
+
+    #[test]
+    fn test_invalid_repo_name_special_chars() {
+        assert!(!is_valid_repository_name("repo.name"));
+        assert!(!is_valid_repository_name("repo name"));
+        assert!(!is_valid_repository_name("repo/name"));
+        assert!(!is_valid_repository_name("repo@main"));
+        assert!(!is_valid_repository_name("repo!"));
+    }
+
+    #[test]
+    fn test_list_repositories_query_defaults() {
+        // Verify the query struct can be constructed with defaults
+        let q = ListRepositoriesQuery { page: None, per_page: None, owner: None };
+        assert!(q.page.is_none());
+        assert!(q.per_page.is_none());
+        assert!(q.owner.is_none());
+
+        let q = ListRepositoriesQuery { page: Some(2), per_page: Some(5), owner: Some("acme".to_string()) };
+        assert_eq!(q.page, Some(2));
+        assert_eq!(q.per_page, Some(5));
+        assert_eq!(q.owner.as_deref(), Some("acme"));
+    }
+}

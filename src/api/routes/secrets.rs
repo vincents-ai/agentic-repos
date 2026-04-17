@@ -15,6 +15,7 @@ use std::sync::Arc;
 pub fn configure_secrets_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/{owner}/{repo}/secrets")
+            .route("/public-key", web::get().to(get_public_key))
             .route("", web::get().to(list_secrets))
             .route("", web::post().to(create_secret))
             .route("/{secret_name}", web::get().to(get_secret))
@@ -63,6 +64,12 @@ pub struct SecretResponse {
     pub data: HashMap<String, String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PublicKeyResponse {
+    pub public_key: String,
+    pub algorithm: String,
+}
+
 /// Resolve owner/repo to a filesystem path.
 /// In production this would look up the tenant's storage root.
 fn repo_path(owner: &str, repo: &str) -> PathBuf {
@@ -70,6 +77,27 @@ fn repo_path(owner: &str, repo: &str) -> PathBuf {
 }
 
 // === Handlers ===
+
+/// Get the AGE public key for a repository (for client-side encryption).
+///
+/// Returns the public key so clients can encrypt secrets before sending.
+/// The public key is safe to expose — it can only encrypt, not decrypt.
+pub async fn get_public_key(
+    service: web::Data<Arc<SecretsService>>,
+    path: web::Path<(String, String)>,
+) -> ActixResult<HttpResponse> {
+    let (owner, repo) = path.into_inner();
+    let repo_path = repo_path(&owner, &repo);
+
+    match service.get_public_key(&repo_path) {
+        Ok(public_key) => Ok(HttpResponse::Ok().json(PublicKeyResponse {
+            public_key,
+            algorithm: "age-x25519".to_string(),
+        })),
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
 
 /// List all secrets for a repository.
 pub async fn list_secrets(

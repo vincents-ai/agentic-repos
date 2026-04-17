@@ -154,6 +154,13 @@ impl SecretsService {
         Ok(public_key)
     }
 
+    /// Get the public key for a repository.
+    /// Provisions a keypair if one doesn't exist yet.
+    /// Safe to expose — public keys can only encrypt, not decrypt.
+    pub fn get_public_key(&self, repo_path: &Path) -> Result<String, SecretError> {
+        self.ensure_repo_keypair(repo_path)
+    }
+
     /// Decrypt the repo's private key from the system repo.
     fn decrypt_repo_private_key(&self, repo_path: &Path) -> Result<String, SecretError> {
         let repo_id = self.repo_id_from_path(repo_path);

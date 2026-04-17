@@ -120,6 +120,18 @@ impl ApiServer {
             dora: Arc::new(DoraService::new(Arc::new(InMemoryDoraStore::new()))),
             nis2: Arc::new(Nis2Service::new(Arc::new(InMemoryNis2Store::new()))),
         }));
+
+        // Secrets service — AGE key management for SOPS-encrypted secrets
+        let secrets_storage_root = git_service
+            .get_storage_root()
+            .unwrap_or_else(|| std::path::PathBuf::from("./repositories"));
+        let secrets_root_key = secrets_storage_root.join("wrapping-key.age");
+        let secrets_service = web::Data::new(Arc::new(
+            crate::api::routes::secrets_service::SecretsService::new(
+                secrets_root_key,
+                secrets_storage_root,
+            ),
+        ));
         HttpServer::new(move || {
             let mut app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
@@ -129,6 +141,7 @@ impl ApiServer {
                 .app_data(webhook_service.clone())
                 .app_data(compliance_state.clone())
                 .app_data(dora_nis2_state.clone())
+                .app_data(secrets_service.clone())
                 // RBAC service — required by require_permission middleware
                 .app_data(rbac_service_data.clone().unwrap_or_else(|| web::Data::new(Arc::new(RbacService::new(Arc::new(InMemoryRbacStorage::new()))))))
                 .wrap(Logger::default())

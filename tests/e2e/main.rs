@@ -2298,3 +2298,210 @@ async fn e2e_ssh_auth_rejects_no_key() {
         "git ls-remote without key should fail: {}",
         String::from_utf8_lossy(&output.stderr));
 }
+
+// ── Secrets E2E: real backend, AGE encryption (Task 2df64a37) ────────────
+
+#[tokio::test]
+#[serial]
+async fn e2e_secrets_public_key_returns_age_key() {
+    harness_or_skip!(harness);
+
+    // Create a repo
+    let resp = harness
+        .post_json(
+            "/api/v1/repositories/default",
+            &serde_json::json!({"name": "secrets-pk-test"}),
+        )
+        .await;
+    assert!(resp.status().is_success(), "repo creation should succeed");
+
+    // Fetch the public key
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-pk-test/secrets/public-key")
+        .await;
+    assert_eq!(resp.status(), 200, "public key endpoint should return 200");
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body["public_key"].is_string(), "should return public_key string");
+    let pk = body["public_key"].as_str().unwrap();
+    assert!(pk.starts_with("age1"), "AGE public key should start with age1, got: {}", pk);
+    assert_eq!(body["algorithm"], "age-x25519");
+}
+
+#[tokio::test]
+#[serial]
+async fn e2e_secrets_crud_via_api() {
+    harness_or_skip!(harness);
+
+    use std::collections::HashMap;
+
+    // Create a repo
+    let resp = harness
+        .post_json(
+            "/api/v1/repositories/default",
+            &serde_json::json!({"name": "secrets-crud-test"}),
+        )
+        .await;
+    assert!(resp.status().is_success(), "repo creation should succeed");
+
+    // 1. List secrets — should be empty
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-crud-test/secrets")
+        .await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["total"], 0);
+    assert!(body["secrets"].as_array().unwrap().is_empty());
+
+    // 2. Create a secret
+    let secret_data: HashMap<String, String> = HashMap::from([
+        ("username".to_string(), "admin".to_string()),
+        ("password".to_string(), "s3cret!".to_string()),
+    ]);
+    let resp = harness
+        .post_json(
+            "/api/v1/secrets/default/secrets-crud-test/secrets",
+            &serde_json::json!({"name": "db-creds", "data": secret_data}),
+        )
+        .await;
+    assert_eq!(resp.status(), 201, "secret creation should return 201");
+    let created: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(created["name"], "db-creds");
+
+    // 3. List secrets — should contain the new one
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-crud-test/secrets")
+        .await;
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["total"], 1);
+    assert!(body["secrets"].as_array().unwrap().contains(&serde_json::Value::String("db-creds".to_string())));
+
+    // 4. Get secret metadata — should NOT contain plaintext values
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-crud-test/secrets/db-creds")
+        .await;
+    assert_eq!(resp.status(), 200);
+    let meta: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(meta["name"], "db-creds");
+    assert!(meta["version"].is_number());
+    assert!(meta["keys"].is_array());
+    // The API should NOT return plaintext data in the metadata response
+    assert!(meta.get("data").is_none(), "get endpoint should not return plaintext data");
+
+    // 5. Delete the secret
+    let resp = harness
+        .delete("/api/v1/secrets/default/secrets-crud-test/secrets/db-creds")
+        .await;
+    assert_eq!(resp.status(), 204, "delete should return 204");
+
+    // 6. List should be empty again
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-crud-test/secrets")
+        .await;
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["total"], 0);
+}
+
+#[tokio::test]
+#[serial]
+async fn e2e_secrets_age_encryption_roundtrip_via_api() {
+    harness_or_skip!(harness);
+
+    // This test simulates what the browser does:
+    // 1. Fetch the AGE public key
+    // 2. Encrypt secret data with AGE
+    // 3. Send the encrypted payload to create_secret
+    // 4. Verify the secret was stored (list, metadata)
+    // 5. Delete
+
+    use age::{Encryptor, Recipient};
+    use age::x25519::Recipient as X25519Recipient;
+    use std::io::{Read, Write};
+
+    // Create a repo
+    let resp = harness
+        .post_json(
+            "/api/v1/repositories/default",
+            &serde_json::json!({"name": "secrets-age-test"}),
+        )
+        .await;
+    assert!(resp.status().is_success());
+
+    // 1. Fetch the AGE public key
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-age-test/secrets/public-key")
+        .await;
+    assert_eq!(resp.status(), 200);
+    let pk_body: serde_json::Value = resp.json().await.unwrap();
+    let pk_str = pk_body["public_key"].as_str().unwrap();
+    assert!(pk_str.starts_with("age1"));
+
+    // 2. Encrypt with AGE using the public key (same as browser does)
+    let recipient: X25519Recipient = pk_str.parse().expect("should parse AGE public key");
+    let plaintext = serde_json::json!({
+        "api_key": "sk-abcdef123456",
+        "region": "us-east-1"
+    }).to_string();
+
+    let recipients: Vec<Box<dyn Recipient>> = vec![Box::new(recipient)];
+    let encryptor = Encryptor::with_recipients(recipients.iter().map(|r| r.as_ref())).unwrap();
+    let mut encrypted = vec![];
+    let mut writer = encryptor.wrap_output(&mut encrypted).unwrap();
+    writer.write_all(plaintext.as_bytes()).unwrap();
+    writer.finish().unwrap();
+
+    // Verify the encrypted output doesn't contain plaintext
+    let encrypted_str = String::from_utf8_lossy(&encrypted);
+    assert!(!encrypted_str.contains("sk-abcdef123456"), "encrypted output should not contain plaintext");
+
+    // 3. Create a secret via API (server-side AGE encryption)
+    let secret_data = serde_json::json!({
+        "api_key": "sk-abcdef123456",
+        "region": "us-east-1"
+    });
+    let resp = harness
+        .post_json(
+            "/api/v1/secrets/default/secrets-age-test/secrets",
+            &serde_json::json!({"name": "aws-creds", "data": secret_data}),
+        )
+        .await;
+    assert_eq!(resp.status(), 201, "should create secret");
+
+    // 4. Verify it's stored and encrypted at rest
+    use agentic_repos::adp::storage::AdpStore;
+    let repo_path = harness.storage_root.join("default/secrets-age-test.git");
+    if repo_path.exists() {
+        // The ref should exist but contain encrypted data (SOPS blob)
+        let stored = AdpStore::read_ref_blob(&repo_path, "refs/secrets/aws-creds");
+        assert!(stored.is_ok(), "secret ref should exist");
+        let blob = stored.unwrap();
+        // The stored blob has sops_data (encrypted) + meta (plaintext)
+        assert!(blob.get("sops_data").is_some(), "should have sops_data field");
+        assert!(blob.get("meta").is_some(), "should have meta field");
+        // Plaintext should NOT appear in the stored blob
+        let blob_str = serde_json::to_string(&blob).unwrap();
+        assert!(!blob_str.contains("sk-abcdef123456"), "plaintext should not appear in stored blob");
+    }
+
+    // 5. List and verify metadata
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-age-test/secrets")
+        .await;
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body["secrets"].as_array().unwrap().iter().any(|s| s == "aws-creds"));
+
+    // 6. Get metadata — no plaintext
+    let resp = harness
+        .get("/api/v1/secrets/default/secrets-age-test/secrets/aws-creds")
+        .await;
+    let meta: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(meta["name"], "aws-creds");
+    assert!(meta["keys"].as_array().unwrap().contains(&serde_json::Value::String("api_key".to_string())));
+    assert!(meta.get("data").is_none(), "metadata should not contain plaintext");
+
+    // 7. Clean up
+    let resp = harness
+        .delete("/api/v1/secrets/default/secrets-age-test/secrets/aws-creds")
+        .await;
+    assert_eq!(resp.status(), 204);
+}

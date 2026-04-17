@@ -230,3 +230,59 @@ pub async fn delete_secret(
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_repo_path_format() {
+        let path = repo_path("acme", "my-repo");
+        assert_eq!(path, PathBuf::from("/var/lib/repos/acme/my-repo"));
+    }
+
+    #[test]
+    fn test_create_secret_request_deserialize() {
+        let json = serde_json::json!({
+            "name": "db-creds",
+            "data": {"username": "admin", "password": "s3cret"}
+        });
+        let req: CreateSecretRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.name, "db-creds");
+        assert_eq!(req.data["username"], "admin");
+    }
+
+    #[test]
+    fn test_update_secret_request_default_replace_false() {
+        let json = serde_json::json!({"data": {"key": "val"}});
+        let req: UpdateSecretRequest = serde_json::from_value(json).unwrap();
+        assert!(!req.replace);
+    }
+
+    #[test]
+    fn test_update_secret_request_replace_true() {
+        let json = serde_json::json!({"data": {"key": "val"}, "replace": true});
+        let req: UpdateSecretRequest = serde_json::from_value(json).unwrap();
+        assert!(req.replace);
+    }
+
+    #[test]
+    fn test_secret_list_response_serialize() {
+        let resp = SecretListResponse {
+            secrets: vec!["db-creds".to_string()],
+            total: 1,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["total"], 1);
+    }
+
+    #[test]
+    fn test_public_key_response_serialize() {
+        let resp = PublicKeyResponse {
+            public_key: "age1abc".to_string(),
+            algorithm: "age-x25519".to_string(),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["algorithm"], "age-x25519");
+    }
+}

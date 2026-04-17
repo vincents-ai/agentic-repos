@@ -858,3 +858,72 @@ mod tests {
         assert_eq!(resp.status(), 201);
     }
 }
+
+
+#[cfg(test)]
+mod request_tests {
+    use super::*;
+
+    #[test]
+    fn test_report_dora_incident_request() {
+        let json = serde_json::json!({
+            "title": "DB outage",
+            "description": "Database unreachable",
+            "severity": "high",
+            "classification": "availability"
+        });
+        let req: ReportDoraIncidentRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.title, "DB outage");
+        assert_eq!(req.severity, "high");
+    }
+
+    #[test]
+    fn test_register_provider_request() {
+        let json = serde_json::json!({
+            "name": "CloudHost",
+            "service_type": "hosting",
+            "criticality": "high",
+            "contract_ref": "CTR-001"
+        });
+        let req: RegisterProviderRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.name, "CloudHost");
+    }
+
+    #[test]
+    fn test_register_entity_request() {
+        let json = serde_json::json!({
+            "name": "Acme Corp",
+            "entity_type": "essential",
+            "sector": "energy"
+        });
+        let req: RegisterEntityRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.name, "Acme Corp");
+    }
+
+    #[test]
+    fn test_report_nis2_incident_request() {
+        let json = serde_json::json!({
+            "entity_id": "550e8400-e29b-41d4-a716-446655440000",
+            "title": "Ransomware",
+            "description": "Detected",
+            "severity": "critical",
+            "category": "malware"
+        });
+        let req: ReportNis2IncidentRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.title, "Ransomware");
+    }
+
+    #[test]
+    fn test_save_framework_request() {
+        let json = serde_json::json!({"approved_by": "CISO"});
+        let req: SaveFrameworkRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.approved_by, "CISO");
+    }
+
+    #[test]
+    fn test_notify_authority_request() {
+        let json = serde_json::json!({"authority_reference": "BAFin-2026-001"});
+        let req: NotifyAuthorityRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.authority_reference, "BAFin-2026-001");
+    }
+}

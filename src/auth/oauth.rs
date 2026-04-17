@@ -398,3 +398,94 @@ struct CustomUserInfo {
     name: Option<String>,
     picture: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oauth_provider_urls_github() {
+        let provider = OAuthProvider::GitHub;
+        assert!(provider.authorize_url().contains("github.com"));
+        assert!(provider.token_url().contains("github.com"));
+        assert!(provider.userinfo_url().contains("github.com"));
+    }
+
+    #[test]
+    fn test_oauth_provider_urls_google() {
+        let provider = OAuthProvider::Google;
+        assert!(provider.authorize_url().contains("google"));
+        assert!(provider.token_url().contains("google"));
+        assert!(provider.userinfo_url().contains("google"));
+    }
+
+    #[test]
+    fn test_oauth_provider_urls_okta() {
+        let provider = OAuthProvider::Okta;
+        assert!(provider.authorize_url().contains("oauth2"));
+        assert!(provider.token_url().contains("oauth2"));
+    }
+
+    #[test]
+    fn test_oauth_provider_custom_empty() {
+        let provider = OAuthProvider::Custom;
+        assert_eq!(provider.authorize_url(), "");
+        assert_eq!(provider.token_url(), "");
+        assert_eq!(provider.userinfo_url(), "");
+    }
+
+    #[test]
+    fn test_oauth_token_is_expired_future() {
+        let token = OAuthToken {
+            access_token: "abc".to_string(),
+            refresh_token: None,
+            token_type: "Bearer".to_string(),
+            expires_at: Utc::now() + chrono::Duration::hours(1),
+            scope: None,
+        };
+        assert!(!token.is_expired());
+    }
+
+    #[test]
+    fn test_oauth_token_is_expired_past() {
+        let token = OAuthToken {
+            access_token: "abc".to_string(),
+            refresh_token: None,
+            token_type: "Bearer".to_string(),
+            expires_at: Utc::now() - chrono::Duration::hours(1),
+            scope: None,
+        };
+        assert!(token.is_expired());
+    }
+
+    #[test]
+    fn test_oauth_config_deserialize() {
+        let json = serde_json::json!({
+            "provider": "github",
+            "client_id": "my-client-id",
+            "client_secret": "my-secret",
+            "redirect_uri": "http://localhost:8080/callback",
+            "scopes": ["user:email"]
+        });
+        let config: OAuthConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(config.provider, OAuthProvider::GitHub);
+        assert_eq!(config.client_id, "my-client-id");
+        assert_eq!(config.scopes, vec!["user:email"]);
+    }
+
+    #[test]
+    fn test_oauth_config_custom_urls() {
+        let json = serde_json::json!({
+            "provider": "custom",
+            "client_id": "id",
+            "client_secret": "secret",
+            "redirect_uri": "http://localhost/callback",
+            "scopes": [],
+            "authorize_url": "https://auth.example.com/authorize",
+            "token_url": "https://auth.example.com/token",
+            "userinfo_url": "https://auth.example.com/userinfo"
+        });
+        let config: OAuthConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(config.authorize_url, Some("https://auth.example.com/authorize".to_string()));
+    }
+}

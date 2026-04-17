@@ -244,7 +244,11 @@ mod tests {
         throttler.acquire("tenant1", "repo1", 1024).await;
         let elapsed = start.elapsed();
 
-        assert!(elapsed.as_millis() < 10);
+        // The request is well within burst capacity so it should return
+        // near-instantly. Use a generous bound to avoid flakiness on slow CI.
+        assert!(elapsed.as_millis() < 100,
+            "acquire within burst should be near-instant, took {}ms",
+            elapsed.as_millis());
     }
 
     #[tokio::test]

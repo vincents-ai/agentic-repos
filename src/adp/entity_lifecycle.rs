@@ -144,7 +144,7 @@ pub fn detect_entity_changes(
 ///
 /// Example: refname = "refs/engram/task/abc123", pattern = "refs/engram/task/*"
 /// Returns: "abc123"
-fn extract_entity_id(refname: &str, namespace_pattern: &str) -> String {
+pub fn extract_entity_id(refname: &str, namespace_pattern: &str) -> String {
     // Handle the simple case: pattern ends with /* or /**
     if namespace_pattern.ends_with("/*") {
         let prefix = &namespace_pattern[..namespace_pattern.len() - 2];

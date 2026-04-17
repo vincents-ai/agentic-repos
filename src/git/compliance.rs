@@ -99,21 +99,17 @@ pub struct RepositoryCompliance {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "level")]
+#[derive(Default)]
 pub enum DataClassification {
     #[serde(rename = "public")]
     Public,
     #[serde(rename = "internal")]
+    #[default]
     Internal,
     #[serde(rename = "confidential")]
     Confidential,
     #[serde(rename = "restricted")]
     Restricted,
-}
-
-impl Default for DataClassification {
-    fn default() -> Self {
-        DataClassification::Internal
-    }
 }
 
 /// Configuration for compliance-aware storage routing

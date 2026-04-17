@@ -70,7 +70,7 @@ impl LfsPointer {
         Ok(LfsPointer { version, oid, size })
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn to_display_string(&self) -> String {
         format!(
             "version {}\noid sha256:{}\nsize {}\n",
             self.version, self.oid, self.size

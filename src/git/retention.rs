@@ -104,21 +104,17 @@ pub struct RepositoryRetention {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "source")]
+#[derive(Default)]
 pub enum PolicySource {
     #[serde(rename = "git_ref")]
     GitRef { ref_name: String },
     #[serde(rename = "embedded")]
+    #[default]
     Embedded,
     #[serde(rename = "database")]
     Database,
     #[serde(rename = "api")]
     Api,
-}
-
-impl Default for PolicySource {
-    fn default() -> Self {
-        PolicySource::Embedded
-    }
 }
 
 /// Retention evaluation result
@@ -250,7 +246,7 @@ impl RetentionService {
                     should_delete: false,
                     should_archive: false,
                     archive_ref: None,
-                    reason: format!("Min versions rule (would need version count context)"),
+                    reason: "Min versions rule (would need version count context)".to_string(),
                     notify_days: None,
                 }
             }
@@ -284,11 +280,9 @@ impl RetentionService {
     /// Check if ref matches a glob pattern
     fn matches_pattern(&self, pattern: &str, ref_name: &str) -> bool {
         // Simple glob matching - can be enhanced with regex or glob crate
-        if pattern.ends_with("/**") {
-            let prefix = &pattern[..pattern.len() - 3];
+        if let Some(prefix) = pattern.strip_suffix("/**") {
             ref_name.starts_with(prefix) || ref_name.contains(&format!("{}/", prefix))
-        } else if pattern.ends_with('*') {
-            let prefix = &pattern[..pattern.len() - 1];
+        } else if let Some(prefix) = pattern.strip_suffix('*') {
             ref_name.starts_with(prefix)
         } else {
             ref_name == pattern
@@ -316,19 +310,19 @@ impl RetentionService {
 
     /// Cache a policy
     pub fn cache_policy(&self, repo_id: &str, policy: RetentionPolicy) {
-        let mut cache = self.policy_cache.write().unwrap();
+        let mut cache = self.policy_cache.write().unwrap_or_else(|e| e.into_inner());
         cache.insert(repo_id.to_string(), policy);
     }
 
     /// Get cached policy
     pub fn get_cached_policy(&self, repo_id: &str) -> Option<RetentionPolicy> {
-        let cache = self.policy_cache.read().unwrap();
+        let cache = self.policy_cache.read().unwrap_or_else(|e| e.into_inner());
         cache.get(repo_id).cloned()
     }
 
     /// Clear policy cache
     pub fn clear_cache(&self) {
-        let mut cache = self.policy_cache.write().unwrap();
+        let mut cache = self.policy_cache.write().unwrap_or_else(|e| e.into_inner());
         cache.clear();
     }
 }
@@ -382,7 +376,7 @@ pub fn default_retention_policy() -> RetentionPolicy {
     }
 }
 
-/// Embedded retention policy for .git/repos-mcp/retention.json
+/// Embedded retention policy for .git/agentic-repos/retention.json
 pub const EMBEDDED_POLICY_FILENAME: &str = "retention.json";
 pub const DEFAULT_POLICY_REF: &str = "refs/policies/retention";
 

@@ -1,57 +1,20 @@
 use crate::features::FeatureFlags;
-use config::{Config as ConfigBuilder, File};
-use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::env;
 
-fn generate_secure_jwt_secret() -> String {
-    let mut rng = OsRng;
-    let mut secret = vec![0u8; 64];
-    rng.fill_bytes(&mut secret);
-    format!("{:x}", Sha256::digest(secret.as_slice()))
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct DatabaseConfig {
-    pub backend_type: String,
-    pub postgres_config: Option<ServerConfig>,
-    pub sqlite_config: Option<ServerConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AppConfig {
-    pub server: ServerConfig,
-    pub features: FeatureFlags,
-    pub lfs: LfsConfig,
-    pub database: DatabaseConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AppConfig {
-    pub server: ServerConfig,
-    pub features: FeatureFlags,
-    pub lfs: LfsConfig,
-    pub database: DatabaseConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct DatabaseConfig {
-    pub backend_type: String,
-    pub postgres_config: Option<ServerConfig>,
-    pub sqlite_config: Option<ServerConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct AppConfig {
     pub server: ServerConfig,
     #[serde(default)]
     pub features: Option<HashMap<String, bool>>,
     #[serde(default)]
-    pub lfs: crate::config::LfsConfig,
-    #[serde(default)]
-    pub database: DatabaseConfig,
+    pub lfs: LfsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ServerConfig {
+    pub host: String,
+    pub port: u16,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -135,88 +98,152 @@ pub struct LfsThrottleConfig {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Self::from_file_with_database_type("config.yaml")
-    }
+        // Check for config path from environment variable
+        if let Ok(path) = std::env::var("AGENTIC_REPOS_CONFIG") {
+            return Self::from_file(&path);
+        }
 
-    pub fn from_file_with_database_type(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let path_without_ext = path.trim_end_matches(".yaml").trim_end_matches(".yml");
-        
-        let database_type = std::env::var("DATABASE_TYPE")
-            .unwrap_or_else(|_| "postgres".to_string());
-
-        let settings = ConfigBuilder::builder()
-            .add_source(File::with_name(path_without_ext).required(false))
-            .build();
-        
-        match settings {
-            Ok(config) => {
-                println!("Loading config from {} (database: {})", path, database_type);
-                let app_config = config.try_deserialize()?;
-                println!(
-                    "Config loaded: host={}, port={}, database={}",
-                    app_config.server.host, app_config.server.port, database_type
-                );
-                Ok(app_config)
-            }
-            Err(e) => {
-                println!(
-                    "Config file {} not found or invalid ({}), using defaults with database={}",
-                    path, e, database_type
-                );
-                Ok(Self::default())
+        // Check for --config argument
+        let args: Vec<String> = std::env::args().collect();
+        for i in 0..args.len() - 1 {
+            if args[i] == "--config" {
+                return Self::from_file(&args[i + 1]);
             }
         }
+
+        // Try git-refs config from system repo (canonical config store)
+        if let Some(storage_root) = Self::detect_storage_root() {
+            if let Ok(config) = Self::from_git_refs(&storage_root) {
+                return Ok(config);
+            }
+        }
+
+        // No config found — use defaults (init command writes to git-refs)
+        tracing::warn!("No configuration found in git-refs or environment. Using defaults. Run 'agentic-repos init' to bootstrap.");
+        Ok(Self::default())
+    }
+
+    /// Detect the storage root from environment or CLI flags.
+    fn detect_storage_root() -> Option<std::path::PathBuf> {
+        // 1. AGENTIC_REPOS_STORAGE_ROOT env var
+        if let Ok(path) = std::env::var("AGENTIC_REPOS_STORAGE_ROOT") {
+            return Some(std::path::PathBuf::from(path));
+        }
+
+        // 2. --storage CLI flag
+        let args: Vec<String> = std::env::args().collect();
+        for i in 0..args.len().saturating_sub(1) {
+            if args[i] == "--storage" {
+                return Some(std::path::PathBuf::from(&args[i + 1]));
+            }
+        }
+
+        // 3. Default
+        None
+    }
+
+    /// Read configuration from the ADP system repo git refs.
+    ///
+    /// Falls back to defaults for any ref that doesn't exist yet.
+    pub fn from_git_refs(
+        storage_root: &std::path::Path,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::adp::bootstrap::SYSTEM_REPO_PATH;
+        use crate::adp::lfs_config::LFS_CONFIG_REF;
+        use crate::adp::storage::AdpStore;
+        use crate::adp::SERVER_CONFIG_REF;
+
+        let system_repo_path = storage_root.join(SYSTEM_REPO_PATH);
+
+        // Read server config from git ref
+        let server_cfg: crate::adp::config::ServerConfig =
+            match AdpStore::read_ref_blob(&system_repo_path, SERVER_CONFIG_REF) {
+                Ok(value) => serde_json::from_value(value).unwrap_or_default(),
+                Err(_) => crate::adp::config::ServerConfig::default(),
+            };
+
+        // Read LFS config from git ref
+        let lfs_cfg: crate::adp::lfs_config::LfsConfig =
+            match AdpStore::read_ref_blob(&system_repo_path, LFS_CONFIG_REF) {
+                Ok(value) => serde_json::from_value(value).unwrap_or_default(),
+                Err(_) => crate::adp::lfs_config::LfsConfig::default(),
+            };
+
+        // Map ADP config → legacy AppConfig
+        let config = AppConfig {
+            server: ServerConfig {
+                host: server_cfg.http_host,
+                port: server_cfg.http_port,
+            },
+            features: if server_cfg.feature_flags.is_empty() {
+                None
+            } else {
+                Some(server_cfg.feature_flags)
+            },
+            lfs: LfsConfig {
+                enabled: lfs_cfg.enabled,
+                max_object_size: lfs_cfg.max_object_size,
+                token_expiration_secs: lfs_cfg.token_expiration_secs,
+                jwt_secret: lfs_cfg.jwt_secret,
+                base_url: lfs_cfg.base_url,
+                storage_path_pattern: lfs_cfg.storage_path_pattern,
+                locking_enabled: lfs_cfg.locking_enabled,
+                lock_expiration_secs: lfs_cfg.lock_expiration_secs,
+                gc: LfsGcConfig {
+                    enabled: lfs_cfg.gc.enabled,
+                    grace_period_days: lfs_cfg.gc.grace_period_days,
+                    schedule: lfs_cfg.gc.schedule,
+                    max_deletions_per_run: lfs_cfg.gc.max_deletions_per_run,
+                },
+                quota: LfsQuotaConfig {
+                    enabled: lfs_cfg.quota.enabled,
+                    default_quota_bytes: lfs_cfg.quota.default_quota_bytes,
+                    per_tenant_quotas: lfs_cfg.quota.per_tenant_quotas,
+                    per_repo_quotas: lfs_cfg.quota.per_repo_quotas,
+                },
+                audit: LfsAuditConfig {
+                    enabled: lfs_cfg.audit.enabled,
+                    retention_days: lfs_cfg.audit.retention_days,
+                    include_ip_addresses: lfs_cfg.audit.include_ip_addresses,
+                    log_successful_operations: lfs_cfg.audit.log_successful_operations,
+                    log_failed_operations: lfs_cfg.audit.log_failed_operations,
+                },
+                throttle: LfsThrottleConfig {
+                    enabled: lfs_cfg.throttle.enabled,
+                    default_bytes_per_second: lfs_cfg.throttle.default_bytes_per_second,
+                    per_tenant_limits: lfs_cfg.throttle.per_tenant_limits,
+                    per_repo_limits: lfs_cfg.throttle.per_repo_limits,
+                    burst_size: lfs_cfg.throttle.burst_size,
+                },
+            },
+        };
+
+        tracing::info!(
+            "Loaded config from git refs: host={}, port={}",
+            config.server.host, config.server.port
+        );
+
+        Ok(config)
     }
 
     pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let path_without_ext = path.trim_end_matches(".yaml").trim_end_matches(".yml");
-        let settings = ConfigBuilder::builder()
-            .add_source(File::with_name(path_without_ext).required(false))
-            .build();
-
-        match settings {
-            Ok(config) => {
-                println!("Loading config from {}", path);
-                let app_config: config.try_deserialize()?;
-                println!(
-                    "Config loaded: host={}, port={}",
-                    app_config.server.host, app_config.server.port
-                );
-                Ok(app_config)
-            }
-            Err(e) => {
-                println!(
-                    "Config file {} not found or invalid ({}), using defaults",
-                    path, e
-                );
-                Ok(Self::default())
-            }
-        }
-    }
-    }
-
-    pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let path_without_ext = path.trim_end_matches(".yaml").trim_end_matches(".yml");
-
-        let settings = ConfigBuilder::builder()
-            .add_source(File::with_name(path_without_ext).required(false))
-            .build();
-
-        match settings {
-            Ok(config) => {
-                println!("Loading config from {}", path);
-                let app_config: AppConfig = config.try_deserialize()?;
-                println!(
-                    "Config loaded: host={}, port={}",
-                    app_config.server.host, app_config.server.port
-                );
-                Ok(app_config)
-            }
-            Err(e) => {
-                println!(
-                    "Config file {} not found or invalid ({}), using defaults",
-                    path, e
-                );
+        match std::fs::read_to_string(path) {
+            Ok(content) => match serde_yaml::from_str::<AppConfig>(&content) {
+                Ok(app_config) => {
+                    tracing::info!("Loading config from {}", path);
+                    tracing::info!(
+                        "Config loaded: host={}, port={}",
+                        app_config.server.host, app_config.server.port
+                    );
+                    Ok(app_config)
+                }
+                Err(e) => {
+                    tracing::warn!("Config file {} invalid ({}), using defaults", path, e);
+                    Ok(Self::default())
+                }
+            },
+            Err(_) => {
+                tracing::info!("Config file {} not found, using defaults", path);
                 Ok(Self::default())
             }
         }
@@ -270,16 +297,6 @@ impl AppConfig {
     }
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            features: None,
-            lfs: LfsConfig::default(),
-        }
-    }
-}
-
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -295,7 +312,7 @@ impl Default for LfsConfig {
             enabled: false,
             max_object_size: 5 * 1024 * 1024 * 1024, // 5GB
             token_expiration_secs: 3600,             // 1 hour
-            jwt_secret: generate_secure_jwt_secret(),
+            jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING".to_string(),
             base_url: "http://localhost:8090".to_string(),
             storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
                 .to_string(),
@@ -352,5 +369,110 @@ impl Default for LfsThrottleConfig {
             per_repo_limits: HashMap::new(),
             burst_size: 50 * 1024 * 1024,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_server_defaults() {
+        let config = AppConfig::default();
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 8090);
+    }
+
+    #[test]
+    fn default_lfs_config() {
+        let lfs = LfsConfig::default();
+        assert!(!lfs.enabled);
+        assert_eq!(lfs.max_object_size, 5 * 1024 * 1024 * 1024);
+        assert_eq!(lfs.token_expiration_secs, 3600);
+        assert_eq!(lfs.base_url, "http://localhost:8090");
+        assert!(!lfs.locking_enabled);
+        assert_eq!(lfs.lock_expiration_secs, 86400);
+    }
+
+    #[test]
+    fn default_lfs_gc_config() {
+        let gc = LfsGcConfig::default();
+        assert!(!gc.enabled);
+        assert_eq!(gc.grace_period_days, 7);
+        assert_eq!(gc.schedule, "0 2 * * *");
+        assert_eq!(gc.max_deletions_per_run, 1000);
+    }
+
+    #[test]
+    fn default_lfs_quota_config() {
+        let quota = LfsQuotaConfig::default();
+        assert!(!quota.enabled);
+        assert_eq!(quota.default_quota_bytes, 10 * 1024 * 1024 * 1024);
+        assert!(quota.per_tenant_quotas.is_empty());
+        assert!(quota.per_repo_quotas.is_empty());
+    }
+
+    #[test]
+    fn default_lfs_audit_config() {
+        let audit = LfsAuditConfig::default();
+        assert!(!audit.enabled);
+        assert_eq!(audit.retention_days, 90);
+        assert!(audit.include_ip_addresses);
+    }
+
+    #[test]
+    fn default_lfs_throttle_config() {
+        let throttle = LfsThrottleConfig::default();
+        assert!(!throttle.enabled);
+        assert_eq!(throttle.default_bytes_per_second, 10 * 1024 * 1024);
+        assert_eq!(throttle.burst_size, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn from_missing_file_returns_defaults() {
+        let config = AppConfig::from_file("/nonexistent/path/config.yaml").unwrap();
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 8090);
+    }
+
+    #[test]
+    fn from_valid_yaml_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_config.yaml");
+        std::fs::write(&path, "server:\n  host: 0.0.0.0\n  port: 9090\n").unwrap();
+        let config = AppConfig::from_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.port, 9090);
+    }
+
+    #[test]
+    fn from_yaml_with_features() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("features.yaml");
+        std::fs::write(&path, "server:\n  host: 0.0.0.0\n  port: 8080\nfeatures:\n  web_ui: true\n  rbac: true\n").unwrap();
+        let config = AppConfig::from_file(path.to_str().unwrap()).unwrap();
+        let features = config.get_feature_flags();
+        assert!(features.web_ui);
+        assert!(features.rbac);
+    }
+
+    #[test]
+    fn from_yaml_with_lfs_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lfs.yaml");
+        std::fs::write(&path, "server:\n  host: 0.0.0.0\n  port: 8080\nlfs:\n  enabled: true\n  max_object_size: 1073741824\n  token_expiration_secs: 7200\n  jwt_secret: test-secret\n  base_url: http://localhost:8080\n  storage_path_pattern: '{oid}'\n  locking_enabled: false\n  lock_expiration_secs: 86400\n").unwrap();
+        let config = AppConfig::from_file(path.to_str().unwrap()).unwrap();
+        assert!(config.lfs.enabled);
+        assert_eq!(config.lfs.max_object_size, 1073741824);
+        assert_eq!(config.lfs.token_expiration_secs, 7200);
+    }
+
+    #[test]
+    fn config_serialization_roundtrip() {
+        let original = AppConfig::default();
+        let json = serde_json::to_string(&original).unwrap();
+        let back: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.server.host, original.server.host);
+        assert_eq!(back.server.port, original.server.port);
     }
 }

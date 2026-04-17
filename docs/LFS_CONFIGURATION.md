@@ -1,6 +1,6 @@
 # Git LFS Configuration Reference
 
-This document provides complete configuration reference for Git LFS support in repos-mcp.
+This document provides complete configuration reference for Git LFS support in agentic-repos.
 
 ## Prerequisites
 

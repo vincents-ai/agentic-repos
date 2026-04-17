@@ -13,7 +13,7 @@ pub async fn health_check() -> ActixResult<HttpResponse> {
 
 pub async fn api_info() -> ActixResult<HttpResponse> {
     let response = serde_json::json!({
-        "name": "repos-mcp API",
+        "name": "agentic-repos API",
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Multi-tenant Git server repository management API",
         "endpoints": {

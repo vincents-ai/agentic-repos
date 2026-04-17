@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FeatureFlags {
     pub web_ui: bool,
     pub ldap_auth: bool,
@@ -30,40 +30,6 @@ pub struct FeatureFlags {
     pub analytics: bool,
     pub git_lfs: bool,
     pub lfs_locks: bool,
-}
-
-impl Default for FeatureFlags {
-    fn default() -> Self {
-        Self {
-            web_ui: false,
-            ldap_auth: false,
-            saml_auth: false,
-            oauth_auth: false,
-            audit_logging: false,
-            audit_tracking: false,
-            repo_templates: false,
-            webhooks: false,
-            multi_region: false,
-            horizontal_scaling: false,
-            redis_cache: false,
-            load_balancing: false,
-            monitoring: false,
-            security_scanning: false,
-            soc2_compliance: false,
-            gdpr_compliance: false,
-            hipaa_compliance: false,
-            rbac: false,
-            backup_recovery: false,
-            github_actions: false,
-            gitlab_ci: false,
-            jenkins: false,
-            graphql_api: false,
-            advanced_webhooks: false,
-            analytics: false,
-            git_lfs: false,
-            lfs_locks: false,
-        }
-    }
 }
 
 impl FeatureFlags {

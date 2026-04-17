@@ -36,7 +36,7 @@ impl LfsTokenGenerator {
     ) -> Result<String, jsonwebtoken::errors::Error> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let claims = LfsClaims {
@@ -77,13 +77,13 @@ impl LfsAuthResponse {
     pub fn new(base_url: &str, token: String, expires_in_secs: u64) -> Self {
         let expires_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs()
             + expires_in_secs;
 
         let expires_at_str = chrono::DateTime::from_timestamp(expires_at as i64, 0)
-            .unwrap()
-            .to_rfc3339();
+            .map(|t| t.to_rfc3339())
+            .unwrap_or_else(|| expires_at.to_string());
 
         let mut header = std::collections::HashMap::new();
         header.insert("Authorization".to_string(), format!("Bearer {}", token));

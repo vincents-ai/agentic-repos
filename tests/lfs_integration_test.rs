@@ -1,5 +1,5 @@
-use repos_mcp::config::LfsConfig;
-use repos_mcp::lfs::{
+use agentic_repos::config::LfsConfig;
+use agentic_repos::lfs::{
     BatchRequest, BatchResponse, GitRef, LfsOperation, LfsTokenGenerator, Operation, RequestObject,
     Transfer,
 };

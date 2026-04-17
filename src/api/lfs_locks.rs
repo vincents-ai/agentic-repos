@@ -6,10 +6,10 @@ use uuid::Uuid;
 use crate::config::LfsConfig;
 use crate::features::FeatureFlags;
 use crate::lfs::{
-    CreateLockRequest, DeleteLockRequest, LfsLockManager, LockManagerError, VerifyLocksRequest,
+    CreateLockRequest, DeleteLockRequest, LfsLockManager, LockManagerError,
+    LockStorage, VerifyLocksRequest,
 };
 use crate::rbac::{Permission, RbacService};
-use sqlx::PgPool;
 
 pub struct LfsLocksHandler {
     lock_manager: Arc<LfsLockManager>,
@@ -19,9 +19,9 @@ pub struct LfsLocksHandler {
 }
 
 impl LfsLocksHandler {
-    pub fn new(pool: Arc<PgPool>, lfs_config: LfsConfig, features: FeatureFlags) -> Self {
+    pub fn new(lfs_config: LfsConfig, features: FeatureFlags) -> Self {
         Self {
-            lock_manager: Arc::new(LfsLockManager::new(pool)),
+            lock_manager: Arc::new(LfsLockManager::new()),
             lfs_config,
             features,
             rbac_service: None,
@@ -129,7 +129,6 @@ pub async fn create_lock(
             None,
             expiration_secs,
         )
-        .await
     {
         Ok(response) => HttpResponse::Created().json(response),
         Err(LockManagerError::AlreadyLocked(path)) => HttpResponse::Conflict().json(json!({
@@ -186,7 +185,6 @@ pub async fn list_locks(
             query.limit,
             query.cursor.as_deref(),
         )
-        .await
     {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => HttpResponse::InternalServerError().json(json!({
@@ -227,13 +225,11 @@ pub async fn delete_lock(
         {
             return response;
         }
-    } else {
-        if let Err(response) = handler
-            .check_permission(&username, Permission::LfsLockDelete)
-            .await
-        {
-            return response;
-        }
+    } else if let Err(response) = handler
+        .check_permission(&username, Permission::LfsLockDelete)
+        .await
+    {
+        return response;
     }
 
     let lock_id = match Uuid::parse_str(&lock_id_str) {
@@ -248,7 +244,6 @@ pub async fn delete_lock(
     match handler
         .lock_manager
         .delete_lock(&tenant, &repo, lock_id, &username, body.force)
-        .await
     {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(LockManagerError::NotFound(id)) => HttpResponse::NotFound().json(json!({
@@ -307,7 +302,6 @@ pub async fn verify_locks(
             body.limit,
             body.cursor.as_deref(),
         )
-        .await
     {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => HttpResponse::InternalServerError().json(json!({

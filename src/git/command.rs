@@ -60,15 +60,26 @@ impl CommandValidator {
 
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
 
-        if parts.len() < 2 || parts.len() > 3 {
+        if parts.len() < 2 {
+            warn!("Invalid command format: too few parts ({})", parts.len());
+            return Err(CommandValidationError::InvalidFormat);
+        }
+
+        let git_command = parts[0];
+
+        // upload-pack / receive-pack take exactly one argument (the repo path).
+        // Extra tokens could be shell injection — reject them immediately.
+        if (git_command == "git-upload-pack" || git_command == "git-receive-pack")
+            && parts.len() != 2
+        {
             warn!(
-                "Invalid command format: expected 2-3 parts, got {}",
+                "Invalid command format for {}: expected 2 parts, got {}",
+                git_command,
                 parts.len()
             );
             return Err(CommandValidationError::InvalidFormat);
         }
 
-        let git_command = parts[0];
         let repo_arg = parts[1];
 
         let repository = Self::validate_repository_path(repo_arg)?;
@@ -105,6 +116,8 @@ impl CommandValidator {
         }
 
         let cleaned = repo_arg.trim_matches('\'').trim_matches('"');
+        // Strip leading slash - git sends paths like '/tenant/repo.git' over SSH
+        let cleaned = cleaned.trim_start_matches('/');
 
         if cleaned.is_empty() {
             return Err(CommandValidationError::EmptyRepository);
@@ -123,7 +136,17 @@ impl CommandValidator {
         Ok(cleaned.to_string())
     }
 
-    /// Check if repository name is safe (no path traversal)
+    /// System directories that are never valid repository roots.
+    fn is_system_path(name: &str) -> bool {
+        const SYSTEM_DIRS: &[&str] = &[
+            "etc", "bin", "sbin", "usr", "var", "root", "home", "tmp", "proc", "sys", "dev", "opt",
+            "lib", "lib64", "boot", "run", "srv", "mnt", "media",
+        ];
+        let first = name.split('/').next().unwrap_or("");
+        SYSTEM_DIRS.contains(&first)
+    }
+
+    /// Check if repository name is safe (no path traversal, no system paths)
     fn is_safe_repository_name(name: &str) -> bool {
         let path = Path::new(name);
 
@@ -133,7 +156,12 @@ impl CommandValidator {
                 std::path::Component::CurDir => return false,
                 std::path::Component::RootDir if path.components().count() > 1 => return false,
                 std::path::Component::Normal(s) => {
-                    if s.to_string_lossy().contains("..") {
+                    let seg = s.to_string_lossy();
+                    if seg.contains("..") {
+                        return false;
+                    }
+                    // Block dotfiles and "..." tricks
+                    if seg.starts_with('.') {
                         return false;
                     }
                 }
@@ -146,6 +174,7 @@ impl CommandValidator {
             && !name.contains("/../")
             && !name.contains("/./")
             && !name.ends_with("/..")
+            && !Self::is_system_path(name)
     }
 
     /// Validate characters in repository name
@@ -162,6 +191,10 @@ impl CommandValidator {
         if parts.len() >= 2 {
             let tenant = parts[0].to_string();
             let repo_name = parts[1..].join("/");
+            let repo_name = repo_name
+                .strip_suffix(".git")
+                .unwrap_or(&repo_name)
+                .to_string();
             Some((tenant, repo_name))
         } else {
             None
@@ -224,7 +257,7 @@ mod tests {
             "git-upload-pack ../../../etc/passwd",
             "git-upload-pack tenant/../../../etc/passwd",
             "git-upload-pack tenant/./repo.git",
-            "git-upload-pack /absolute/path/repo.git",
+            "git-upload-pack /etc/shadow",
             "git-upload-pack tenant/repo/../config",
         ];
 
@@ -255,12 +288,12 @@ mod tests {
     fn test_repository_path_parsing() {
         assert_eq!(
             CommandValidator::parse_repository_path("tenant/repo.git"),
-            Some(("tenant".to_string(), "repo.git".to_string()))
+            Some(("tenant".to_string(), "repo".to_string()))
         );
 
         assert_eq!(
             CommandValidator::parse_repository_path("/tenant/project/repo.git"),
-            Some(("tenant".to_string(), "project/repo.git".to_string()))
+            Some(("tenant".to_string(), "project/repo".to_string()))
         );
 
         assert_eq!(CommandValidator::parse_repository_path("single"), None);

@@ -1,15 +1,15 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: repos-mcp
-  namespace: repos-mcp
+  name: agentic-repos
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: repos-mcp
+    name: agentic-repos
   minReplicas: 2
   maxReplicas: 10
   metrics:

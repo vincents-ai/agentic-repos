@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>agentic-repos SDLC Monitoring Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --dark-bg: #1f2937;
+            --light-bg: #f9fafb;
+            --border-color: #e5e7eb;
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            background: var(--light-bg);
+            color: var(--text-primary);
+        }
+
+        header {
+            background: var(--dark-bg);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success-color);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid var(--border-color);
+        }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .metric-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+
+        .metric-change {
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+        }
+
+        .change-positive {
+            color: var(--success-color);
+        }
+
+        .change-negative {
+            color: var(--danger-color);
+        }
+
+        .charts-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid var(--border-color);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .chart-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .time-selector {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .time-btn {
+            padding: 0.25rem 0.75rem;
+            border: 1px solid var(--border-color);
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+
+        .time-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .quality-gates-section {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+        }
+
+        .gates-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .gate-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        .gate-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.75rem;
+        }
+
+        .gate-passed {
+            background: var(--success-color);
+        }
+
+        .gate-failed {
+            background: var(--danger-color);
+        }
+
+        .gate-warning {
+            background: var(--warning-color);
+        }
+
+        .assessments-section {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid var(--border-color);
+        }
+
+        .assessment-card {
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem;
+            margin-top: 1rem;
+            background: var(--light-bg);
+            border-radius: 4px;
+        }
+
+        .assessment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .assessment-quarter {
+            font-weight: 600;
+        }
+
+        .assessment-score {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+        }
+
+        .error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo">agentic-repos SDLC Monitor</div>
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span id="connection-status">Connected</span>
+                <span id="last-update">Last updated: Loading...</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Key Metrics -->
+        <section class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-title">Test Coverage</div>
+                    <span class="change-positive" id="coverage-change">+2.1%</span>
+                </div>
+                <div class="metric-value" id="coverage-value">85.3%</div>
+                <div class="metric-change">Above 80% target</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-title">Security Vulnerabilities</div>
+                    <span class="change-positive" id="security-change">-1</span>
+                </div>
+                <div class="metric-value" id="security-value">0</div>
+                <div class="metric-change">No critical issues</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-title">Performance Score</div>
+                    <span class="change-positive" id="performance-change">+3.2</span>
+                </div>
+                <div class="metric-value" id="performance-value">92.1</div>
+                <div class="metric-change">Excellent performance</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-title">Compliance Score</div>
+                    <span class="change-negative" id="compliance-change">-0.5</span>
+                </div>
+                <div class="metric-value" id="compliance-value">87.8</div>
+                <div class="metric-change">Needs attention</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-title">SDLC Maturity</div>
+                    <span class="change-positive" id="maturity-change">+0.2</span>
+                </div>
+                <div class="metric-value" id="maturity-value">3.2</div>
+                <div class="metric-change">Quantitatively Managed</div>
+            </div>
+        </section>
+
+        <!-- Charts -->
+        <section class="charts-section">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">SDLC Metrics Trends</h3>
+                    <div class="time-selector">
+                        <button class="time-btn" data-range="24h">24h</button>
+                        <button class="time-btn active" data-range="7d">7d</button>
+                        <button class="time-btn" data-range="30d">30d</button>
+                    </div>
+                </div>
+                <canvas id="metrics-trend-chart"></canvas>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">Quality Gates Status</h3>
+                </div>
+                <canvas id="quality-gates-chart"></canvas>
+            </div>
+        </section>
+
+        <!-- Quality Gates -->
+        <section class="quality-gates-section">
+            <h3>Quality Gates Status</h3>
+            <div class="gates-grid" id="gates-grid">
+                <!-- Populated via JavaScript -->
+            </div>
+        </section>
+
+        <!-- Assessments -->
+        <section class="assessments-section">
+            <h3>Quarterly Assessments</h3>
+            <div id="assessments-container">
+                <!-- Populated via JavaScript -->
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // Global state
+        let currentTimeRange = '7d';
+        let charts = {};
+
+        // API endpoints
+        const API_BASE = '/api';
+        
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeTimeSelector();
+            loadDashboardData();
+            startAutoRefresh();
+        });
+
+        // Time range selector
+        function initializeTimeSelector() {
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentTimeRange = this.dataset.range;
+                    loadMetricsData();
+                });
+            });
+        }
+
+        // Load all dashboard data
+        async function loadDashboardData() {
+            await Promise.all([
+                loadMetricsData(),
+                loadQualityGates(),
+                loadAssessments()
+            ]);
+            updateLastUpdated();
+        }
+
+        // Load metrics data
+        async function loadMetricsData() {
+            try {
+                const response = await fetch(`${API_BASE}/sdlc-metrics?timeframe=${currentTimeRange}`);
+                const data = await response.json();
+                
+                if (data.length > 0) {
+                    updateMetricCards(data[0]);
+                    updateMetricsChart(data);
+                }
+            } catch (error) {
+                console.error('Error loading metrics:', error);
+                showError('Failed to load metrics data');
+            }
+        }
+
+        // Update metric cards
+        function updateMetricCards(latestData) {
+            document.getElementById('coverage-value').textContent = `${latestData.coverage_percent.toFixed(1)}%`;
+            document.getElementById('security-value').textContent = latestData.security_vulnerabilities;
+            document.getElementById('performance-value').textContent = latestData.performance_score.toFixed(1);
+            document.getElementById('compliance-value').textContent = latestData.compliance_score.toFixed(1);
+            document.getElementById('maturity-value').textContent = latestData.maturity_level.toFixed(1);
+        }
+
+        // Initialize metrics trend chart
+        function updateMetricsChart(data) {
+            const ctx = document.getElementById('metrics-trend-chart').getContext('2d');
+            
+            const labels = data.map(d => new Date(d.timestamp).toLocaleDateString());
+            const coverage = data.map(d => d.coverage_percent);
+            const performance = data.map(d => d.performance_score);
+            const compliance = data.map(d => d.compliance_score);
+
+            if (charts.metrics) {
+                charts.metrics.destroy();
+            }
+
+            charts.metrics = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Test Coverage (%)',
+                            data: coverage,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Performance Score',
+                            data: performance,
+                            borderColor: '#2563eb',
+                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Compliance Score',
+                            data: compliance,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load quality gates
+        async function loadQualityGates() {
+            try {
+                const response = await fetch(`${API_BASE}/quality-gates`);
+                const data = await response.json();
+                
+                updateQualityGatesDisplay(data);
+                updateQualityGatesChart(data);
+            } catch (error) {
+                console.error('Error loading quality gates:', error);
+            }
+        }
+
+        // Update quality gates display
+        function updateQualityGatesDisplay(data) {
+            const gatesGrid = document.getElementById('gates-grid');
+            
+            // Get latest status for each gate type
+            const latestStatuses = {};
+            data.forEach(gate => {
+                if (!latestStatuses[gate.gate_type] || new Date(gate.timestamp) > new Date(latestStatuses[gate.gate_type].timestamp)) {
+                    latestStatuses[gate.gate_type] = gate;
+                }
+            });
+
+            gatesGrid.innerHTML = Object.values(latestStatuses).map(gate => `
+                <div class="gate-item">
+                    <div class="gate-status gate-${gate.status === 'passed' ? 'passed' : 'failed'}"></div>
+                    <div>
+                        <div style="font-weight: 600;">${gate.gate_type.replace('-', ' ').toUpperCase()}</div>
+                        <div style="font-size: 0.875rem; color: var(--text-secondary);">
+                            ${new Date(gate.timestamp).toLocaleString()}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Update quality gates chart
+        function updateQualityGatesChart(data) {
+            const ctx = document.getElementById('quality-gates-chart').getContext('2d');
+            
+            // Group by gate type and count pass/fail
+            const gateStats = {};
+            data.forEach(gate => {
+                if (!gateStats[gate.gate_type]) {
+                    gateStats[gate.gate_type] = { passed: 0, failed: 0 };
+                }
+                gateStats[gate.gate_type][gate.status]++;
+            });
+
+            if (charts.qualityGates) {
+                charts.qualityGates.destroy();
+            }
+
+            charts.qualityGates = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(gateStats),
+                    datasets: [
+                        {
+                            label: 'Passed',
+                            data: Object.values(gateStats).map(s => s.passed),
+                            backgroundColor: '#10b981'
+                        },
+                        {
+                            label: 'Failed',
+                            data: Object.values(gateStats).map(s => s.failed),
+                            backgroundColor: '#ef4444'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            stacked: true
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load assessments
+        async function loadAssessments() {
+            try {
+                const response = await fetch(`${API_BASE}/assessments`);
+                const data = await response.json();
+                
+                updateAssessmentsDisplay(data);
+            } catch (error) {
+                console.error('Error loading assessments:', error);
+            }
+        }
+
+        // Update assessments display
+        function updateAssessmentsDisplay(data) {
+            const container = document.getElementById('assessments-container');
+            
+            if (data.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">No assessments available</p>';
+                return;
+            }
+
+            container.innerHTML = data.slice(0, 3).map(assessment => `
+                <div class="assessment-card">
+                    <div class="assessment-header">
+                        <div class="assessment-quarter">${assessment.quarter} Assessment</div>
+                        <div class="assessment-score">${assessment.overall_score.toFixed(1)}</div>
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                        ${new Date(assessment.timestamp).toLocaleDateString()}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Auto-refresh
+        function startAutoRefresh() {
+            setInterval(() => {
+                loadDashboardData();
+            }, 60000); // Refresh every minute
+        }
+
+        // Update last updated time
+        function updateLastUpdated() {
+            document.getElementById('last-update').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        }
+
+        // Show error message
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            document.querySelector('main').insertBefore(errorDiv, document.querySelector('main').firstChild);
+            
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 5000);
+        }
+
+        // Check connection status
+        async function checkConnection() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                if (response.ok) {
+                    document.getElementById('connection-status').textContent = 'Connected';
+                    document.querySelector('.status-dot').style.background = 'var(--success-color)';
+                } else {
+                    throw new Error('Health check failed');
+                }
+            } catch (error) {
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                document.querySelector('.status-dot').style.background = 'var(--danger-color)';
+            }
+        }
+
+        // Check connection every 30 seconds
+        setInterval(checkConnection, 30000);
+    </script>
+</body>
+</html>

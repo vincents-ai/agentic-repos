@@ -1,13 +1,107 @@
-use russh::server::Handle;
-use russh::{ChannelId, CryptoVec};
+use russh::{server::Handle, ChannelId};
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::sync::mpsc;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
+use tracing::debug;
+
+pub struct SshChannelWriter {
+    channel: ChannelId,
+    session_handle: Handle,
+    pending: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+    pending_len: usize,
+}
+
+impl SshChannelWriter {
+    pub fn new(channel: ChannelId, session_handle: Handle) -> Self {
+        Self {
+            channel,
+            session_handle,
+            pending: None,
+            pending_len: 0,
+        }
+    }
+}
+
+impl AsyncWrite for SshChannelWriter {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        if let Some(ref mut fut) = self.pending {
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(()) => {
+                    self.pending = None;
+                    let len = self.pending_len;
+                    self.pending_len = 0;
+                    Poll::Ready(Ok(len))
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        } else {
+            let channel = self.channel;
+            let session_handle = self.session_handle.clone();
+            let data = bytes::Bytes::copy_from_slice(buf);
+            let len = buf.len();
+
+            let mut fut = Box::pin(async move {
+                let _ = session_handle.data(channel, data).await;
+            });
+
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(()) => Poll::Ready(Ok(len)),
+                Poll::Pending => {
+                    self.pending = Some(fut);
+                    self.pending_len = len;
+                    Poll::Pending
+                }
+            }
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(ref mut fut) = self.pending {
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(()) => {
+                    self.pending = None;
+                    self.pending_len = 0;
+                    Poll::Ready(Ok(()))
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        } else {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // Flush any pending writes, then signal EOF on the channel.
+        if let Some(ref mut fut) = self.pending {
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(()) => {
+                    self.pending = None;
+                    self.pending_len = 0;
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+        // Send EOF via the SSH channel. We can't await here (poll_shutdown is sync),
+        // so spawn a task to send the EOF signal.
+        let handle = self.session_handle.clone();
+        let channel = self.channel;
+        // Use a oneshot to track completion
+        let waker = cx.waker().clone();
+        tokio::spawn(async move {
+            let _ = handle.eof(channel).await;
+            waker.wake();
+        });
+        Poll::Pending // Will be woken when the spawned task completes
+    }
+}
 
 pub struct SshChannelReader {
     receiver: Arc<Mutex<mpsc::UnboundedReceiver<Vec<u8>>>>,
@@ -45,18 +139,19 @@ impl AsyncRead for SshChannelReader {
             return Poll::Ready(Ok(()));
         }
 
-        let data_result = {
-            let mut receiver_guard = match self.receiver.try_lock() {
-                Ok(guard) => guard,
-                Err(_) => {
-                    cx.waker().wake_by_ref();
+        let receiver = self.receiver.clone();
+        let fut = receiver.lock();
+        tokio::pin!(fut);
+
+        let mut receiver_guard: tokio::sync::MutexGuard<'_, mpsc::UnboundedReceiver<Vec<u8>>> =
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(guard) => guard,
+                Poll::Pending => {
                     return Poll::Pending;
                 }
             };
-            receiver_guard.poll_recv(cx)
-        }; // Guard dropped here
 
-        match data_result {
+        match receiver_guard.poll_recv(cx) {
             Poll::Ready(Some(data)) => {
                 if data.is_empty() {
                     return Poll::Ready(Ok(()));
@@ -72,83 +167,11 @@ impl AsyncRead for SshChannelReader {
 
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(None) => Poll::Ready(Ok(())),
+            Poll::Ready(None) => {
+                debug!("SSH channel reader: sender dropped, returning EOF");
+                Poll::Ready(Ok(()))
+            }
             Poll::Pending => Poll::Pending,
         }
-    }
-}
-
-pub struct SshChannelWriter {
-    channel: ChannelId,
-    session_handle: Handle,
-    pending_write: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl SshChannelWriter {
-    pub fn new(channel: ChannelId, session_handle: Handle) -> Self {
-        Self {
-            channel,
-            session_handle,
-            pending_write: None,
-        }
-    }
-}
-
-impl AsyncWrite for SshChannelWriter {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        if let Some(task) = &mut self.pending_write {
-            match Pin::new(task).poll(cx) {
-                Poll::Ready(Ok(())) => {
-                    self.pending_write = None;
-                }
-                Poll::Ready(Err(_)) => {
-                    self.pending_write = None;
-                }
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
-            }
-        }
-
-        let channel = self.channel;
-        let session_handle = self.session_handle.clone();
-        let data: CryptoVec = buf.to_vec().into();
-        let len = buf.len();
-
-        let waker = cx.waker().clone();
-        let task = tokio::spawn(async move {
-            if let Err(e) = session_handle.data(channel, data).await {
-                eprintln!("Failed to send SSH data: {:?}", e);
-            }
-            waker.wake();
-        });
-
-        self.pending_write = Some(task);
-        Poll::Ready(Ok(len))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if let Some(task) = &mut self.pending_write {
-            match Pin::new(task).poll(cx) {
-                Poll::Ready(Ok(())) => {
-                    self.pending_write = None;
-                }
-                Poll::Ready(Err(_)) => {
-                    self.pending_write = None;
-                }
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
-            }
-        }
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_flush(cx)
     }
 }

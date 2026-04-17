@@ -44,14 +44,14 @@ Before starting, familiarize yourself with:
 
 **1. Build from source:**
 ```bash
-git clone https://github.com/your-org/repos-mcp.git
-cd repos-mcp
+git clone https://github.com/your-org/agentic-repos.git
+cd agentic-repos
 
 # Build with LFS feature
 cargo build --release --features git_lfs
 
 # Verify build
-./target/release/repos-mcp --version
+./target/release/agentic-repos --version
 ```
 
 **2. Create system user:**
@@ -63,29 +63,29 @@ sudo passwd -l git-lfs  # Lock password (SSH key only)
 **3. Set up directories:**
 ```bash
 # Create directories
-sudo mkdir -p /etc/repos-mcp
-sudo mkdir -p /var/lib/repos-mcp/repositories
-sudo mkdir -p /var/log/repos-mcp
+sudo mkdir -p /etc/agentic-repos
+sudo mkdir -p /var/lib/agentic-repos/repositories
+sudo mkdir -p /var/log/agentic-repos
 
 # Set ownership
-sudo chown -R git-lfs:git-lfs /var/lib/repos-mcp
-sudo chown -R git-lfs:git-lfs /var/log/repos-mcp
+sudo chown -R git-lfs:git-lfs /var/lib/agentic-repos
+sudo chown -R git-lfs:git-lfs /var/log/agentic-repos
 
 # Set permissions
-sudo chmod 750 /var/lib/repos-mcp
-sudo chmod 750 /var/log/repos-mcp
+sudo chmod 750 /var/lib/agentic-repos
+sudo chmod 750 /var/log/agentic-repos
 ```
 
 **4. Create configuration:**
 ```bash
-sudo tee /etc/repos-mcp/config.yaml > /dev/null <<EOF
+sudo tee /etc/agentic-repos/config.yaml > /dev/null <<EOF
 features:
   git_lfs: true
 
 ssh_server:
   host: "0.0.0.0"
   port: 2222
-  host_key_path: "/var/lib/repos-mcp/server_key"
+  host_key_path: "/var/lib/agentic-repos/server_key"
 
 api_server:
   host: "127.0.0.1"
@@ -99,22 +99,22 @@ lfs:
   token_expiration_secs: 3600
   storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
 
-repositories_path: "/var/lib/repos-mcp/repositories"
-authorized_keys_path: "/var/lib/repos-mcp/.ssh/authorized_keys"
+repositories_path: "/var/lib/agentic-repos/repositories"
+authorized_keys_path: "/var/lib/agentic-repos/.ssh/authorized_keys"
 EOF
 
-sudo chown root:git-lfs /etc/repos-mcp/config.yaml
-sudo chmod 640 /etc/repos-mcp/config.yaml
+sudo chown root:git-lfs /etc/agentic-repos/config.yaml
+sudo chmod 640 /etc/agentic-repos/config.yaml
 ```
 
 **5. Generate SSH host key:**
 ```bash
-sudo -u git-lfs ssh-keygen -t ed25519 -f /var/lib/repos-mcp/server_key -N ""
+sudo -u git-lfs ssh-keygen -t ed25519 -f /var/lib/agentic-repos/server_key -N ""
 ```
 
 **6. Set up systemd service:**
 ```bash
-sudo tee /etc/systemd/system/repos-mcp.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/agentic-repos.service > /dev/null <<EOF
 [Unit]
 Description=Git LFS Repos Server
 After=network.target
@@ -123,8 +123,8 @@ After=network.target
 Type=simple
 User=git-lfs
 Group=git-lfs
-WorkingDirectory=/var/lib/repos-mcp
-ExecStart=/usr/local/bin/repos-mcp --config /etc/repos-mcp/config.yaml
+WorkingDirectory=/var/lib/agentic-repos
+ExecStart=/usr/local/bin/agentic-repos --config /etc/agentic-repos/config.yaml
 Restart=on-failure
 RestartSec=10
 
@@ -133,7 +133,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/repos-mcp /var/log/repos-mcp
+ReadWritePaths=/var/lib/agentic-repos /var/log/agentic-repos
 
 [Install]
 WantedBy=multi-user.target
@@ -180,21 +180,21 @@ sudo systemctl reload nginx
 
 **8. Start service:**
 ```bash
-sudo systemctl start repos-mcp
-sudo systemctl enable repos-mcp
-sudo systemctl status repos-mcp
+sudo systemctl start agentic-repos
+sudo systemctl enable agentic-repos
+sudo systemctl status agentic-repos
 ```
 
 ### Configuration Management
 
 **View current configuration:**
 ```bash
-sudo cat /etc/repos-mcp/config.yaml
+sudo cat /etc/agentic-repos/config.yaml
 ```
 
 **Reload after configuration changes:**
 ```bash
-sudo systemctl restart repos-mcp
+sudo systemctl restart agentic-repos
 ```
 
 **Validate configuration:**
@@ -221,11 +221,11 @@ cat ~/.ssh/id_ed25519.pub
 ```bash
 # As admin, add to authorized_keys
 echo "ssh-ed25519 AAAAC3Nz... user@example.com" | \
-  sudo -u git-lfs tee -a /var/lib/repos-mcp/.ssh/authorized_keys
+  sudo -u git-lfs tee -a /var/lib/agentic-repos/.ssh/authorized_keys
 
 # Set permissions
-sudo chmod 600 /var/lib/repos-mcp/.ssh/authorized_keys
-sudo chown git-lfs:git-lfs /var/lib/repos-mcp/.ssh/authorized_keys
+sudo chmod 600 /var/lib/agentic-repos/.ssh/authorized_keys
+sudo chown git-lfs:git-lfs /var/lib/agentic-repos/.ssh/authorized_keys
 ```
 
 **3. Verify user access:**
@@ -239,7 +239,7 @@ ssh -T git@git.example.com -p 2222
 **1. Remove SSH key from authorized_keys:**
 ```bash
 # Edit file to remove user's key line
-sudo -u git-lfs vim /var/lib/repos-mcp/.ssh/authorized_keys
+sudo -u git-lfs vim /var/lib/agentic-repos/.ssh/authorized_keys
 ```
 
 **2. Verify removal:**
@@ -253,7 +253,7 @@ ssh -T git@git.example.com -p 2222
 
 **List all authorized keys:**
 ```bash
-sudo cat /var/lib/repos-mcp/.ssh/authorized_keys | \
+sudo cat /var/lib/agentic-repos/.ssh/authorized_keys | \
   grep -oP '(?<=# )[^ ]+@[^ ]+$' | \
   sort | \
   uniq
@@ -266,13 +266,13 @@ sudo cat /var/lib/repos-mcp/.ssh/authorized_keys | \
 **Systemd journal:**
 ```bash
 # View recent logs
-sudo journalctl -u repos-mcp -n 100 -f
+sudo journalctl -u agentic-repos -n 100 -f
 
 # View logs for specific time period
-sudo journalctl -u repos-mcp --since "1 hour ago"
+sudo journalctl -u agentic-repos --since "1 hour ago"
 
 # Export logs
-sudo journalctl -u repos-mcp --since today > repos-mcp-$(date +%Y%m%d).log
+sudo journalctl -u agentic-repos --since today > agentic-repos-$(date +%Y%m%d).log
 ```
 
 **Nginx access logs:**
@@ -289,19 +289,19 @@ sudo grep "PUT.*lfs/objects" /var/log/nginx/git-lfs-access.log
 
 **Check service status:**
 ```bash
-sudo systemctl status repos-mcp
+sudo systemctl status agentic-repos
 ```
 
 **Monitor disk space:**
 ```bash
 # Overall usage
-df -h /var/lib/repos-mcp
+df -h /var/lib/agentic-repos
 
 # LFS storage usage
-du -sh /var/lib/repos-mcp/repositories/*/lfs/
+du -sh /var/lib/agentic-repos/repositories/*/lfs/
 
 # Per repository
-du -sh /var/lib/repos-mcp/repositories/org/repo.git/lfs/
+du -sh /var/lib/agentic-repos/repositories/org/repo.git/lfs/
 ```
 
 **Monitor active connections:**
@@ -316,10 +316,10 @@ sudo netstat -tnp | grep :8090
 **Monitor system resources:**
 ```bash
 # CPU and memory
-top -p $(pgrep repos-mcp)
+top -p $(pgrep agentic-repos)
 
 # Disk I/O
-sudo iotop -p $(pgrep repos-mcp)
+sudo iotop -p $(pgrep agentic-repos)
 ```
 
 ### Metrics to Track
@@ -350,13 +350,13 @@ sudo iotop -p $(pgrep repos-mcp)
 sudo crontab -e
 
 # Add:
-*/30 * * * * [ $(df /var/lib/repos-mcp | awk 'NR==2 {print $5}' | sed 's/%//') -gt 80 ] && echo "LFS storage >80%" | mail -s "LFS Disk Alert" admin@example.com
+*/30 * * * * [ $(df /var/lib/agentic-repos | awk 'NR==2 {print $5}' | sed 's/%//') -gt 80 ] && echo "LFS storage >80%" | mail -s "LFS Disk Alert" admin@example.com
 ```
 
 **Service down alert:**
 ```bash
 # Systemd OnFailure notification
-sudo systemctl edit repos-mcp
+sudo systemctl edit agentic-repos
 
 # Add:
 [Unit]
@@ -369,35 +369,35 @@ OnFailure=status-email@%n.service
 
 **1. Check service health:**
 ```bash
-sudo systemctl status repos-mcp
+sudo systemctl status agentic-repos
 ```
 
 **2. Review error logs:**
 ```bash
-sudo journalctl -u repos-mcp --since today | grep -i error
+sudo journalctl -u agentic-repos --since today | grep -i error
 ```
 
 **3. Monitor disk space:**
 ```bash
-df -h /var/lib/repos-mcp
+df -h /var/lib/agentic-repos
 ```
 
 ### Weekly Tasks
 
 **1. Review authentication failures:**
 ```bash
-sudo journalctl -u repos-mcp --since "1 week ago" | grep -i "auth.*fail"
+sudo journalctl -u agentic-repos --since "1 week ago" | grep -i "auth.*fail"
 ```
 
 **2. Check storage growth:**
 ```bash
-du -sh /var/lib/repos-mcp/repositories/*/lfs/ | sort -h
+du -sh /var/lib/agentic-repos/repositories/*/lfs/ | sort -h
 ```
 
 **3. Verify backups:**
 ```bash
 # Ensure automated backups are running
-ls -lh /backups/repos-mcp/
+ls -lh /backups/agentic-repos/
 ```
 
 ### Monthly Tasks
@@ -408,32 +408,32 @@ ls -lh /backups/repos-mcp/
 NEW_SECRET=$(openssl rand -base64 32)
 
 # Update config
-sudo vim /etc/repos-mcp/config.yaml
+sudo vim /etc/agentic-repos/config.yaml
 # Update jwt_secret value
 
 # Restart service
-sudo systemctl restart repos-mcp
+sudo systemctl restart agentic-repos
 ```
 
 **2. Review SSH keys:**
 ```bash
 # Audit authorized_keys
-sudo cat /var/lib/repos-mcp/.ssh/authorized_keys
+sudo cat /var/lib/agentic-repos/.ssh/authorized_keys
 # Remove any old/unused keys
 ```
 
 **3. Update software:**
 ```bash
-cd /path/to/repos-mcp
+cd /path/to/agentic-repos
 git pull
 cargo build --release --features git_lfs
-sudo systemctl restart repos-mcp
+sudo systemctl restart agentic-repos
 ```
 
 **4. Verify object integrity:**
 ```bash
 # Check sample of objects
-for obj in $(find /var/lib/repos-mcp/repositories -name "*.git" -path "*/lfs/objects/*" | shuf -n 100); do
+for obj in $(find /var/lib/agentic-repos/repositories -name "*.git" -path "*/lfs/objects/*" | shuf -n 100); do
     oid=$(basename "$obj")
     computed=$(sha256sum "$obj" | cut -d' ' -f1)
     [ "$oid" != "$computed" ] && echo "CORRUPTION: $obj"
@@ -455,10 +455,10 @@ server:
 **Tune storage I/O:**
 ```bash
 # Mount LFS storage with optimized options
-sudo mount -o noatime,nodiratime /dev/sda1 /var/lib/repos-mcp
+sudo mount -o noatime,nodiratime /dev/sda1 /var/lib/agentic-repos
 
 # Make permanent in /etc/fstab
-echo "/dev/sda1 /var/lib/repos-mcp ext4 noatime,nodiratime 0 2" | sudo tee -a /etc/fstab
+echo "/dev/sda1 /var/lib/agentic-repos ext4 noatime,nodiratime 0 2" | sudo tee -a /etc/fstab
 ```
 
 ### Nginx Tuning
@@ -498,7 +498,7 @@ EOF
 
 **Systemd service limits:**
 ```bash
-sudo systemctl edit repos-mcp
+sudo systemctl edit agentic-repos
 
 # Add:
 [Service]
@@ -516,14 +516,14 @@ LimitNOFILE=65536
 NEW_SECRET=$(openssl rand -base64 32)
 
 # 2. Update configuration
-sudo vim /etc/repos-mcp/config.yaml
+sudo vim /etc/agentic-repos/config.yaml
 # Change jwt_secret value
 
 # 3. Restart service (invalidates all existing tokens)
-sudo systemctl restart repos-mcp
+sudo systemctl restart agentic-repos
 
 # 4. Notify users (tokens auto-regenerate on next operation)
-echo "JWT secret rotated on $(date)" | sudo tee -a /var/log/repos-mcp/security-audit.log
+echo "JWT secret rotated on $(date)" | sudo tee -a /var/log/agentic-repos/security-audit.log
 ```
 
 ### SSH Key Audit
@@ -532,16 +532,16 @@ echo "JWT secret rotated on $(date)" | sudo tee -a /var/log/repos-mcp/security-a
 
 ```bash
 # 1. List all keys with comments
-sudo cat /var/lib/repos-mcp/.ssh/authorized_keys | grep "^ssh-"
+sudo cat /var/lib/agentic-repos/.ssh/authorized_keys | grep "^ssh-"
 
 # 2. Verify each key with user
 # Contact users to confirm key ownership
 
 # 3. Remove unauthorized keys
-sudo vim /var/lib/repos-mcp/.ssh/authorized_keys
+sudo vim /var/lib/agentic-repos/.ssh/authorized_keys
 
 # 4. Log audit
-echo "SSH key audit completed: $(date)" | sudo tee -a /var/log/repos-mcp/security-audit.log
+echo "SSH key audit completed: $(date)" | sudo tee -a /var/log/agentic-repos/security-audit.log
 ```
 
 ### Access Logging
@@ -551,8 +551,8 @@ echo "SSH key audit completed: $(date)" | sudo tee -a /var/log/repos-mcp/securit
 ```yaml
 # config.yaml
 logging:
-  access_log: "/var/log/repos-mcp/access.log"
-  auth_log: "/var/log/repos-mcp/auth.log"
+  access_log: "/var/log/agentic-repos/access.log"
+  auth_log: "/var/log/agentic-repos/auth.log"
   level: "info"
 ```
 
@@ -574,36 +574,36 @@ See [LFS_TROUBLESHOOTING.md](LFS_TROUBLESHOOTING.md) for comprehensive troublesh
 **Service not starting:**
 ```bash
 # Check logs
-sudo journalctl -u repos-mcp -n 50
+sudo journalctl -u agentic-repos -n 50
 
 # Check configuration syntax
-sudo /usr/local/bin/repos-mcp --config /etc/repos-mcp/config.yaml --check-config
+sudo /usr/local/bin/agentic-repos --config /etc/agentic-repos/config.yaml --check-config
 
 # Check file permissions
-ls -la /var/lib/repos-mcp
-ls -la /etc/repos-mcp/config.yaml
+ls -la /var/lib/agentic-repos
+ls -la /etc/agentic-repos/config.yaml
 ```
 
 **Users cannot authenticate:**
 ```bash
 # Check SSH service
-sudo systemctl status repos-mcp
+sudo systemctl status agentic-repos
 
 # Verify authorized_keys format
-sudo cat /var/lib/repos-mcp/.ssh/authorized_keys
+sudo cat /var/lib/agentic-repos/.ssh/authorized_keys
 
 # Check permissions
-ls -la /var/lib/repos-mcp/.ssh/authorized_keys
+ls -la /var/lib/agentic-repos/.ssh/authorized_keys
 # Should be: -rw------- git-lfs git-lfs
 ```
 
 **Upload/download failures:**
 ```bash
 # Check disk space
-df -h /var/lib/repos-mcp
+df -h /var/lib/agentic-repos
 
 # Verify JWT secret configured
-sudo grep jwt_secret /etc/repos-mcp/config.yaml
+sudo grep jwt_secret /etc/agentic-repos/config.yaml
 
 # Test token generation
 ssh git@localhost -p 2222 git-lfs-authenticate org/repo upload
@@ -619,14 +619,14 @@ sudo tail -f /var/log/nginx/git-lfs-error.log
 **Calculate current usage:**
 ```bash
 # Total LFS storage
-du -sh /var/lib/repos-mcp/repositories/*/lfs/
+du -sh /var/lib/agentic-repos/repositories/*/lfs/
 
 # Number of LFS objects
-find /var/lib/repos-mcp/repositories -path "*/lfs/objects/*" -type f | wc -l
+find /var/lib/agentic-repos/repositories -path "*/lfs/objects/*" -type f | wc -l
 
 # Average object size
-total_size=$(du -sb /var/lib/repos-mcp/repositories/*/lfs/ | awk '{s+=$1} END {print s}')
-object_count=$(find /var/lib/repos-mcp/repositories -path "*/lfs/objects/*" -type f | wc -l)
+total_size=$(du -sb /var/lib/agentic-repos/repositories/*/lfs/ | awk '{s+=$1} END {print s}')
+object_count=$(find /var/lib/agentic-repos/repositories -path "*/lfs/objects/*" -type f | wc -l)
 echo "scale=2; $total_size / $object_count / 1024 / 1024" | bc
 # Result in MB
 ```
@@ -636,9 +636,9 @@ echo "scale=2; $total_size / $object_count / 1024 / 1024" | bc
 **Calculate growth rate:**
 ```bash
 # Compare storage over 1 week
-WEEK_AGO=$(du -sb /var/lib/repos-mcp/repositories/*/lfs/ | awk '{s+=$1} END {print s}')
+WEEK_AGO=$(du -sb /var/lib/agentic-repos/repositories/*/lfs/ | awk '{s+=$1} END {print s}')
 # Wait 1 week
-NOW=$(du -sb /var/lib/repos-mcp/repositories/*/lfs/ | awk '{s+=$1} END {print s}')
+NOW=$(du -sb /var/lib/agentic-repos/repositories/*/lfs/ | awk '{s+=$1} END {print s}')
 
 GROWTH=$(echo "scale=2; ($NOW - $WEEK_AGO) / $WEEK_AGO * 100" | bc)
 echo "Weekly growth: ${GROWTH}%"
@@ -668,13 +668,13 @@ echo "Weekly growth: ${GROWTH}%"
 # /usr/local/bin/backup-lfs.sh
 
 DATE=$(date +%Y%m%d)
-BACKUP_DIR="/backups/repos-mcp"
-SOURCE="/var/lib/repos-mcp"
+BACKUP_DIR="/backups/agentic-repos"
+SOURCE="/var/lib/agentic-repos"
 
 # Create backup
 tar -czf "${BACKUP_DIR}/lfs-full-${DATE}.tar.gz" \
   "${SOURCE}/repositories/*/lfs/" \
-  /etc/repos-mcp/
+  /etc/agentic-repos/
 
 # Verify backup
 tar -tzf "${BACKUP_DIR}/lfs-full-${DATE}.tar.gz" > /dev/null
@@ -694,8 +694,8 @@ find "${BACKUP_DIR}" -name "lfs-full-*.tar.gz" -mtime +30 -delete
 # /usr/local/bin/backup-lfs-incremental.sh
 
 DATE=$(date +%Y%m%d)
-BACKUP_DIR="/backups/repos-mcp/incremental"
-SOURCE="/var/lib/repos-mcp/repositories"
+BACKUP_DIR="/backups/agentic-repos/incremental"
+SOURCE="/var/lib/agentic-repos/repositories"
 
 # Rsync incremental backup
 rsync -av --link-dest="${BACKUP_DIR}/latest" \
@@ -720,16 +720,16 @@ sudo crontab -e
 **Full restore:**
 ```bash
 # 1. Stop service
-sudo systemctl stop repos-mcp
+sudo systemctl stop agentic-repos
 
 # 2. Extract backup
-sudo tar -xzf /backups/repos-mcp/lfs-full-20260122.tar.gz -C /
+sudo tar -xzf /backups/agentic-repos/lfs-full-20260122.tar.gz -C /
 
 # 3. Fix permissions
-sudo chown -R git-lfs:git-lfs /var/lib/repos-mcp
+sudo chown -R git-lfs:git-lfs /var/lib/agentic-repos
 
 # 4. Start service
-sudo systemctl start repos-mcp
+sudo systemctl start agentic-repos
 
 # 5. Verify
 ssh git@localhost -p 2222 git-lfs-authenticate org/repo upload
@@ -738,18 +738,18 @@ ssh git@localhost -p 2222 git-lfs-authenticate org/repo upload
 **Single repository restore:**
 ```bash
 # Extract specific repository
-sudo tar -xzf /backups/repos-mcp/lfs-full-20260122.tar.gz \
+sudo tar -xzf /backups/agentic-repos/lfs-full-20260122.tar.gz \
   -C / \
-  var/lib/repos-mcp/repositories/org/repo.git/lfs/
+  var/lib/agentic-repos/repositories/org/repo.git/lfs/
 
-sudo chown -R git-lfs:git-lfs /var/lib/repos-mcp/repositories/org/repo.git/lfs/
+sudo chown -R git-lfs:git-lfs /var/lib/agentic-repos/repositories/org/repo.git/lfs/
 ```
 
 ### Disaster Scenarios
 
 **Server failure:**
 1. Provision new server
-2. Install repos-mcp
+2. Install agentic-repos
 3. Restore configuration from backup
 4. Restore LFS storage from backup
 5. Update DNS if needed

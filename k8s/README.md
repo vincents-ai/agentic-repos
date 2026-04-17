@@ -4,7 +4,7 @@
 
 ### Local Development (Garage)
 ```bash
-# Deploy Garage + repos-mcp
+# Deploy Garage + agentic-repos
 make k8s-deploy-local
 
 # Port forward for access
@@ -15,10 +15,10 @@ make k8s-port-forward
 ```bash
 # Configure AWS credentials
 kubectl create secret generic aws-credentials \
-  -n repos-mcp --from-literal=AWS_ACCESS_KEY_ID=xxx \
+  -n agentic-repos --from-literal=AWS_ACCESS_KEY_ID=xxx \
   --from-literal=AWS_SECRET_ACCESS_KEY=xxx
 
-# Deploy SeaweedFS + repos-mcp
+# Deploy SeaweedFS + agentic-repos
 make k8s-deploy-production
 ```
 

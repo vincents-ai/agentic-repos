@@ -1,12 +1,12 @@
 # User Guide: Configuring Git LFS Client
 
-This guide shows you how to configure the Git LFS client to work with your repos-mcp server.
+This guide shows you how to configure the Git LFS client to work with your agentic-repos server.
 
 ## Prerequisites
 
 - Git LFS client installed on your machine
-- Git LFS enabled on repos-mcp server
-- SSH access to the repos-mcp server
+- Git LFS enabled on agentic-repos server
+- SSH access to the agentic-repos server
 - Git repository (new or existing)
 
 ## Step 1: Install Git LFS Client
@@ -56,7 +56,7 @@ Git LFS initialized.
 
 ## Step 3: Configure SSH Access
 
-Ensure you can SSH to the repos-mcp server:
+Ensure you can SSH to the agentic-repos server:
 
 ```bash
 # Test SSH connection
@@ -71,16 +71,16 @@ ssh -T -p 2222 git@your-server.com
 Add to `~/.ssh/config` for convenience:
 
 ```
-Host repos-mcp
+Host agentic-repos
     HostName your-server.com
     Port 2222
     User git
     IdentityFile ~/.ssh/id_ed25519
 ```
 
-Now you can use `repos-mcp` as hostname:
+Now you can use `agentic-repos` as hostname:
 ```bash
-git clone repos-mcp:tenant/repo.git
+git clone agentic-repos:tenant/repo.git
 ```
 
 ## Step 4: Clone or Initialize Repository
@@ -94,14 +94,14 @@ cd my-project
 git init
 
 # Add remote (adjust URL for your server)
-git remote add origin repos-mcp:tenant/myproject.git
+git remote add origin agentic-repos:tenant/myproject.git
 ```
 
 ### For Existing Repository:
 
 ```bash
-# Clone from repos-mcp
-git clone repos-mcp:tenant/existing-repo.git
+# Clone from agentic-repos
+git clone agentic-repos:tenant/existing-repo.git
 cd existing-repo
 ```
 
@@ -187,7 +187,7 @@ git push origin main
 Uploading LFS objects: 100% (1/1), 15 MB | 2.1 MB/s, done.
 Enumerating objects: 5, done.
 ...
-To repos-mcp:tenant/myproject.git
+To agentic-repos:tenant/myproject.git
    abc1234..def5678  main -> main
 ```
 
@@ -196,7 +196,7 @@ To repos-mcp:tenant/myproject.git
 When others clone the repository:
 
 ```bash
-git clone repos-mcp:tenant/myproject.git
+git clone agentic-repos:tenant/myproject.git
 cd myproject
 
 # LFS files are automatically downloaded
@@ -280,7 +280,7 @@ git lfs ls-files
 
 ```bash
 # Clone without LFS files
-GIT_LFS_SKIP_SMUDGE=1 git clone repos-mcp:tenant/repo.git
+GIT_LFS_SKIP_SMUDGE=1 git clone agentic-repos:tenant/repo.git
 
 # Fetch LFS files later
 git lfs pull
@@ -346,7 +346,7 @@ git lfs ls-files --size
 git remote -v
 
 # Test SSH access
-ssh repos-mcp git-lfs-authenticate tenant/repo.git download
+ssh agentic-repos git-lfs-authenticate tenant/repo.git download
 
 # Should return JSON with token and URL
 ```
@@ -427,7 +427,7 @@ Don't use LFS for:
 
 ```bash
 # Clone without LFS files initially
-GIT_LFS_SKIP_SMUDGE=1 git clone repos-mcp:tenant/repo.git
+GIT_LFS_SKIP_SMUDGE=1 git clone agentic-repos:tenant/repo.git
 
 # Download only files you need
 cd repo
@@ -504,7 +504,7 @@ apt-get install git-lfs
 git lfs install
 
 # Clone (automatically fetches LFS)
-git clone repos-mcp:tenant/repo.git
+git clone agentic-repos:tenant/repo.git
 ```
 
 ## Next Steps
@@ -517,4 +517,4 @@ git clone repos-mcp:tenant/repo.git
 
 - [Official Git LFS Documentation](https://git-lfs.com/)
 - [Git LFS Tutorial](https://github.com/git-lfs/git-lfs/wiki/Tutorial)
-- [repos-mcp LFS API Reference](./LFS_API.md)
+- [agentic-repos LFS API Reference](./LFS_API.md)

@@ -224,7 +224,7 @@ where
         }
 
         // In a real implementation, you would:
-        // 1. Open the Git repository using gix/git2
+        // 1. Open the Git repository using gix
         // 2. Walk all refs (branches, tags)
         // 3. For each commit, scan tree objects for LFS pointers
         // 4. Parse LFS pointer files to extract OIDs

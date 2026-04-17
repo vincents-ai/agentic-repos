@@ -11,7 +11,7 @@ groups:
         annotations:
           summary: "High LFS error rate detected"
           description: "LFS error rate is {{ $value | humanize }} errors/sec for {{ $labels.tenant }}/{{ $labels.repo }} (error type: {{ $labels.error_type }})"
-          runbook_url: "https://github.com/vincents-ai/repos-mcp/blob/main/docs/RUNBOOKS.md#high-lfs-error-rate"
+          runbook_url: "https://github.com/vincents-ai/agentic-repos/blob/main/docs/RUNBOOKS.md#high-lfs-error-rate"
 
       - alert: LFSUploadLatencyHigh
         expr: histogram_quantile(0.95, rate(lfs_upload_duration_seconds_bucket[5m])) > 10
@@ -22,7 +22,7 @@ groups:
         annotations:
           summary: "LFS upload latency is high"
           description: "P95 upload latency is {{ $value | humanize }}s for {{ $labels.tenant }}/{{ $labels.repo }}"
-          runbook_url: "https://github.com/vincents-ai/repos-mcp/blob/main/docs/RUNBOOKS.md#high-lfs-latency"
+          runbook_url: "https://github.com/vincents-ai/agentic-repos/blob/main/docs/RUNBOOKS.md#high-lfs-latency"
 
       - alert: LFSDownloadLatencyHigh
         expr: histogram_quantile(0.95, rate(lfs_download_duration_seconds_bucket[5m])) > 10
@@ -33,7 +33,7 @@ groups:
         annotations:
           summary: "LFS download latency is high"
           description: "P95 download latency is {{ $value | humanize }}s for {{ $labels.tenant }}/{{ $labels.repo }}"
-          runbook_url: "https://github.com/vincents-ai/repos-mcp/blob/main/docs/RUNBOOKS.md#high-lfs-latency"
+          runbook_url: "https://github.com/vincents-ai/agentic-repos/blob/main/docs/RUNBOOKS.md#high-lfs-latency"
 
       - alert: LFSStorageErrors
         expr: increase(lfs_errors_total{error_type="storage_error"}[5m]) > 5
@@ -44,7 +44,7 @@ groups:
         annotations:
           summary: "LFS storage backend errors detected"
           description: "{{ $value }} storage errors in the last 5m for {{ $labels.tenant }}/{{ $labels.repo }}"
-          runbook_url: "https://github.com/vincents-ai/repos-mcp/blob/main/docs/RUNBOOKS.md#storage-errors"
+          runbook_url: "https://github.com/vincents-ai/agentic-repos/blob/main/docs/RUNBOOKS.md#storage-errors"
 
       - alert: LFSHashMismatchErrors
         expr: increase(lfs_errors_total{error_type="hash_mismatch"}[10m]) > 0
@@ -55,7 +55,7 @@ groups:
         annotations:
           summary: "LFS SHA256 hash mismatches detected"
           description: "{{ $value }} hash mismatch errors detected for {{ $labels.tenant }}/{{ $labels.repo }}. Possible data corruption or malicious activity."
-          runbook_url: "https://github.com/vincents-ai/repos-mcp/blob/main/docs/RUNBOOKS.md#hash-mismatch"
+          runbook_url: "https://github.com/vincents-ai/agentic-repos/blob/main/docs/RUNBOOKS.md#hash-mismatch"
 
       - alert: LFSObjectTooLargeErrors
         expr: rate(lfs_errors_total{error_type="object_too_large"}[5m]) > 0.05
@@ -66,7 +66,7 @@ groups:
         annotations:
           summary: "Users hitting LFS object size limits"
           description: "{{ $value | humanize }} objects/sec are being rejected due to size limits for {{ $labels.tenant }}/{{ $labels.repo }}"
-          runbook_url: "https://github.com/vincents-ai/repos-mcp/blob/main/docs/RUNBOOKS.md#object-too-large"
+          runbook_url: "https://github.com/vincents-ai/agentic-repos/blob/main/docs/RUNBOOKS.md#object-too-large"
 
       - alert: LFSNoActivity
         expr: rate(lfs_batch_requests_total[30m]) == 0 and lfs_batch_requests_total > 0
@@ -89,15 +89,15 @@ groups:
           description: "LFS is transferring {{ $value | humanize }}B/s for {{ $labels.tenant }}/{{ $labels.repo }}. Monitor for capacity issues."
 
       - alert: LFSMetricsDown
-        expr: up{job="repos-mcp"} == 0
+        expr: up{job="agentic-repos"} == 0
         for: 2m
         labels:
           severity: critical
           component: lfs
         annotations:
-          summary: "repos-mcp metrics endpoint is down"
-          description: "Cannot scrape metrics from repos-mcp instance {{ $labels.instance }}"
-          runbook_url: "https://github.com/vincents-ai/repos-mcp/blob/main/docs/RUNBOOKS.md#metrics-down"
+          summary: "agentic-repos metrics endpoint is down"
+          description: "Cannot scrape metrics from agentic-repos instance {{ $labels.instance }}"
+          runbook_url: "https://github.com/vincents-ai/agentic-repos/blob/main/docs/RUNBOOKS.md#metrics-down"
 
   - name: lfs_slo_alerts
     interval: 1m

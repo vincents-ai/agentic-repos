@@ -57,10 +57,9 @@ pub trait StorageBackend: Send + Sync {
     async fn delete(&self, path: &Path) -> Result<(), StorageError>;
     async fn list(&self, prefix: &Path) -> Result<Vec<String>, StorageError>;
     async fn create_directory(&self, path: &Path) -> Result<(), StorageError>;
-    fn root(&self) -> &Path;
+    fn root(&self) -> Option<&Path>;
 }
 
-pub mod users;
 
 pub mod local {
     use super::{StorageBackend, StorageError};
@@ -149,8 +148,8 @@ pub mod local {
                 .map_err(|e| StorageError::Io(e.to_string()))
         }
 
-        fn root(&self) -> &Path {
-            &self.root
+        fn root(&self) -> Option<&Path> {
+            Some(&self.root)
         }
     }
 }
@@ -218,7 +217,7 @@ pub mod s3 {
 
             // Step 2: Calculate parts
             let total_size = data.len();
-            let num_parts = (total_size + self.part_size - 1) / self.part_size;
+            let num_parts = total_size.div_ceil(self.part_size);
 
             // Step 3: Upload parts concurrently
             let mut part_futures = FuturesUnordered::new();
@@ -433,8 +432,8 @@ pub mod s3 {
             Ok(())
         }
 
-        fn root(&self) -> &Path {
-            unimplemented!("S3 storage does not have a local root path");
+        fn root(&self) -> Option<&Path> {
+            None
         }
     }
 

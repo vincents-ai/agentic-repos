@@ -15,24 +15,24 @@ k8s-deploy-production: ## Deploy to production Kubernetes with SeaweedFS + S3
 	kubectl apply -k k8s/overlays/production
 
 # Delete all resources
-k8s-delete-all: ## Delete all repos-mcp Kubernetes resources
-	kubectl delete namespace repos-mcp
+k8s-delete-all: ## Delete all agentic-repos Kubernetes resources
+	kubectl delete namespace agentic-repos
 
 # View logs
-k8s-logs: ## View repos-mcp pod logs
-	kubectl logs -n repos-mcp -l app.kubernetes.io/name=repos-mcp -f
+k8s-logs: ## View agentic-repos pod logs
+	kubectl logs -n agentic-repos -l app.kubernetes.io/name=agentic-repos -f
 
 # Port forward for local development
 k8s-port-forward: ## Port forward to local deployment
-	kubectl port-forward -n repos-mcp svc/repos-mcp 8080:80 3000:3000
+	kubectl port-forward -n agentic-repos svc/agentic-repos 8080:80 3000:3000
 
 # Build and push Docker image
 docker-build: ## Build Docker image
-	docker build -t repos-mcp:latest -f Dockerfile.rust .
+	docker build -t agentic-repos:latest -f Dockerfile.rust .
 
 docker-push: ## Push Docker image to registry
-	docker tag repos-mcp:latest $$(cat .docker-repo)/repos-mcp:latest
-	docker push $$(cat .docker-repo)/repos-mcp:latest
+	docker tag agentic-repos:latest $$(cat .docker-repo)/agentic-repos:latest
+	docker push $$(cat .docker-repo)/agentic-repos:latest
 
 # Kustomize build (preview)
 k8s-preview-local: ## Preview local K8s manifests

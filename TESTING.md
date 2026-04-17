@@ -1,8 +1,8 @@
-# Testing Guide for repos-mcp
+# Testing Guide for agentic-repos
 
 ## Overview
 
-This document provides guidance on implementing and running tests for repos-mcp, including unit tests, integration tests, and NixOS VM tests.
+This document provides guidance on implementing and running tests for agentic-repos, including unit tests, integration tests, and NixOS VM tests.
 
 ## Test Status
 
@@ -30,9 +30,9 @@ Current stub tests follow this pattern:
 {
   id = "concurrent-clones-10";
   testScript = ''
-    server.wait_for_unit("repos-mcp.service")
-    server.succeed("mkdir -p /var/lib/repos-mcp/perf")
-    server.succeed("git init --bare /var/lib/repos-mcp/perf")
+    server.wait_for_unit("agentic-repos.service")
+    server.succeed("mkdir -p /var/lib/agentic-repos/perf")
+    server.succeed("git init --bare /var/lib/agentic-repos/perf")
     client.succeed("echo concurrent_clones_10_ok")  # ❌ STUB - doesn't test anything
   '';
 }
@@ -47,17 +47,17 @@ Tests should be implemented following this pattern:
   id = "concurrent-clones-10";
   testScript = ''
     # Setup
-    server.wait_for_unit("repos-mcp.service")
+    server.wait_for_unit("agentic-repos.service")
     server.wait_for_open_port(2222)
     
     # Create SSH keys and configure authentication
     client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
     client.copy_from_host("/path/to/key.pub", "/tmp/key.pub")
-    server.copy_from_vm("/tmp/key.pub", "/etc/repos-mcp/authorized_keys")
+    server.copy_from_vm("/tmp/key.pub", "/etc/agentic-repos/authorized_keys")
     
     # Create test repository
-    server.succeed("mkdir -p /var/lib/repos-mcp/tenant/test.git")
-    server.succeed("git init --bare /var/lib/repos-mcp/tenant/test.git")
+    server.succeed("mkdir -p /var/lib/agentic-repos/tenant/test.git")
+    server.succeed("git init --bare /var/lib/agentic-repos/tenant/test.git")
     
     # Perform actual test
     with subtest("Concurrent clones"):
@@ -84,7 +84,7 @@ NixOS VM tests embed Python code inside Nix strings. This creates escaping chall
 # ❌ WRONG - Nix will try to interpolate ${pubkey}
 testScript = ''
   pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-  server.succeed("echo '${pubkey}' > /etc/repos-mcp/authorized_keys")
+  server.succeed("echo '${pubkey}' > /etc/agentic-repos/authorized_keys")
 '';
 ```
 
@@ -95,7 +95,7 @@ testScript = ''
 testScript = ''
   client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
   client.copy_from_vm("/root/.ssh/id_ed25519.pub", "/tmp/client_key.pub")
-  server.copy_from_host("/tmp/client_key.pub", "/etc/repos-mcp/authorized_keys")
+  server.copy_from_host("/tmp/client_key.pub", "/etc/agentic-repos/authorized_keys")
 '';
 ```
 
@@ -105,7 +105,7 @@ testScript = ''
   pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
   # Write to temp file then move
   client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/key.pub")
-  server.copy_from_vm("/tmp/key.pub", "/etc/repos-mcp/authorized_keys")
+  server.copy_from_vm("/tmp/key.pub", "/etc/agentic-repos/authorized_keys")
 '';
 ```
 
@@ -114,7 +114,7 @@ testScript = ''
 testScript = ''
   # Use ''${ to escape Nix interpolation
   pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-  server.succeed(f"echo ''${pubkey} > /etc/repos-mcp/authorized_keys")
+  server.succeed(f"echo ''${pubkey} > /etc/agentic-repos/authorized_keys")
 '';
 ```
 
@@ -142,7 +142,7 @@ testScript = ''
     import shlex
     
     # Wait for services
-    server.wait_for_unit("repos-mcp.service")
+    server.wait_for_unit("agentic-repos.service")
     server.wait_for_open_port(2222)
     
     # Generate SSH keypair
@@ -151,15 +151,15 @@ testScript = ''
     
     # Transfer public key to server (avoids string escaping issues)
     client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/pubkey")
-    server.succeed("mkdir -p /etc/repos-mcp")
+    server.succeed("mkdir -p /etc/agentic-repos")
     # Copy key content via VM file sharing
     pubkey_content = client.succeed("cat /tmp/pubkey").strip()
-    server.succeed(f"printf '%s' {shlex.quote(pubkey_content)} > /etc/repos-mcp/authorized_keys")
-    server.succeed("systemctl restart repos-mcp.service")
+    server.succeed(f"printf '%s' {shlex.quote(pubkey_content)} > /etc/agentic-repos/authorized_keys")
+    server.succeed("systemctl restart agentic-repos.service")
     
     # Create test repository
-    server.succeed("mkdir -p /var/lib/repos-mcp/tenant/test.git")
-    server.succeed("cd /var/lib/repos-mcp/tenant && git init --bare test.git")
+    server.succeed("mkdir -p /var/lib/agentic-repos/tenant/test.git")
+    server.succeed("cd /var/lib/agentic-repos/tenant && git init --bare test.git")
     
     # Configure SSH known_hosts
     client.succeed("ssh-keyscan -p 2222 server >> /root/.ssh/known_hosts")
@@ -180,7 +180,7 @@ testScript = ''
     """)
     
     # Verify on server
-    server.succeed("test -f /var/lib/repos-mcp/tenant/test.git/refs/heads/main")
+    server.succeed("test -f /var/lib/agentic-repos/tenant/test.git/refs/heads/main")
   '';
 }
 ```
@@ -201,15 +201,15 @@ testScript = ''
     import shlex
     
     # Setup (authentication, repository creation)
-    server.wait_for_unit("repos-mcp.service")
+    server.wait_for_unit("agentic-repos.service")
     server.wait_for_open_port(2222)
     
     # ... SSH setup (see authentication example) ...
     
     # Create repository with initial content
     server.succeed("""
-      mkdir -p /var/lib/repos-mcp/tenant/perf.git &&
-      cd /var/lib/repos-mcp/tenant &&
+      mkdir -p /var/lib/agentic-repos/tenant/perf.git &&
+      cd /var/lib/agentic-repos/tenant &&
       git init --bare perf.git
     """)
     
@@ -260,7 +260,7 @@ testScript = ''
 {
   id = "invalid-ssh-key-rejected";
   testScript = ''
-    server.wait_for_unit("repos-mcp.service")
+    server.wait_for_unit("agentic-repos.service")
     server.wait_for_open_port(2222)
     
     # Create invalid SSH key file
@@ -269,15 +269,15 @@ testScript = ''
     client.succeed("echo 'ssh-ed25519 INVALID_BASE64_DATA user@host' > /root/.ssh/id_ed25519.pub")
     
     # Try to add invalid key to server
-    server.succeed("mkdir -p /etc/repos-mcp")
-    server.succeed("echo 'ssh-ed25519 INVALID_BASE64_DATA user@host' > /etc/repos-mcp/authorized_keys")
-    server.succeed("systemctl restart repos-mcp.service")
+    server.succeed("mkdir -p /etc/agentic-repos")
+    server.succeed("echo 'ssh-ed25519 INVALID_BASE64_DATA user@host' > /etc/agentic-repos/authorized_keys")
+    server.succeed("systemctl restart agentic-repos.service")
     
     # Test: Clone should fail with invalid key
     client.fail("git clone ssh://root@server:2222/tenant/test.git /tmp/test-clone")
     
     # Verify error is logged on server
-    server.succeed("journalctl -u repos-mcp.service | grep -i 'invalid.*key\\|auth.*fail'")
+    server.succeed("journalctl -u agentic-repos.service | grep -i 'invalid.*key\\|auth.*fail'")
   '';
 }
 ```
@@ -320,7 +320,7 @@ nix build .#checks.x86_64-linux.<test-name>.driver
 
 # In Python REPL:
 >>> start_all()
->>> server.wait_for_unit("repos-mcp.service")
+>>> server.wait_for_unit("agentic-repos.service")
 >>> server.shell_interact()  # Get shell on server
 >>> client.shell_interact()  # Get shell on client
 ```
@@ -329,12 +329,12 @@ nix build .#checks.x86_64-linux.<test-name>.driver
 
 **Issue**: Test hangs waiting for service
 ```python
-server.wait_for_unit("repos-mcp.service")  # Times out
+server.wait_for_unit("agentic-repos.service")  # Times out
 ```
 **Solution**: Check service status and logs
 ```python
-server.succeed("systemctl status repos-mcp.service")
-server.succeed("journalctl -u repos-mcp.service -n 50")
+server.succeed("systemctl status agentic-repos.service")
+server.succeed("journalctl -u agentic-repos.service -n 50")
 ```
 
 **Issue**: SSH connection fails
@@ -344,8 +344,8 @@ ssh -vvv -p 2222 root@server
 ```
 **Solution**: Check authorized_keys and SSH config
 ```python
-server.succeed("cat /etc/repos-mcp/authorized_keys")
-server.succeed("ls -la /etc/repos-mcp/ssh_host_*")
+server.succeed("cat /etc/agentic-repos/authorized_keys")
+server.succeed("ls -la /etc/agentic-repos/ssh_host_*")
 ```
 
 **Issue**: Git clone fails
@@ -402,5 +402,5 @@ When implementing stub tests:
 ## Additional Resources
 
 - [NixOS VM Test Documentation](https://nixos.org/manual/nixos/stable/index.html#sec-nixos-tests)
-- [repos-mcp Architecture](docs/ARCHITECTURE.md)
+- [agentic-repos Architecture](docs/ARCHITECTURE.md)
 - [Git Protocol Specification](https://git-scm.com/docs/pack-protocol)

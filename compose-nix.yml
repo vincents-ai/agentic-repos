@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  repos-mcp:
-    image: repos-mcp:latest
-    container_name: repos-mcp
+  agentic-repos:
+    image: agentic-repos:latest
+    container_name: agentic-repos
     restart: unless-stopped
     ports:
       - "2222:2222"

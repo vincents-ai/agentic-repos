@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the design of the Git operations layer for repos-mcp, a multi-tenant Git server written in Rust. The layer implements SSH Git protocol access using mature Rust crates, with optional commercial features for rate limiting, retention policies, and compliance-aware storage.
+This document describes the design of the Git operations layer for agentic-repos, a multi-tenant Git server written in Rust. The layer implements SSH Git protocol access using mature Rust crates, with optional commercial features for rate limiting, retention policies, and compliance-aware storage.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ redis = "0.25"          # Rate limiting and quota tracking
 
 ### Port Configuration
 
-- **Default SSH port**: 2222 (configurable via `REPOS_MCP_SSH_PORT`)
+- **Default SSH port**: 2222 (configurable via `AGENTIC_REPOS_SSH_PORT`)
 - **Rationale**: Avoid requiring root privileges, simplifies container deployment
 
 ### SSH Connection Flow
@@ -156,7 +156,7 @@ rate_limiting:
 
 ### Envoy Gateway Integration
 
-Envoy Gateway can handle rate limiting at the edge, with repos-mcp providing:
+Envoy Gateway can handle rate limiting at the edge, with agentic-repos providing:
 
 1. **X-Request-ID**: For distributed tracing
 2. **X-Tenant-ID**: For tenant-aware rate limits
@@ -234,7 +234,7 @@ Retention policies are stored as Git refs in the repository itself:
 # Set retention policy via Git ref
 git push origin refs/heads/policies/retention:refs/heads/policies/retention
 
-# Policy format in .git/repos-mcp/retention.json
+# Policy format in .git/agentic-repos/retention.json
 {
   "retention_policy": {
     "mode": "git-ref",
@@ -257,7 +257,7 @@ git push origin refs/heads/policies/retention:refs/heads/policies/retention
 
 ### Retention Modes
 
-- **Git Ref**: Policy stored in a special Git ref (`.git/repos-mcp/policy`)
+- **Git Ref**: Policy stored in a special Git ref (`.git/agentic-repos/policy`)
 - **Database**: Policy stored in external database
 - **API**: Policy managed via external API (webhook-based)
 
@@ -546,14 +546,14 @@ tenants:
 ### Core (AGPL)
 
 ```bash
-cd repos-mcp
+cd agentic-repos
 cargo build --release
 ```
 
 ### With Commercial Features
 
 ```bash
-cd repos-mcp
+cd agentic-repos
 cargo build --release --features commercial
 ```
 

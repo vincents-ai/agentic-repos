@@ -1,4 +1,4 @@
-# Authorized SSH keys for repos-mcp Git Server
+# Authorized SSH keys for agentic-repos Git Server
 # Format: username:ssh-key-type public-key comment
 #
 # Examples:

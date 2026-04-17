@@ -1,6 +1,6 @@
 # Git LFS API Reference
 
-This document describes the HTTP API endpoints provided by repos-mcp for Git LFS operations.
+This document describes the HTTP API endpoints provided by agentic-repos for Git LFS operations.
 
 ## Overview
 
@@ -413,7 +413,7 @@ Log format: Structured logs via `tracing` crate
 This implementation follows:
 - [Git LFS Batch API v1](https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md)
 - [Git LFS Basic Transfer](https://github.com/git-lfs/git-lfs/blob/main/docs/api/basic-transfers.md)
-- JWT authentication via SSH (repos-mcp specific)
+- JWT authentication via SSH (agentic-repos specific)
 
 ## Related Documentation
 

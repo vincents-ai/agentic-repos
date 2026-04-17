@@ -4,16 +4,31 @@ pub mod lfs_locks;
 pub mod models;
 pub mod routes;
 
+use crate::compliance::dora::{DoraService, InMemoryDoraStore};
+use crate::compliance::dora_nis2_handlers::DoraNis2State;
+use crate::compliance::handlers::{ComplianceState, configure_compliance_routes};
+use crate::compliance::nis2::{InMemoryNis2Store, Nis2Service};
+use crate::webhooks::service::WebhookService;
+use crate::webhooks::storage::InMemoryWebhookStorage;
 use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
-use crate::storage::users::UserRepository;
+use crate::scaling::{ClusterManager, HealthChecker, ScalingConfig};
+use crate::sdlc::{InMemorySdlcStore, SdlcService};
+use crate::server::AppConfigurator;
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
-use sqlx::PgPool;
+use routes::cluster::ClusterState;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
-async fn metrics_endpoint() -> HttpResponse {
+async fn metrics_endpoint(sdlc: Option<web::Data<Arc<SdlcService>>>) -> HttpResponse {
+    // Export SDLC metrics to prometheus gauges before gathering
+    if let Some(svc) = sdlc {
+        if let Err(e) = crate::sdlc::export_sdlc_metrics(&svc) {
+            tracing::warn!("Failed to export SDLC metrics: {}", e);
+        }
+    }
     match crate::lfs::encode_metrics() {
         Ok(metrics) => HttpResponse::Ok()
             .content_type("text/plain; version=0.0.4")
@@ -45,41 +60,83 @@ impl ApiServer {
 
     pub async fn run(
         &self,
-        config: AppConfig,
+        config: crate::config::AppConfig,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        println!(
-            "API Server starting on {}:{}",
-            config.server.host, config.server.port
+        self.run_with_configurator(config, None).await
+    }
+
+    pub async fn run_with_configurator(
+        &self,
+        config: crate::config::AppConfig,
+        app_configurator: Option<std::sync::Arc<AppConfigurator>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        tracing::info!(
+            host = %config.server.host,
+            port = %config.server.port,
+            "API server starting"
         );
 
         let git_service = Arc::clone(&self.git_service);
         let feature_flags = self.feature_flags.clone();
         let lfs_config = self.lfs_config.clone();
-        let _enable_web_ui = feature_flags.web_ui;
 
-        let _rbac_service = if feature_flags.rbac {
+        let rbac_service_data: Option<web::Data<Arc<RbacService>>> = if feature_flags.rbac {
             let storage = Arc::new(InMemoryRbacStorage::new());
             let service = Arc::new(RbacService::new(storage));
 
             if let Err(e) = service.initialize().await {
-                println!("Warning: Failed to initialize RBAC service: {}", e);
+                tracing::warn!(error = %e, "Failed to initialize RBAC service");
             } else {
-                println!("RBAC system initialized with default roles");
+                tracing::info!("RBAC system initialized with default roles");
             }
 
-            Some(service)
+            Some(web::Data::new(service))
         } else {
-            println!("RBAC feature disabled");
+            tracing::info!("RBAC feature disabled");
             None
         };
 
+        let scaling_config = ScalingConfig::from_env();
+        let cluster_manager = Arc::new(RwLock::new(ClusterManager::new(scaling_config.clone())));
+        let health_checker = Arc::new(
+            HealthChecker::new(scaling_config.instance_id.clone())
+                .with_cluster_manager(Arc::clone(&cluster_manager)),
+        );
+
+        let cluster_state = web::Data::new(ClusterState {
+            cluster_manager,
+            health_checker,
+            leader_election: None,
+            config: scaling_config,
+            session_affinity: None,
+            distributed_lock: None,
+        });
+
         let config_clone = config.clone();
+        let sdlc_service = web::Data::new(Arc::new(SdlcService::new(Arc::new(InMemorySdlcStore::new()))));
+        let webhook_service = web::Data::new(Arc::new(WebhookService::new(Arc::new(InMemoryWebhookStorage::new()))));
+        let compliance_state = web::Data::new(ComplianceState::new(crate::compliance::ComplianceConfig::default()));
+        let dora_nis2_state = web::Data::new(Arc::new(DoraNis2State {
+            dora: Arc::new(DoraService::new(Arc::new(InMemoryDoraStore::new()))),
+            nis2: Arc::new(Nis2Service::new(Arc::new(InMemoryNis2Store::new()))),
+        }));
         HttpServer::new(move || {
             let mut app = App::new()
                 .app_data(web::Data::new(git_service.clone()))
                 .app_data(web::Data::new(lfs_config.clone()))
+                .app_data(cluster_state.clone())
+                .app_data(sdlc_service.clone())
+                .app_data(webhook_service.clone())
+                .app_data(compliance_state.clone())
+                .app_data(dora_nis2_state.clone())
+                // RBAC service — required by require_permission middleware
+                .app_data(rbac_service_data.clone().unwrap_or_else(|| web::Data::new(Arc::new(RbacService::new(Arc::new(InMemoryRbacStorage::new()))))))
                 .wrap(Logger::default())
                 .route("/metrics", web::get().to(metrics_endpoint))
+                .service(web::scope("/api/v1/compliance").configure(|cfg| {
+                    configure_compliance_routes(cfg, compliance_state.clone());
+                    crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(cfg, dora_nis2_state.clone());
+                }))
                 .service(web::scope("/api/v1").configure(routes::configure_routes));
 
             if feature_flags.git_lfs && lfs_config.enabled {
@@ -89,10 +146,13 @@ impl ApiServer {
                     ThrottleConfig,
                 };
                 use crate::storage::local::LocalStorage;
-                use std::path::PathBuf;
                 use std::sync::Arc;
 
-                let local_storage = LocalStorage::new(PathBuf::from("./test_repositories"));
+                // Use the same storage root as GitService (from AGENTIC_REPOS_STORAGE_ROOT)
+                let storage_root = git_service
+                    .get_storage_root()
+                    .unwrap_or_else(|| std::path::PathBuf::from("./repositories"));
+                let local_storage = LocalStorage::new(storage_root);
                 let lfs_storage = LfsStorageAdapter::new(
                     local_storage,
                     lfs_config.storage_path_pattern.clone(),
@@ -136,6 +196,22 @@ impl ApiServer {
                             InMemoryAuditStorage,
                         >,
                     ));
+            }
+
+            // Wire Web UI if feature flag is enabled
+            if feature_flags.web_ui {
+                if let Ok(web_ui) =
+                    crate::web::WebUI::new(git_service.clone(), feature_flags.clone())
+                {
+                    app = app.configure(|cfg| {
+                        crate::web::WebUI::configure(cfg, Arc::new(web_ui));
+                    });
+                }
+            }
+
+            // Apply external app configurator (e.g., adp-web-ui SPA fallback)
+            if let Some(ref configurator) = app_configurator {
+                app = app.configure(|cfg| configurator(cfg));
             }
 
             app

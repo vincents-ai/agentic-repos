@@ -8,7 +8,7 @@ use crate::config::AppConfig;
 use crate::lfs::{
     record_batch_request, record_download, record_error, record_upload, Action, Actions,
     AuditEvent, AuditEventType, AuditLogger, AuditStorage, BandwidthThrottler, BatchRequest,
-    BatchResponse, LfsLockManager, LfsStorage, ObjectError, Operation, QuotaManager,
+    BatchResponse, LfsLockManager, LfsStorage, LockStorage, ObjectError, Operation, QuotaManager,
     ResponseObject, StorageKey, Transfer,
 };
 
@@ -21,7 +21,6 @@ where
     quota_manager: Option<Arc<QuotaManager>>,
     audit_logger: Option<Arc<AuditLogger<A>>>,
     throttler: Option<Arc<BandwidthThrottler>>,
-    // TODO: Integrate with git-receive-pack for push-time lock verification
     lock_manager: Option<Arc<LfsLockManager>>,
 }
 
@@ -325,7 +324,7 @@ where
                     .log(
                         AuditEvent::new(AuditEventType::LfsError, tenant.clone(), repo.clone())
                             .with_oid(&oid)
-                            .with_error(&e.to_string()),
+                            .with_error(e.to_string()),
                     )
                     .await;
             }
@@ -416,7 +415,7 @@ where
                     .log(
                         AuditEvent::new(AuditEventType::LfsError, tenant.clone(), repo.clone())
                             .with_oid(&oid)
-                            .with_error(&e.to_string()),
+                            .with_error(e.to_string()),
                     )
                     .await;
             }
@@ -441,7 +440,8 @@ where
             )
             .route("/lfs/objects/{oid}", web::put().to(upload_object::<S, A>))
             .route("/lfs/objects/{oid}", web::get().to(download_object::<S, A>))
-            .route("/quota", web::get().to(get_quota_info::<S, A>)),
+            .route("/quota", web::get().to(get_quota_info::<S, A>))
+            .route("/locks/verify", web::post().to(verify_locks_endpoint::<S, A>)),
     )
     .route("/audit/logs", web::get().to(query_audit_logs::<S, A>));
 }
@@ -558,4 +558,55 @@ where
             "message": "Audit logger not initialized"
         }))
     }
+}
+
+/// LFS Lock Verification endpoint.
+/// POST /{tenant}/{repo}/locks/verify
+/// Verifies that the requesting user holds necessary locks before push.
+pub async fn verify_locks_endpoint<S, A>(
+    handler: web::Data<Arc<LfsHandler<S, A>>>,
+    path: web::Path<(String, String)>,
+    query: web::Query<VerifyLocksQuery>,
+    payload: web::Json<crate::lfs::VerifyLocksRequest>,
+) -> HttpResponse
+where
+    S: LfsStorage + 'static,
+    A: AuditStorage + 'static,
+{
+    let (tenant, repo) = path.into_inner();
+    let req = payload.into_inner();
+
+    let requesting_user = match &query.username {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::BadRequest().json(json!({
+                "message": "username query parameter is required for lock verification"
+            }));
+        }
+    };
+
+    match &handler.lock_manager {
+        Some(lm) => {
+            let refspec = req.git_ref.as_ref().map(|r| r.name.as_str());
+            match lm.verify_locks(&tenant, &repo, &requesting_user, refspec, req.limit, req.cursor.as_deref()) {
+                Ok(response) => HttpResponse::Ok().json(response),
+                Err(e) => HttpResponse::InternalServerError().json(json!({
+                    "message": format!("Lock verification failed: {}", e)
+                })),
+            }
+        }
+        None => {
+            // No lock manager configured — allow push (no lock enforcement)
+            HttpResponse::Ok().json(json!({
+                "ours": [],
+                "theirs": [],
+                "next_cursor": null
+            }))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyLocksQuery {
+    username: Option<String>,
 }

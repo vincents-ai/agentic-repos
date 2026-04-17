@@ -17,6 +17,7 @@ Thumbs.db
 *.pem
 /config.yaml
 /test-config.yaml
+/config/
 .envrc
 
 # Credentials
@@ -51,3 +52,8 @@ temp/
 
 # Internal files
 internal/
+
+# Dispatcher internal state
+.internal/
+test-git-*
+test-git-2817323/

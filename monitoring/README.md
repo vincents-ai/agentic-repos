@@ -1,6 +1,6 @@
 # Git LFS Monitoring Setup
 
-This directory contains monitoring configuration for repos-mcp Git LFS operations.
+This directory contains monitoring configuration for agentic-repos Git LFS operations.
 
 ## Files
 
@@ -128,7 +128,7 @@ receivers:
 ### Generate Test Metrics
 
 ```bash
-# Start repos-mcp
+# Start agentic-repos
 cargo run -- --config config.yaml
 
 # Generate upload traffic
@@ -147,7 +147,7 @@ curl http://localhost:8090/metrics | grep lfs_
 
 ```bash
 # Check Prometheus targets
-curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job=="repos-mcp")'
+curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job=="agentic-repos")'
 
 # Query metrics via Prometheus API
 curl 'http://localhost:9090/api/v1/query?query=lfs_uploads_total'
@@ -169,7 +169,7 @@ curl -X POST http://admin:admin@localhost:3000/api/dashboards/db \
 Edit `prometheus.yml`:
 ```yaml
 scrape_configs:
-  - job_name: 'repos-mcp'
+  - job_name: 'agentic-repos'
     scrape_interval: 30s  # Change from 15s
 ```
 
@@ -177,12 +177,12 @@ scrape_configs:
 
 ```yaml
 scrape_configs:
-  - job_name: 'repos-mcp'
+  - job_name: 'agentic-repos'
     static_configs:
       - targets:
-          - 'repos-mcp-1:8090'
-          - 'repos-mcp-2:8090'
-          - 'repos-mcp-3:8090'
+          - 'agentic-repos-1:8090'
+          - 'agentic-repos-2:8090'
+          - 'agentic-repos-3:8090'
         labels:
           cluster: 'production'
 ```
@@ -220,7 +220,7 @@ Export dashboard as JSON for version control:
    curl http://localhost:9090/api/v1/targets
    ```
 
-2. Verify repos-mcp is exposing metrics:
+2. Verify agentic-repos is exposing metrics:
    ```bash
    curl http://localhost:8090/metrics
    ```

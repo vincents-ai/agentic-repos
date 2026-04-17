@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: garage
-  namespace: repos-mcp
+  namespace: agentic-repos
   labels:
     app.kubernetes.io/name: garage
 spec:
@@ -51,7 +51,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: garage-s3
-  namespace: repos-mcp
+  namespace: agentic-repos
 spec:
   selector:
     app.kubernetes.io/name: garage

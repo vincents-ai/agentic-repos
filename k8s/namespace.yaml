@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: repos-mcp
+  name: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
     app.kubernetes.io/managed-by: kubectl

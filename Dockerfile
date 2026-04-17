@@ -11,7 +11,7 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release && rm -rf src target/release/deps/repos_mcp*
+RUN cargo build --release && rm -rf src target/release/deps/agentic_repos*
 
 COPY src ./src
 RUN cargo build --release
@@ -31,7 +31,7 @@ RUN mkdir -p /app/data /app/config /app/.ssh && \
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/repos-mcp /usr/local/bin/repos-mcp
+COPY --from=builder /app/target/release/agentic-repos /usr/local/bin/agentic-repos
 
 COPY config-example.yaml /app/config/config.yaml
 
@@ -42,4 +42,4 @@ EXPOSE 2222 8090
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8090/api/v1/health || exit 1
 
-CMD ["repos-mcp", "--config", "/app/config/config.yaml"]
+CMD ["agentic-repos", "--config", "/app/config/config.yaml"]

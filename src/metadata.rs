@@ -220,7 +220,7 @@ impl LocalMetadataStore {
             .base_path
             .join("tenants")
             .join(format!("{}.json", tenant.id));
-        tokio::fs::create_dir_all(path.parent().unwrap()).await?;
+        tokio::fs::create_dir_all(path.parent().unwrap_or_else(|| std::path::Path::new("."))).await?;
         let content = serde_json::to_string_pretty(tenant)?;
         tokio::fs::write(path, content).await?;
         Ok(())

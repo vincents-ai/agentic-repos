@@ -1,9 +1,9 @@
-# Makefile for repos-mcp (Rust Git Server)
+# Makefile for agentic-repos (Rust Git Server)
 
 .PHONY: help test test-unit test-security test-coverage build run clean lint fmt check deps dev nix-build nix-test setup
 
 # Variables
-BINARY_NAME=repos-mcp
+BINARY_NAME=agentic-repos
 BUILD_DIR=target
 CONFIG_FILE=config-example.yaml
 

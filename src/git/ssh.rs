@@ -6,10 +6,10 @@ use crate::git::{
     GitConfig, GitService,
 };
 use rand_core::OsRng;
+use russh::keys::ssh_key::{LineEnding, PublicKey};
+use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{Msg, Server as _, Session};
 use russh::*;
-use russh_keys::ssh_key::{LineEnding, PublicKey};
-use russh_keys::{Algorithm, PrivateKey};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -27,6 +27,7 @@ pub struct SshServer {
     rate_limiter: RateLimiter,
     connection_count: Arc<AtomicUsize>,
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
+    #[allow(dead_code)]
     channel_senders: Arc<Mutex<HashMap<ChannelId, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     lfs_config: crate::config::LfsConfig,
 }
@@ -39,7 +40,10 @@ impl SshServer {
     ) -> Self {
         let config = config.unwrap_or_default();
         let lfs_config = lfs_config.unwrap_or_default();
-        let auth_manager = AuthorizedKeysManager::new(config.clone());
+        let mut auth_manager = AuthorizedKeysManager::new(config.clone());
+        if let Some(root) = git_service.get_storage_root() {
+            auth_manager = auth_manager.with_storage_root(root);
+        }
         let rate_limiter = RateLimiter::new(Some(config.rate_limit.clone()));
 
         Self {
@@ -85,8 +89,8 @@ impl SshServer {
         }
 
         // Generate new host key
-        let new_key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let new_key =
+            PrivateKey::random(&mut OsRng, Algorithm::Ed25519).map_err(std::io::Error::other)?;
 
         // Save the new key
         if let Err(e) = self.save_host_key(&new_key, key_path).await {
@@ -113,7 +117,7 @@ impl SshServer {
         // Convert key to OpenSSH format
         let openssh_data = key
             .to_openssh(LineEnding::LF)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         // Write to file with restrictive permissions
         fs::write(key_path, openssh_data.as_bytes()).await?;
@@ -162,6 +166,14 @@ impl SshServer {
             auth_rejection_time: std::time::Duration::from_secs(3),
             auth_rejection_time_initial: Some(std::time::Duration::from_secs(0)),
             keys,
+            preferred: russh::Preferred {
+                kex: std::borrow::Cow::Borrowed(&[
+                    russh::kex::MLKEM768X25519_SHA256,
+                    russh::kex::CURVE25519,
+                    russh::kex::CURVE25519_PRE_RFC_8731,
+                ]),
+                ..Default::default()
+            },
             ..Default::default()
         });
 
@@ -268,6 +280,7 @@ impl russh::server::Server for SshServerImpl {
                 ip_connections: self.ip_connections.clone(),
                 rejected: true,
                 lfs_config: self.lfs_config.clone(),
+                authenticated_user: None,
             };
         }
 
@@ -295,6 +308,7 @@ impl russh::server::Server for SshServerImpl {
             ip_connections: self.ip_connections.clone(),
             rejected: false,
             lfs_config: self.lfs_config.clone(),
+            authenticated_user: None,
         }
     }
 }
@@ -314,9 +328,9 @@ struct SshHandler {
     ip_connections: Arc<Mutex<HashMap<String, usize>>>,
     rejected: bool,
     lfs_config: crate::config::LfsConfig,
+    authenticated_user: Option<String>,
 }
 
-#[async_trait::async_trait]
 impl russh::server::Handler for SshHandler {
     type Error = russh::Error;
 
@@ -335,6 +349,7 @@ impl russh::server::Handler for SshHandler {
             );
             return Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
+                partial_success: false,
             });
         }
 
@@ -361,6 +376,7 @@ impl russh::server::Handler for SshHandler {
                     );
                     return Ok(russh::server::Auth::Reject {
                         proceed_with_methods: None,
+                        partial_success: false,
                     });
                 }
                 _ => {
@@ -370,19 +386,71 @@ impl russh::server::Handler for SshHandler {
         }
 
         let auth_manager = self.auth_manager.lock().await;
+        let fingerprint = public_key
+            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256);
+        let key_fingerprint = fingerprint.to_string();
+        let fingerprint_hex = hex::encode(fingerprint.as_bytes());
+
+        // Phase 1: Resolve identity from key fingerprint → username
+        // This uses the git-refs identity store (ADR-031)
+        let resolved_user: Option<String> = self
+            .git_service
+            .get_storage_root()
+            .and_then(|root| {
+                let system_repo = root.join(crate::adp::bootstrap::SYSTEM_REPO_PATH);
+                crate::adp::storage::AdpStore::resolve_key_identity(&system_repo, &fingerprint_hex).ok().flatten()
+            });
+
+        if let Some(ref username) = resolved_user {
+            // Phase 2: Verify the key is still listed in user's ssh_keys
+            // (defense in depth — the fingerprint ref maps to username,
+            //  but we double-check the key is authorized)
+            if auth_manager.is_key_authorized(username, public_key) {
+                info!(
+                    "Authentication successful for user: {} (resolved from key) from {} with key fingerprint: {}",
+                    username, self.peer_ip, key_fingerprint
+                );
+                if let Err(e) = self
+                    .log_auth_event(username, &self.peer_ip, &key_fingerprint, "success")
+                    .await
+                {
+                    error!("Failed to log authentication event: {}", e);
+                }
+                self.authenticated_user = Some(username.clone());
+                return Ok(russh::server::Auth::Accept);
+            }
+        }
+
+        // Fallback: legacy flat-file auth (no identity refs configured yet)
         if auth_manager.is_key_authorized(user, public_key) {
             info!(
-                "Authentication successful for user: {} from {}",
-                user, self.peer_ip
+                "Authentication successful (legacy) for user: {} from {} with key fingerprint: {}",
+                user, self.peer_ip, key_fingerprint
             );
+            // SECURITY: Log successful authentication with audit trail
+            if let Err(e) = self
+                .log_auth_event(user, &self.peer_ip, &key_fingerprint, "success")
+                .await
+            {
+                error!("Failed to log authentication event: {}", e);
+            }
+            self.authenticated_user = Some(user.to_string());
             Ok(russh::server::Auth::Accept)
         } else {
             warn!(
-                "Authentication rejected for user: {} from {}",
-                user, self.peer_ip
+                "Authentication rejected for user: {} from {} with key fingerprint: {}",
+                user, self.peer_ip, key_fingerprint
             );
+            // SECURITY: Log failed authentication attempt
+            if let Err(e) = self
+                .log_auth_event(user, &self.peer_ip, &key_fingerprint, "rejected")
+                .await
+            {
+                error!("Failed to log authentication event: {}", e);
+            }
             Ok(russh::server::Auth::Reject {
                 proceed_with_methods: None,
+                partial_success: false,
             })
         }
     }
@@ -410,6 +478,37 @@ impl russh::server::Handler for SshHandler {
             command_str, self.peer_ip
         );
 
+        // CRITICAL SECURITY: Validate raw command data before processing
+        if command_str.len() > 4096 {
+            warn!(
+                "SSH command too long: {} bytes from {}",
+                command_str.len(),
+                self.peer_ip
+            );
+            let error_msg = "ERROR: Command too long\n";
+            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+            let _ = session.exit_status_request(channel, 1);
+            session.close(channel)?;
+            return Ok(());
+        }
+
+        // Additional input sanitization
+        if command_str.chars().any(|c| c.is_control())
+            && !command_str.contains('\n')
+            && !command_str.contains('\r')
+            && !command_str.contains('\t')
+        {
+            warn!(
+                "SSH command contains suspicious control characters from {}",
+                self.peer_ip
+            );
+            let error_msg = "ERROR: Invalid characters in command\n";
+            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+            let _ = session.exit_status_request(channel, 1);
+            session.close(channel)?;
+            return Ok(());
+        }
+
         // Rate limit command executions
         let context = RateLimitContext {
             tenant_id: format!("ssh-{}", self.client_id),
@@ -435,7 +534,7 @@ impl russh::server::Handler for SshHandler {
                         "ERROR: Rate limit exceeded. Try again in {}s.\n",
                         retry_after
                     );
-                    session.data(channel, error_msg.into_bytes().into())?;
+                    session.data(channel, bytes::Bytes::from(error_msg.into_bytes()))?;
                     let _ = session.exit_status_request(channel, 1);
                     session.close(channel)?;
                     return Ok(());
@@ -457,7 +556,10 @@ impl russh::server::Handler for SshHandler {
                                 Some((t, r)) => (t, r),
                                 None => {
                                     let error_msg = "Error: Invalid repository path format\n";
-                                    session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                    session.data(
+                                        channel,
+                                        bytes::Bytes::from(error_msg.as_bytes().to_vec()),
+                                    )?;
                                     session.exit_status_request(channel, 1)?;
                                     session.eof(channel)?;
                                     return Ok(());
@@ -467,34 +569,86 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root();
+                        let storage_root = self.git_service.get_storage_root()
+                            .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
+
+                        // Per-repo access control (ADR-031)
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Pull) {
+                            let error_msg = format!("ERROR: Access denied for repository '{}'\n", repository);
+                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                            session.exit_status_request(channel, 1)?;
+                            session.eof(channel)?;
+                            return Ok(());
+                        }
 
                         if !full_path.exists() {
                             let error_msg =
                                 format!("Error: Repository '{}' not found\n", repository);
-                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session
+                                .data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 128)?;
                             session.eof(channel)?;
                             return Ok(());
                         }
 
-                        match self.run_git_upload_pack(channel, session, &full_path).await {
-                            Ok(()) => {
-                                info!(
-                                    "git-upload-pack completed for {} from {}",
-                                    repository, self.peer_ip
-                                );
-                            }
-                            Err(e) => {
-                                error!("git-upload-pack failed for {}: {}", repository, e);
-                                let error_msg = format!("Error: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
-                                session.exit_status_request(channel, 1)?;
-                                session.eof(channel)?;
-                                return Ok(());
-                            }
+                        // BUGFIX (clone hang): register the channel sender BEFORE sending
+                        // channel_success, so that any client data arriving in data() is
+                        // never dropped due to missing sender.
+                        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+                        {
+                            let mut senders = self.channel_senders.lock().await;
+                            senders.insert(channel, tx);
                         }
+
+                        session.channel_success(channel)?;
+                        debug!("Channel success sent, spawning upload-pack handler");
+
+                        // Use native upload-pack protocol handler
+                        let handle = session.handle();
+                        let channel_senders = self.channel_senders.clone();
+                        let repo_path = full_path.clone();
+                        let repository_name = repository.clone();
+                        let peer_ip = self.peer_ip.clone();
+
+                        tokio::spawn(async move {
+                            let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
+                            let writer = crate::git::ssh_channel::SshChannelWriter::new(
+                                channel,
+                                handle.clone(),
+                            );
+
+                            let protocol_handler = crate::git::protocol::GitProtocolHandler::new();
+                            let result = protocol_handler
+                                .handle_upload_pack(reader, writer, &repo_path)
+                                .await;
+
+                            // Cleanup: remove sender so data() stops forwarding to closed channel
+                            {
+                                let mut senders = channel_senders.lock().await;
+                                senders.remove(&channel);
+                            }
+
+                            match result {
+                                Ok(()) => {
+                                    info!(
+                                        "git-upload-pack completed for {} from {}",
+                                        repository_name, peer_ip
+                                    );
+                                    let _ = handle.exit_status_request(channel, 0).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
+                                }
+                                Err(e) => {
+                                    error!("git-upload-pack failed for {}: {}", repository_name, e);
+                                    let _ = handle.exit_status_request(channel, 1).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
+                                }
+                            }
+                        });
+
+                        return Ok(());
                     }
                     crate::git::command::GitCommand::ReceivePack { repository } => {
                         let (tenant, repo_name) =
@@ -502,7 +656,10 @@ impl russh::server::Handler for SshHandler {
                                 Some((t, r)) => (t, r),
                                 None => {
                                     let error_msg = "Error: Invalid repository path format\n";
-                                    session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                    session.data(
+                                        channel,
+                                        bytes::Bytes::from(error_msg.as_bytes().to_vec()),
+                                    )?;
                                     session.exit_status_request(channel, 1)?;
                                     session.eof(channel)?;
                                     return Ok(());
@@ -512,37 +669,91 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root();
+                        let storage_root = self.git_service.get_storage_root()
+                            .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
+
+                        // Per-repo access control (ADR-031)
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Push) {
+                            let error_msg = format!("ERROR: Write access denied for repository '{}'\n", repository);
+                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                            session.exit_status_request(channel, 1)?;
+                            session.eof(channel)?;
+                            return Ok(());
+                        }
 
                         if !full_path.exists() {
                             let error_msg =
                                 format!("Error: Repository '{}' not found\n", repository);
-                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session
+                                .data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 128)?;
                             session.eof(channel)?;
                             return Ok(());
                         }
 
-                        match self
-                            .run_git_receive_pack(channel, session, &full_path)
-                            .await
+                        // BUGFIX (clone hang): register the channel sender BEFORE sending
+                        // channel_success to eliminate the race condition where client data
+                        // arrives before the sender is registered.
+                        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
                         {
-                            Ok(()) => {
-                                info!(
-                                    "git-receive-pack completed for {} from {}",
-                                    repository, self.peer_ip
-                                );
-                            }
-                            Err(e) => {
-                                error!("git-receive-pack failed for {}: {}", repository, e);
-                                let error_msg = format!("Error: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
-                                session.exit_status_request(channel, 1)?;
-                                session.eof(channel)?;
-                                return Ok(());
-                            }
+                            let mut senders = self.channel_senders.lock().await;
+                            senders.insert(channel, tx);
                         }
+
+                        session.channel_success(channel)?;
+                        debug!("Channel success sent, spawning receive-pack handler");
+
+                        // Spawn git protocol handler in separate task so russh can process incoming data
+                        let handle = session.handle();
+                        let channel_senders = self.channel_senders.clone();
+                        let repo_path = full_path.clone();
+                        let repository_name = repository.clone();
+                        let peer_ip = self.peer_ip.clone();
+
+                        tokio::spawn(async move {
+                            let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
+                            let writer = crate::git::ssh_channel::SshChannelWriter::new(
+                                channel,
+                                handle.clone(),
+                            );
+                            let handler = crate::git::protocol::GitProtocolHandler::new();
+
+                            let result: crate::git::error::Result<()> = handler
+                                .handle_receive_pack(reader, writer, &repo_path)
+                                .await;
+
+                            {
+                                let mut senders = channel_senders.lock().await;
+                                senders.remove(&channel);
+                            }
+
+                            match result {
+                                Ok(()) => {
+                                    info!(
+                                        "git-receive-pack completed for {} from {}",
+                                        repository_name, peer_ip
+                                    );
+
+                                    let _ = handle.exit_status_request(channel, 0).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "git-receive-pack failed for {}: {}",
+                                        repository_name, e
+                                    );
+                                    debug!("Receive-pack failed: {}", e);
+                                    let _ = handle.exit_status_request(channel, 1).await;
+                                    let _ = handle.eof(channel).await;
+                                    let _ = handle.close(channel).await;
+                                }
+                            }
+                        });
+
+                        debug!("Spawned receive-pack task, returning from exec_request");
+                        return Ok(());
                     }
                     crate::git::command::GitCommand::LfsAuthenticate {
                         repository,
@@ -552,7 +763,8 @@ impl russh::server::Handler for SshHandler {
                         let parts: Vec<&str> = repository.split('/').collect();
                         if parts.len() < 2 {
                             let error_msg = "Error: Invalid repository path format (expected: tenant/repo.git)\n";
-                            session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                            session
+                                .data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 1)?;
                             session.eof(channel)?;
                             return Ok(());
@@ -578,7 +790,10 @@ impl russh::server::Handler for SshHandler {
                             Ok(t) => t,
                             Err(e) => {
                                 let error_msg = format!("Error: Token generation failed: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.data(
+                                    channel,
+                                    bytes::Bytes::from(error_msg.as_bytes().to_vec()),
+                                )?;
                                 session.exit_status_request(channel, 1)?;
                                 session.eof(channel)?;
                                 return Ok(());
@@ -596,7 +811,10 @@ impl russh::server::Handler for SshHandler {
                             Err(e) => {
                                 let error_msg =
                                     format!("Error: JSON serialization failed: {}\n", e);
-                                session.data(channel, error_msg.as_bytes().to_vec().into())?;
+                                session.data(
+                                    channel,
+                                    bytes::Bytes::from(error_msg.as_bytes().to_vec()),
+                                )?;
                                 session.exit_status_request(channel, 1)?;
                                 session.eof(channel)?;
                                 return Ok(());
@@ -607,7 +825,7 @@ impl russh::server::Handler for SshHandler {
                             "LFS authenticate successful for {}/{} ({})",
                             tenant, repo, operation
                         );
-                        session.data(channel, json.as_bytes().to_vec().into())?;
+                        session.data(channel, bytes::Bytes::from(json.as_bytes().to_vec()))?;
                         session.exit_status_request(channel, 0)?;
                         session.eof(channel)?;
                     }
@@ -620,7 +838,7 @@ impl russh::server::Handler for SshHandler {
                 );
 
                 let error_msg = format!("ERROR: {}\n", validation_error);
-                session.data(channel, error_msg.into_bytes().into())?;
+                session.data(channel, bytes::Bytes::from(error_msg.into_bytes()))?;
                 session.exit_status_request(channel, 1)?;
                 session.eof(channel)?;
             }
@@ -646,6 +864,11 @@ impl russh::server::Handler for SshHandler {
         let senders = self.channel_senders.lock().await;
         if let Some(tx) = senders.get(&channel) {
             let _ = tx.send(data.to_vec());
+        } else {
+            warn!(
+                "No sender for channel {} — data dropped (client sent data before handler ready)",
+                channel
+            );
         }
 
         Ok(())
@@ -672,7 +895,6 @@ impl russh::server::Handler for SshHandler {
 
 impl Drop for SshHandler {
     fn drop(&mut self) {
-        // Decrement connection count when handler is dropped
         let prev_count = self.connection_count.fetch_sub(1, Ordering::SeqCst);
         info!(
             "SSH connection from {} closed (remaining: {})",
@@ -683,90 +905,88 @@ impl Drop for SshHandler {
 }
 
 impl SshHandler {
-    async fn run_git_upload_pack(
+    /// Check if the authenticated user has the required permission for a repo.
+    ///
+    /// Returns true if access is granted, false if denied.
+    /// Uses AdpStore::check_repo_access which reads refs/adp/access/config
+    /// from the target repo (ADR-031).
+    fn check_repo_access(
         &self,
-        channel: ChannelId,
-        session: &mut Session,
-        repo_path: &Path,
-    ) -> std::result::Result<(), russh::Error> {
-        debug!("Starting native git-upload-pack for {:?}", repo_path);
+        repo_path: &std::path::Path,
+        permission: crate::adp::access::Permission,
+    ) -> bool {
+        let username = match &self.authenticated_user {
+            Some(u) => u,
+            None => {
+                warn!("Access denied: no authenticated user for repo {:?}", repo_path);
+                return false;
+            }
+        };
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        {
-            let mut senders = self.channel_senders.lock().await;
-            senders.insert(channel, tx);
-        }
-
-        let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
-        let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, session.handle());
-
-        let handler = crate::git::protocol::GitProtocolHandler::new();
-
-        let result = handler.handle_upload_pack(reader, writer, repo_path).await;
-
-        let mut senders = self.channel_senders.lock().await;
-        senders.remove(&channel);
-
-        match result {
-            Ok(()) => {
-                session.exit_status_request(channel, 0)?;
-                session.eof(channel)?;
-                Ok(())
+        match crate::adp::storage::AdpStore::check_repo_access(repo_path, username, &permission) {
+            Ok(true) => {
+                debug!("Access granted: user '{}' has {:?} on {:?}", username, permission, repo_path);
+                true
+            }
+            Ok(false) => {
+                warn!("Access denied: user '{}' lacks {:?} on {:?}", username, permission, repo_path);
+                false
             }
             Err(e) => {
-                error!("git-upload-pack error: {}", e);
-                session.exit_status_request(channel, 1)?;
-                session.eof(channel)?;
-                Err(russh::Error::IO(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )))
+                // On error, default to deny for write, allow for read (fail-open for reads)
+                error!("Access check error for user '{}' on {:?}: {}", username, repo_path, e);
+                matches!(permission, crate::adp::access::Permission::Pull)
             }
         }
     }
 
-    async fn run_git_receive_pack(
+    /// Log authentication events for security audit trail
+    async fn log_auth_event(
         &self,
-        channel: ChannelId,
-        session: &mut Session,
-        repo_path: &Path,
-    ) -> std::result::Result<(), russh::Error> {
-        debug!("Starting native git-receive-pack for {:?}", repo_path);
+        username: &str,
+        ip_address: &str,
+        key_fingerprint: &str,
+        result: &str,
+    ) -> std::io::Result<()> {
+        let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+        let audit_entry = format!(
+            "{} SSH_AUTH user=\"{}\" ip=\"{}\" fingerprint=\"{}\" result=\"{}\"\n",
+            timestamp, username, ip_address, key_fingerprint, result
+        );
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        // Log to both tracing and audit file
+        info!("SSH Authentication Audit: {}", audit_entry.trim());
 
-        {
-            let mut senders = self.channel_senders.lock().await;
-            senders.insert(channel, tx);
+        // Write to audit log file if configured
+        let audit_path = "/var/log/agentic-repos/auth-audit.log";
+        if let Some(parent) = std::path::Path::new(audit_path).parent() {
+            if tokio::fs::create_dir_all(parent).await.is_err() {
+                // If we can't create directory, just log to tracing
+                return Ok(());
+            }
         }
 
-        let reader = crate::git::ssh_channel::SshChannelReader::new(rx);
-        let writer = crate::git::ssh_channel::SshChannelWriter::new(channel, session.handle());
-        
-        let handler = crate::git::protocol::GitProtocolHandler::new();
-        
-        let result = handler.handle_receive_pack(reader, writer, repo_path).await;
-
-        let mut senders = self.channel_senders.lock().await;
-        senders.remove(&channel);
-
-        match result {
-            Ok(()) => {
-                session.exit_status_request(channel, 0)?;
-                session.eof(channel)?;
-                Ok(())
+        match tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(audit_path)
+            .await
+        {
+            Ok(mut file) => {
+                use tokio::io::AsyncWriteExt;
+                if let Err(e) = file.write_all(audit_entry.as_bytes()).await {
+                    error!("Failed to write to audit log: {}", e);
+                }
+                if let Err(e) = file.flush().await {
+                    error!("Failed to flush audit log: {}", e);
+                }
             }
             Err(e) => {
-                error!("git-receive-pack error: {}", e);
-                session.exit_status_request(channel, 1)?;
-                session.eof(channel)?;
-                Err(russh::Error::IO(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )))
+                error!("Failed to open audit log file: {}", e);
             }
         }
+
+        Ok(())
     }
 }
 
@@ -789,6 +1009,7 @@ mod tests {
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
+            secrets_root_key_path: None,
         };
 
         let server = SshServer::new(git_service, Some(config), None);
@@ -861,6 +1082,7 @@ mod tests {
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
+            secrets_root_key_path: None,
         };
 
         let storage = Arc::new(LocalStorage::new(temp_dir.path().to_path_buf()));
@@ -945,18 +1167,147 @@ mod tests {
             ip_connections: server.ip_connections.clone(),
             rejected: false,
             lfs_config: server.lfs_config.clone(),
+            authenticated_user: None,
         };
 
-        use russh_keys::{Algorithm, PrivateKey};
+        use russh::keys::PrivateKey;
         let private_key = PrivateKey::random(&mut rand_core::OsRng, Algorithm::Ed25519).unwrap();
         let public_key = private_key.public_key();
 
-        let _result1 = handler.auth_publickey("testuser", &public_key).await;
+        let _result1 = handler.auth_publickey("testuser", public_key).await;
 
         for _ in 0..5 {
-            let _result = handler.auth_publickey("testuser", &public_key).await;
+            let _result = handler.auth_publickey("testuser", public_key).await;
         }
 
         assert!(true);
+    }
+
+    // -----------------------------------------------------------------
+    // Per-repo access control tests (ADR-031)
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_check_repo_access_unauthenticated_denied() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: None,
+        };
+
+        // Create a repo dir (doesn't need to be a real repo for check_repo_access)
+        let repo_dir = tempfile::tempdir().unwrap();
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
+    }
+
+    #[tokio::test]
+    async fn test_check_repo_access_default_allows_pull_denies_push() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: Some("alice".to_string()),
+        };
+
+        // Bare repo with no access config → default: Pull allowed, Push denied
+        let repo_dir = tempfile::tempdir().unwrap();
+        gix::init(repo_dir.path()).unwrap();
+
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
+    }
+
+    #[tokio::test]
+    async fn test_check_repo_access_owner_allowed() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: Some("alice".to_string()),
+        };
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        gix::init(repo_dir.path()).unwrap();
+
+        // Write access config with alice as owner
+        let config = crate::adp::access::AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string()],
+            admins: vec![],
+            rules: vec![],
+        };
+        crate::adp::storage::AdpStore::write_access_config(repo_dir.path(), &config).unwrap();
+
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
+        assert!(handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Admin));
+    }
+
+    #[tokio::test]
+    async fn test_check_repo_access_restricted_repo_denies_unknown_user() {
+        let (server, _temp_dir) = create_test_ssh_server().await;
+        let handler = SshHandler {
+            git_service: server.git_service.clone(),
+            auth_manager: server.auth_manager.clone(),
+            rate_limiter: RateLimiter::new(None),
+            client_id: 1,
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            channel_senders: Arc::new(Mutex::new(HashMap::new())),
+            peer_ip: "192.168.1.100".to_string(),
+            connection_count: server.connection_count.clone(),
+            ip_connections: server.ip_connections.clone(),
+            rejected: false,
+            lfs_config: server.lfs_config.clone(),
+            authenticated_user: Some("eve".to_string()),
+        };
+
+        let repo_dir = tempfile::tempdir().unwrap();
+        gix::init(repo_dir.path()).unwrap();
+
+        // Write access config that only allows alice
+        let config = crate::adp::access::AccessConfig {
+            version: "1".to_string(),
+            owners: vec!["alice".to_string()],
+            admins: vec![],
+            rules: vec![crate::adp::access::PathRule {
+                user: "alice".to_string(),
+                paths: vec!["refs/heads/*".to_string()],
+                permissions: vec![crate::adp::access::Permission::Pull],
+            }],
+        };
+        crate::adp::storage::AdpStore::write_access_config(repo_dir.path(), &config).unwrap();
+
+        // eve is not in any rule
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Pull));
+        assert!(!handler.check_repo_access(repo_dir.path(), crate::adp::access::Permission::Push));
     }
 }

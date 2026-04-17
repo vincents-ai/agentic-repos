@@ -1,12 +1,12 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: repos-mcp
-  namespace: repos-mcp
+  name: agentic-repos
+  namespace: agentic-repos
   labels:
-    app.kubernetes.io/name: repos-mcp
+    app.kubernetes.io/name: agentic-repos
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: repos-mcp
+      app.kubernetes.io/name: agentic-repos

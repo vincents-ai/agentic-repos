@@ -12,7 +12,7 @@ pub struct GitStorageIntegration<S: StorageBackend> {
 
 impl<S: StorageBackend> GitStorageIntegration<S> {
     pub fn new(storage: Arc<S>, temp_dir: Option<PathBuf>) -> Self {
-        let temp_dir = temp_dir.unwrap_or_else(|| std::env::temp_dir().join("repos-mcp-git"));
+        let temp_dir = temp_dir.unwrap_or_else(|| std::env::temp_dir().join("agentic-repos-git"));
         let _ = std::fs::create_dir_all(&temp_dir);
         Self { storage, temp_dir }
     }
@@ -40,8 +40,8 @@ impl<S: StorageBackend> GitStorageIntegration<S> {
             .tempdir_in(&self.temp_dir)
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
-        let _repo = git2::Repository::init_bare(temp_repo.path())
-            .map_err(|e| StorageError::Io(e.to_string()))?;
+        let _repo =
+            gix::init_bare(temp_repo.path()).map_err(|e| StorageError::Io(e.to_string()))?;
 
         self.walk_and_upload(temp_repo.path(), &path).await?;
 
@@ -146,7 +146,7 @@ impl<S: StorageBackend> GitStorageIntegration<S> {
                 std::fs::create_dir_all(parent).map_err(|e| StorageError::Io(e.to_string()))?;
             }
 
-            let data = self.storage.read(&Path::new(&file_path)).await?;
+            let data = self.storage.read(Path::new(&file_path)).await?;
             std::fs::write(&local_path, data).map_err(|e| StorageError::Io(e.to_string()))?;
         }
 

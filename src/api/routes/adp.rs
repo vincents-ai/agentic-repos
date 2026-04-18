@@ -2,9 +2,10 @@
 //!
 //! ## Authentication
 //!
-//! Endpoints that modify access config or schemas require an `X-ADP-User` header
-//! identifying the caller. The caller identity is resolved against the repo's
-//! access config to enforce owner/admin checks.
+//! Endpoints that modify access config or schemas require authentication.
+//! The caller identity is extracted from the verified session (NOT from
+//! client-supplied headers) and resolved against the repo's access config
+//! to enforce owner/admin checks.
 //!
 //! ## Endpoint summary
 //!
@@ -27,6 +28,7 @@ use crate::adp::identity::CallerIdentity;
 use crate::adp::storage::{AdpStore, AdpStoreError};
 use crate::adp::{AccessConfig, RefSchema, ADP_REF_PREFIX, SCHEMA_PREFIX};
 use crate::api::models::ApiError;
+use crate::auth::middleware::get_current_user;
 use crate::git::GitService;
 use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
@@ -96,7 +98,9 @@ impl RepoPath {
 }
 
 fn storage_root(git_service: &GitService) -> Result<PathBuf, ApiError> {
-    git_service.get_storage_root().ok_or_else(|| ApiError::internal_error("No local storage root available (S3 storage?)"))
+    git_service
+        .get_storage_root()
+        .ok_or_else(|| ApiError::internal_error("No local storage root available (S3 storage?)"))
 }
 
 fn adp_error(e: AdpStoreError) -> ApiError {
@@ -111,14 +115,13 @@ fn system_repo_path(git_service: &GitService) -> Result<PathBuf, ApiError> {
     Ok(storage_root(git_service)?.join("_adp/system"))
 }
 
-/// Extract the authenticated username from the `X-ADP-User` header.
+/// Extract the authenticated username from the verified session.
 ///
-/// Returns `None` if the header is absent (unauthenticated request).
+/// IMPORTANT: This reads the identity from the session token (set by
+/// OAuthMiddleware), NOT from any client-supplied header. Client headers
+/// are untrusted and MUST NOT be used for identity extraction.
 fn extract_username(req: &HttpRequest) -> Option<String> {
-    req.headers()
-        .get("X-ADP-User")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+    get_current_user(req).and_then(|u| u.username)
 }
 
 /// Resolve a `CallerIdentity` for the given repo path and request.
@@ -219,9 +222,7 @@ fn validate_schema(schema: &RefSchema) -> Result<(), ApiError> {
 
     // Validate that the schema field is a valid JSON Schema
     if !schema.schema.is_object() {
-        return Err(ApiError::bad_request(
-            "Schema field must be a JSON object",
-        ));
+        return Err(ApiError::bad_request("Schema field must be a JSON object"));
     }
     // Try to compile it — this catches invalid JSON Schema syntax
     use crate::adp::schema::SchemaValidator;
@@ -389,10 +390,12 @@ pub async fn update_schema(
     // Require version bump on update
     if let Ok(Some(existing)) = AdpStore::read_schema(rp.as_path(), &id) {
         if schema.version == existing.version {
-            return Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&format!(
-                "Version must be bumped (current: {})",
-                existing.version
-            ))));
+            return Ok(
+                HttpResponse::BadRequest().json(ApiError::bad_request(&format!(
+                    "Version must be bumped (current: {})",
+                    existing.version
+                ))),
+            );
         }
     }
 
@@ -890,8 +893,8 @@ pub async fn update_system_access_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adp::schema::RefSchema;
     use crate::adp::access::AccessConfig;
+    use crate::adp::schema::RefSchema;
 
     fn make_valid_schema() -> RefSchema {
         RefSchema {
@@ -948,7 +951,9 @@ mod tests {
         let mut schema = make_valid_schema();
         schema.namespace_pattern = "".to_string();
         let err = validate_schema(&schema).unwrap_err();
-        assert!(err.to_string().contains("namespace_pattern must not be empty"));
+        assert!(err
+            .to_string()
+            .contains("namespace_pattern must not be empty"));
     }
 
     #[test]
@@ -1007,7 +1012,9 @@ mod tests {
             rules: vec![],
         };
         let err = validate_access_config(&config).unwrap_err();
-        assert!(err.to_string().contains("Owner usernames must not be empty"));
+        assert!(err
+            .to_string()
+            .contains("Owner usernames must not be empty"));
     }
 
     #[test]
@@ -1019,7 +1026,9 @@ mod tests {
             rules: vec![],
         };
         let err = validate_access_config(&config).unwrap_err();
-        assert!(err.to_string().contains("Admin usernames must not be empty"));
+        assert!(err
+            .to_string()
+            .contains("Admin usernames must not be empty"));
     }
 
     #[test]

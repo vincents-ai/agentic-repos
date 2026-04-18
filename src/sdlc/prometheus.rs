@@ -25,9 +25,8 @@ use crate::sdlc::models::*;
 use crate::sdlc::service::SdlcService;
 use lazy_static::lazy_static;
 use prometheus::{
-    self,
-    register_gauge, register_gauge_vec, register_int_counter_vec, register_int_gauge, Gauge, GaugeVec,
-    IntCounterVec, IntGauge,
+    self, register_gauge, register_gauge_vec, register_int_counter_vec, register_int_gauge, Gauge,
+    GaugeVec, IntCounterVec, IntGauge,
 };
 
 lazy_static! {
@@ -136,6 +135,27 @@ lazy_static! {
     .expect("Failed to create sdlc_gates_evaluated_total");
 }
 
+/// Sanitize a string for use as a Prometheus label value.
+///
+/// Prometheus label values must not contain newlines, null bytes, or
+/// double quotes. Malicious labels could inject fake metric lines into
+/// the text exposition format.
+pub fn sanitize_prometheus_label(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\n' | '\r' => out.push(' '),
+            '\0' => out.push(' '),
+            '"' => out.push('\''),
+            '\\' => out.push_str("\\\\"),
+            _ => out.push(ch),
+        }
+    }
+    // Truncate to a reasonable length to prevent unbounded label cardinality
+    out.truncate(256);
+    out
+}
+
 /// Export all current SDLC metrics to Prometheus.
 ///
 /// Call this periodically (e.g. every 60 seconds) or on-demand before
@@ -151,7 +171,9 @@ pub fn export_sdlc_metrics(service: &SdlcService) -> Result<(), String> {
     SDLC_METRIC_PASSING.reset();
 
     for m in &metrics {
-        let labels = &[m.name.as_str(), &m.category.to_string()];
+        let safe_name = sanitize_prometheus_label(&m.name);
+        let safe_category = sanitize_prometheus_label(&m.category.to_string());
+        let labels = &[safe_name.as_str(), safe_category.as_str()];
         SDLC_METRIC_VALUE.with_label_values(labels).set(m.value);
         SDLC_METRIC_TARGET.with_label_values(labels).set(m.target);
         SDLC_METRIC_PASSING
@@ -174,9 +196,7 @@ pub fn export_sdlc_metrics(service: &SdlcService) -> Result<(), String> {
             .set(lead);
     }
     if let Some(mttr) = dora.mttr_hours {
-        SDLC_DORA_MTTR_HOURS
-            .with_label_values(&["hours"])
-            .set(mttr);
+        SDLC_DORA_MTTR_HOURS.with_label_values(&["hours"]).set(mttr);
     }
     if let Some(cfr) = dora.change_failure_rate {
         SDLC_DORA_CHANGE_FAILURE_RATE
@@ -207,7 +227,9 @@ pub fn export_sdlc_metrics(service: &SdlcService) -> Result<(), String> {
             GateEnforcement::Blocking => "blocking",
             GateEnforcement::Advisory => "advisory",
         };
-        let labels = &[gate.name.as_str(), &gate.phase.to_string(), enforcement];
+        let safe_name = sanitize_prometheus_label(&gate.name);
+        let safe_phase = sanitize_prometheus_label(&gate.phase.to_string());
+        let labels = &[safe_name.as_str(), safe_phase.as_str(), enforcement];
         SDLC_GATE_STATUS.with_label_values(labels).set(status_val);
 
         if gate.is_blocking() {
@@ -218,15 +240,17 @@ pub fn export_sdlc_metrics(service: &SdlcService) -> Result<(), String> {
 
     // ── Export assessments ──
     if let Some(assessment) = &dashboard.latest_assessment {
+        let safe_title = sanitize_prometheus_label(&assessment.title);
         let grade = assessment.grade().to_string();
         SDLC_ASSESSMENT_SCORE
-            .with_label_values(&[assessment.title.as_str(), &grade])
+            .with_label_values(&[safe_title.as_str(), &grade])
             .set(assessment.overall_score);
 
         SDLC_ASSESSMENT_CATEGORY_SCORE.reset();
         for (category, score) in &assessment.scores {
+            let safe_cat = sanitize_prometheus_label(&category.to_string());
             SDLC_ASSESSMENT_CATEGORY_SCORE
-                .with_label_values(&[assessment.title.as_str(), &category.to_string()])
+                .with_label_values(&[safe_title.as_str(), safe_cat.as_str()])
                 .set(*score);
         }
     }
@@ -236,6 +260,7 @@ pub fn export_sdlc_metrics(service: &SdlcService) -> Result<(), String> {
 
 /// Record that a gate was evaluated (call after each evaluation).
 pub fn record_gate_evaluation(gate_name: &str, status: &GateStatus) {
+    let safe_name = sanitize_prometheus_label(gate_name);
     let result = match status {
         GateStatus::Passed => "passed",
         GateStatus::Failed => "failed",
@@ -243,14 +268,15 @@ pub fn record_gate_evaluation(gate_name: &str, status: &GateStatus) {
         GateStatus::Waived => "waived",
     };
     SDLC_GATES_EVALUATED_TOTAL
-        .with_label_values(&[gate_name, result])
+        .with_label_values(&[safe_name.as_str(), result])
         .inc();
 }
 
 /// Record that an assessment was completed.
 pub fn record_assessment(assessor: &str) {
+    let safe_assessor = sanitize_prometheus_label(assessor);
     SDLC_ASSESSMENTS_TOTAL
-        .with_label_values(&[assessor])
+        .with_label_values(&[safe_assessor.as_str()])
         .inc();
 }
 
@@ -278,10 +304,10 @@ impl std::fmt::Display for SdlcPhase {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::sdlc::service::InMemorySdlcStore;
     use serial_test::serial;
     use std::sync::Arc;
-    use super::*;
 
     fn make_service() -> SdlcService {
         SdlcService::new(Arc::new(InMemorySdlcStore::new()))
@@ -381,13 +407,14 @@ mod tests {
         ))
         .unwrap();
 
-        let gate = QualityGate::new("merge-gate", SdlcPhase::Implementation)
-            .with_condition(GateCondition::new(
+        let gate = QualityGate::new("merge-gate", SdlcPhase::Implementation).with_condition(
+            GateCondition::new(
                 "cov",
                 ComparisonOperator::GreaterEqual,
                 80.0,
                 "Coverage >= 80%",
-            ));
+            ),
+        );
         svc.create_gate(gate).unwrap();
         svc.evaluate_all_gates().unwrap();
 
@@ -488,5 +515,28 @@ mod tests {
         let encoded = encode_all_metrics().unwrap();
         assert!(encoded.contains("sdlc_metric_value"));
         assert!(encoded.contains("sdlc_dora_performance_level"));
+    }
+
+    #[test]
+    fn test_sanitize_prometheus_label() {
+        // Newlines are replaced with spaces
+        assert_eq!(sanitize_prometheus_label("line1\nline2"), "line1 line2");
+        // Null bytes are replaced
+        assert_eq!(sanitize_prometheus_label("a\0b"), "a b");
+        // Quotes are replaced
+        assert_eq!(sanitize_prometheus_label("a\"b"), "a'b");
+        // Long strings are truncated
+        let long = "x".repeat(300);
+        assert_eq!(sanitize_prometheus_label(&long).len(), 256);
+        // Normal strings pass through
+        assert_eq!(sanitize_prometheus_label("normal_label"), "normal_label");
+    }
+
+    #[test]
+    fn test_sanitize_prevents_metric_injection() {
+        let malicious = "normal}\nfake_metric 42\n#";
+        let sanitized = sanitize_prometheus_label(malicious);
+        assert!(!sanitized.contains('\n'));
+        assert!(!sanitized.contains('"'));
     }
 }

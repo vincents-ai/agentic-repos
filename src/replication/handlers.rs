@@ -1,12 +1,27 @@
 //! Replication REST API handlers.
 
+use crate::auth::middleware::get_current_session;
 use crate::features::FeatureFlags;
 use crate::replication::models::*;
 use crate::replication::monitor::ReplicationMonitor;
 use crate::replication::service::ReplicationService;
-use actix_web::{web, HttpResponse, Result as ActixResult};
+use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 use std::sync::Arc;
 use uuid::Uuid;
+
+/// Require authentication for all replication endpoints.
+fn require_auth(req: &HttpRequest) -> ActixResult<()> {
+    if get_current_session(req).is_some() {
+        return Ok(());
+    }
+    tracing::warn!(
+        "Unauthenticated access to replication endpoint: {}",
+        req.path()
+    );
+    Err(actix_web::error::ErrorUnauthorized(
+        serde_json::json!({"error": "Authentication required"}).to_string(),
+    ))
+}
 
 pub fn configure_replication_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -28,8 +43,10 @@ pub fn configure_replication_routes(cfg: &mut web::ServiceConfig) {
 
 async fn list_targets(
     service: web::Data<Arc<ReplicationService>>,
+    req: HttpRequest,
     flags: web::Data<FeatureFlags>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     if !flags.multi_region {
         return Ok(HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
@@ -45,9 +62,15 @@ async fn list_targets(
 
 async fn add_target(
     service: web::Data<Arc<ReplicationService>>,
-    _flags: web::Data<FeatureFlags>,
+    req: HttpRequest,
+    flags: web::Data<FeatureFlags>,
     body: web::Json<ReplicationTarget>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
     match service.register_target(body.into_inner()) {
         Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "created"}))),
         Err(e) => Ok(HttpResponse::Conflict().json(serde_json::json!({"error": e.to_string()}))),
@@ -56,9 +79,15 @@ async fn add_target(
 
 async fn get_target(
     service: web::Data<Arc<ReplicationService>>,
-    _flags: web::Data<FeatureFlags>,
+    req: HttpRequest,
+    flags: web::Data<FeatureFlags>,
     path: web::Path<Uuid>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
     let id = path.into_inner();
     match service.get_target(id) {
         Ok(Some(t)) => Ok(HttpResponse::Ok().json(t)),
@@ -72,9 +101,15 @@ async fn get_target(
 
 async fn remove_target(
     service: web::Data<Arc<ReplicationService>>,
-    _flags: web::Data<FeatureFlags>,
+    req: HttpRequest,
+    flags: web::Data<FeatureFlags>,
     path: web::Path<Uuid>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
     let id = path.into_inner();
     match service.remove_target(id) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "removed"}))),
@@ -84,9 +119,15 @@ async fn remove_target(
 
 async fn enable_target(
     service: web::Data<Arc<ReplicationService>>,
-    _flags: web::Data<FeatureFlags>,
+    req: HttpRequest,
+    flags: web::Data<FeatureFlags>,
     path: web::Path<Uuid>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
     let id = path.into_inner();
     match service.enable_target(id) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "enabled"}))),
@@ -96,9 +137,15 @@ async fn enable_target(
 
 async fn disable_target(
     service: web::Data<Arc<ReplicationService>>,
-    _flags: web::Data<FeatureFlags>,
+    req: HttpRequest,
+    flags: web::Data<FeatureFlags>,
     path: web::Path<Uuid>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
     let id = path.into_inner();
     match service.disable_target(id) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "disabled"}))),
@@ -108,8 +155,10 @@ async fn disable_target(
 
 async fn list_health(
     service: web::Data<Arc<ReplicationService>>,
+    req: HttpRequest,
     flags: web::Data<FeatureFlags>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     if !flags.multi_region {
         return Ok(HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
@@ -125,9 +174,15 @@ async fn list_health(
 
 async fn get_health(
     service: web::Data<Arc<ReplicationService>>,
-    _flags: web::Data<FeatureFlags>,
+    req: HttpRequest,
+    flags: web::Data<FeatureFlags>,
     path: web::Path<Uuid>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
     let id = path.into_inner();
     match service.get_target_health(id) {
         Ok(Some(h)) => Ok(HttpResponse::Ok().json(h)),
@@ -141,8 +196,10 @@ async fn get_health(
 
 async fn get_dashboard(
     monitor: web::Data<Arc<ReplicationMonitor>>,
+    req: HttpRequest,
     flags: web::Data<FeatureFlags>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     if !flags.multi_region {
         return Ok(HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
@@ -158,8 +215,10 @@ async fn get_dashboard(
 
 async fn list_conflicts(
     service: web::Data<Arc<ReplicationService>>,
+    req: HttpRequest,
     flags: web::Data<FeatureFlags>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     if !flags.multi_region {
         return Ok(HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
@@ -180,10 +239,16 @@ struct ResolveRequest {
 
 async fn resolve_conflict(
     service: web::Data<Arc<ReplicationService>>,
-    _flags: web::Data<FeatureFlags>,
+    req: HttpRequest,
+    flags: web::Data<FeatureFlags>,
     path: web::Path<Uuid>,
     body: web::Json<ResolveRequest>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
+    if !flags.multi_region {
+        return Ok(HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
+    }
     let id = path.into_inner();
     match service.resolve_conflict(id, body.resolution) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "resolved"}))),
@@ -193,8 +258,10 @@ async fn resolve_conflict(
 
 async fn check_alerts(
     monitor: web::Data<Arc<ReplicationMonitor>>,
+    req: HttpRequest,
     flags: web::Data<FeatureFlags>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     if !flags.multi_region {
         return Ok(HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "multi_region feature is not enabled"})));

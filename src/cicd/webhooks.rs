@@ -79,6 +79,43 @@ pub mod handlers {
         std::env::var(env_key).ok()
     }
 
+    /// Maximum allowed payload size for webhook requests (1 MB).
+    const MAX_WEBHOOK_PAYLOAD_BYTES: usize = 1024 * 1024;
+
+    /// Validate payload size to prevent memory exhaustion attacks.
+    fn validate_payload_size(payload: &serde_json::Value) -> Result<(), WebhookRoutingError> {
+        let serialized = serde_json::to_vec(payload).map_err(|_| {
+            WebhookRoutingError::UnsupportedProvider("Failed to serialize payload".to_string())
+        })?;
+        if serialized.len() > MAX_WEBHOOK_PAYLOAD_BYTES {
+            tracing::warn!(
+                "Webhook payload too large: {} bytes (max {})",
+                serialized.len(),
+                MAX_WEBHOOK_PAYLOAD_BYTES
+            );
+            return Err(WebhookRoutingError::UnsupportedProvider(
+                "Payload exceeds maximum allowed size".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate payload depth to prevent deeply nested JSON attacks.
+    fn validate_payload_depth(value: &serde_json::Value, max_depth: usize) -> bool {
+        if max_depth == 0 {
+            return false;
+        }
+        match value {
+            serde_json::Value::Object(map) => map
+                .values()
+                .all(|v| validate_payload_depth(v, max_depth - 1)),
+            serde_json::Value::Array(arr) => {
+                arr.iter().all(|v| validate_payload_depth(v, max_depth - 1))
+            }
+            _ => true,
+        }
+    }
+
     /// Verify GitHub webhook signature (HMAC-SHA256).
     ///
     /// GitHub sends `X-Hub-Signature-256: sha256=<hex_hmac>`.
@@ -261,13 +298,6 @@ pub mod handlers {
         req: HttpRequest,
         payload: web::Json<serde_json::Value>,
     ) -> ActixResult<HttpResponse> {
-        let event_type = req
-            .headers()
-            .get("X-GitHub-Event")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("unknown")
-            .to_string();
-
         // Verify GitHub HMAC-SHA256 signature
         let body_bytes = serde_json::to_vec(&payload).unwrap_or_default();
         if let Err(e) = verify_github_signature(&req, &body_bytes) {
@@ -275,6 +305,22 @@ pub mod handlers {
                 HttpResponse::Unauthorized().json(serde_json::json!({"error": e.to_string()}))
             );
         }
+
+        // Validate payload
+        if let Err(e) = validate_payload_size(&payload) {
+            return Ok(HttpResponse::BadRequest().json(serde_json::json!({"error": e.to_string()})));
+        }
+        if !validate_payload_depth(&payload, 16) {
+            return Ok(HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Payload nesting too deep"})));
+        }
+
+        let event_type = req
+            .headers()
+            .get("X-GitHub-Event")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string();
 
         match route_webhook(
             store.as_ref().as_ref(),
@@ -305,6 +351,15 @@ pub mod handlers {
             );
         }
 
+        // Validate payload
+        if let Err(e) = validate_payload_size(&payload) {
+            return Ok(HttpResponse::BadRequest().json(serde_json::json!({"error": e.to_string()})));
+        }
+        if !validate_payload_depth(&payload, 16) {
+            return Ok(HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Payload nesting too deep"})));
+        }
+
         match route_webhook(
             store.as_ref().as_ref(),
             ProviderHint::Gitlab,
@@ -330,6 +385,15 @@ pub mod handlers {
             );
         }
 
+        // Validate payload
+        if let Err(e) = validate_payload_size(&payload) {
+            return Ok(HttpResponse::BadRequest().json(serde_json::json!({"error": e.to_string()})));
+        }
+        if !validate_payload_depth(&payload, 16) {
+            return Ok(HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Payload nesting too deep"})));
+        }
+
         match route_webhook(
             store.as_ref().as_ref(),
             ProviderHint::Jenkins,
@@ -344,25 +408,43 @@ pub mod handlers {
 
     async fn list_builds(
         store: web::Data<Arc<InMemoryBuildReportStore>>,
+        req: HttpRequest,
         path: web::Path<String>,
     ) -> ActixResult<HttpResponse> {
+        // Auth required for listing builds
+        if crate::auth::middleware::get_current_session(&req).is_none() {
+            return Ok(HttpResponse::Unauthorized()
+                .json(serde_json::json!({"error": "Authentication required"})));
+        }
         let repo_id = path.into_inner();
         match store.list_by_repo(&repo_id) {
             Ok(reports) => Ok(HttpResponse::Ok().json(reports)),
-            Err(e) => Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()}))),
+            Err(e) => {
+                tracing::warn!("Build list error: {}", e);
+                Ok(HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"error": "Internal error"})))
+            }
         }
     }
 
     async fn list_builds_for_commit(
         store: web::Data<Arc<InMemoryBuildReportStore>>,
+        req: HttpRequest,
         path: web::Path<(String, String)>,
     ) -> ActixResult<HttpResponse> {
+        // Auth required for listing builds
+        if crate::auth::middleware::get_current_session(&req).is_none() {
+            return Ok(HttpResponse::Unauthorized()
+                .json(serde_json::json!({"error": "Authentication required"})));
+        }
         let (repo_id, commit) = path.into_inner();
         match store.list_by_commit(&repo_id, &commit) {
             Ok(reports) => Ok(HttpResponse::Ok().json(reports)),
-            Err(e) => Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()}))),
+            Err(e) => {
+                tracing::warn!("Build list error: {}", e);
+                Ok(HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"error": "Internal error"})))
+            }
         }
     }
 }

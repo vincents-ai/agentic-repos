@@ -1,9 +1,23 @@
 use crate::api::models::{
     ApiError, CreateRepositoryRequest, Repository, RepositoryList, UpdateRepositoryRequest,
 };
+use crate::auth::middleware::get_current_session;
 use crate::git::{GitService, GitServiceError};
-use actix_web::{web, HttpResponse, Result as ActixResult};
+use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 use std::sync::Arc;
+
+/// Require authentication for mutation endpoints.
+/// Returns 401 if no valid session is present.
+fn require_auth(req: &HttpRequest) -> ActixResult<()> {
+    if get_current_session(req).is_some() {
+        return Ok(());
+    }
+    // Log and reject — no valid session means unauthenticated
+    tracing::warn!("Unauthenticated mutation attempt on {}", req.path());
+    Err(actix_web::error::ErrorUnauthorized(
+        serde_json::json!({"error": "Authentication required"}).to_string(),
+    ))
+}
 
 pub fn configure_repository_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("", web::get().to(list_repositories))
@@ -60,9 +74,11 @@ pub async fn list_repositories(
 
 pub async fn create_repository(
     git_service: web::Data<Arc<GitService>>,
+    req: HttpRequest,
     path: web::Path<String>,
     payload: web::Json<CreateRepositoryRequest>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let owner = path.into_inner();
     let request = payload.into_inner();
 
@@ -147,9 +163,11 @@ pub async fn get_repository(
 
 pub async fn update_repository(
     git_service: web::Data<Arc<GitService>>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
     _payload: web::Json<UpdateRepositoryRequest>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let (owner, repo) = path.into_inner();
 
     match git_service.get_repository(&owner, &repo).await {
@@ -182,8 +200,10 @@ pub async fn update_repository(
 
 pub async fn delete_repository(
     git_service: web::Data<Arc<GitService>>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let (owner, repo) = path.into_inner();
 
     match git_service.delete_repository(&owner, &repo).await {
@@ -306,12 +326,20 @@ mod tests {
     #[test]
     fn test_list_repositories_query_defaults() {
         // Verify the query struct can be constructed with defaults
-        let q = ListRepositoriesQuery { page: None, per_page: None, owner: None };
+        let q = ListRepositoriesQuery {
+            page: None,
+            per_page: None,
+            owner: None,
+        };
         assert!(q.page.is_none());
         assert!(q.per_page.is_none());
         assert!(q.owner.is_none());
 
-        let q = ListRepositoriesQuery { page: Some(2), per_page: Some(5), owner: Some("acme".to_string()) };
+        let q = ListRepositoriesQuery {
+            page: Some(2),
+            per_page: Some(5),
+            owner: Some("acme".to_string()),
+        };
         assert_eq!(q.page, Some(2));
         assert_eq!(q.per_page, Some(5));
         assert_eq!(q.owner.as_deref(), Some("acme"));

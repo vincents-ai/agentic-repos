@@ -1,9 +1,27 @@
 //! SDLC REST API handlers -- metrics, gates, assessments, dashboard.
 
+use crate::auth::middleware::get_current_session;
 use crate::sdlc::models::*;
 use crate::sdlc::service::SdlcService;
-use actix_web::{web, HttpResponse, Result as ActixResult};
+use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 use std::sync::Arc;
+
+/// Require authentication for mutation endpoints.
+///
+/// Checks for a valid session in request extensions (set by OAuthMiddleware).
+/// Returns 401 if no valid session is found.
+fn require_auth_or_reject(req: &HttpRequest) -> ActixResult<()> {
+    if get_current_session(req).is_some() {
+        return Ok(());
+    }
+    tracing::warn!(
+        "Unauthenticated access to SDLC mutation endpoint: {}",
+        req.path()
+    );
+    Err(actix_web::error::ErrorUnauthorized(
+        serde_json::json!({"error": "Authentication required"}).to_string(),
+    ))
+}
 
 pub fn configure_sdlc_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/metrics", web::get().to(get_metrics))
@@ -29,8 +47,10 @@ async fn get_metrics(service: web::Data<Arc<SdlcService>>) -> ActixResult<HttpRe
 
 async fn record_metric(
     service: web::Data<Arc<SdlcService>>,
+    req: HttpRequest,
     body: web::Json<QualityMetric>,
 ) -> ActixResult<HttpResponse> {
+    require_auth_or_reject(&req)?;
     match service.record_metric(body.into_inner()) {
         Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "recorded"}))),
         Err(e) => {
@@ -52,8 +72,10 @@ async fn list_gates(service: web::Data<Arc<SdlcService>>) -> ActixResult<HttpRes
 
 async fn create_gate(
     service: web::Data<Arc<SdlcService>>,
+    req: HttpRequest,
     body: web::Json<QualityGate>,
 ) -> ActixResult<HttpResponse> {
+    require_auth_or_reject(&req)?;
     match service.create_gate(body.into_inner()) {
         Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "created"}))),
         Err(e) => {
@@ -65,8 +87,10 @@ async fn create_gate(
 
 async fn evaluate_gate(
     service: web::Data<Arc<SdlcService>>,
+    req: HttpRequest,
     path: web::Path<uuid::Uuid>,
 ) -> ActixResult<HttpResponse> {
+    require_auth_or_reject(&req)?;
     let id = path.into_inner();
     match service.evaluate_gate(id) {
         Ok(status) => Ok(HttpResponse::Ok().json(serde_json::json!({
@@ -77,7 +101,11 @@ async fn evaluate_gate(
     }
 }
 
-async fn evaluate_all_gates(service: web::Data<Arc<SdlcService>>) -> ActixResult<HttpResponse> {
+async fn evaluate_all_gates(
+    service: web::Data<Arc<SdlcService>>,
+    req: HttpRequest,
+) -> ActixResult<HttpResponse> {
+    require_auth_or_reject(&req)?;
     match service.evaluate_all_gates() {
         Ok(results) => {
             let mapped: Vec<serde_json::Value> = results
@@ -110,8 +138,10 @@ async fn list_assessments(service: web::Data<Arc<SdlcService>>) -> ActixResult<H
 
 async fn create_assessment(
     service: web::Data<Arc<SdlcService>>,
+    req: HttpRequest,
     body: web::Json<SdlcAssessment>,
 ) -> ActixResult<HttpResponse> {
+    require_auth_or_reject(&req)?;
     match service.create_assessment(body.into_inner()) {
         Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "created"}))),
         Err(e) => {

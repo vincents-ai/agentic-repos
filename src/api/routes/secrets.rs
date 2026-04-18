@@ -3,13 +3,26 @@
 //! REST API endpoints for managing SOPS-encrypted secrets at refs/secrets/*.
 //! Implements ADR-024 secrets infrastructure with egress control.
 
-use crate::api::routes::secrets_service::SecretsService;
 use crate::api::models::ApiError;
-use actix_web::{web, HttpResponse, Result as ActixResult};
+use crate::api::routes::secrets_service::SecretsService;
+use crate::auth::middleware::get_current_session;
+use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Require authentication for all secrets endpoints.
+/// Secrets are sensitive — even listing them requires auth.
+fn require_auth(req: &HttpRequest) -> ActixResult<()> {
+    if get_current_session(req).is_some() {
+        return Ok(());
+    }
+    tracing::warn!("Unauthenticated access attempt to secrets: {}", req.path());
+    Err(actix_web::error::ErrorUnauthorized(
+        serde_json::json!({"error": "Authentication required"}).to_string(),
+    ))
+}
 
 /// Secrets route configuration.
 pub fn configure_secrets_routes(cfg: &mut web::ServiceConfig) {
@@ -84,8 +97,11 @@ fn repo_path(owner: &str, repo: &str) -> PathBuf {
 /// The public key is safe to expose — it can only encrypt, not decrypt.
 pub async fn get_public_key(
     service: web::Data<Arc<SecretsService>>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
 ) -> ActixResult<HttpResponse> {
+    // Public key is public by design, but still require auth to prevent enumeration
+    require_auth(&req)?;
     let (owner, repo) = path.into_inner();
     let repo_path = repo_path(&owner, &repo);
 
@@ -94,17 +110,21 @@ pub async fn get_public_key(
             public_key,
             algorithm: "age-x25519".to_string(),
         })),
-        Err(e) => Ok(HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
     }
 }
 
 /// List all secrets for a repository.
 pub async fn list_secrets(
     service: web::Data<Arc<SecretsService>>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
     query: web::Query<ListSecretsQuery>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let (owner, repo) = path.into_inner();
     let repo_path = repo_path(&owner, &repo);
 
@@ -113,19 +133,23 @@ pub async fn list_secrets(
             total: secrets.len(),
             secrets,
         })),
-        Err(e) => Ok(HttpResponse::InternalServerError()
-            .json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => {
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": e.to_string()})))
+        }
     }
 }
 
-/// Get a specific secret (decrypted).
+/// Get a specific secret (metadata only).
 ///
-/// SECURITY: Only returns plaintext data for admin users.
-/// Non-admin users receive only metadata (name, version, keys list).
+/// SECURITY: Only returns metadata (name, version, keys). Plaintext data
+/// is never exposed through this endpoint per ADR-024 egress control.
 pub async fn get_secret(
     service: web::Data<Arc<SecretsService>>,
+    req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let (owner, repo, secret_name) = path.into_inner();
     let repo_path = repo_path(&owner, &repo);
 
@@ -141,10 +165,9 @@ pub async fn get_secret(
             })))
         }
         Err(e) => match e {
-            super::secrets_service::SecretError::NotFound(_) => {
-                Ok(HttpResponse::NotFound()
-                    .json(ApiError::not_found(&format!("Secret '{}' not found", secret_name))))
-            }
+            super::secrets_service::SecretError::NotFound(_) => Ok(HttpResponse::NotFound().json(
+                ApiError::not_found(&format!("Secret '{}' not found", secret_name)),
+            )),
             _ => Ok(HttpResponse::InternalServerError()
                 .json(serde_json::json!({"error": e.to_string()}))),
         },
@@ -152,20 +175,27 @@ pub async fn get_secret(
 }
 
 /// Create a new secret.
+///
+/// SECURITY: The response contains only metadata, NOT the plaintext data.
+/// Per ADR-024, plaintext secrets never leave the server via API.
 pub async fn create_secret(
     service: web::Data<Arc<SecretsService>>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
     payload: web::Json<CreateSecretRequest>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let (owner, repo) = path.into_inner();
     let repo_path = repo_path(&owner, &repo);
     let request = payload.into_inner();
 
     match service.create_secret(&repo_path, &request.name, request.data) {
-        Ok(stored) => Ok(HttpResponse::Created().json(SecretResponse {
-            name: stored.name,
-            data: stored.data,
-        })),
+        Ok(stored) => Ok(HttpResponse::Created().json(serde_json::json!({
+            "name": stored.name,
+            "version": stored.meta.version,
+            "keys": stored.meta.keys,
+            "updated_at": stored.meta.updated_at,
+        }))),
         Err(e) => match e {
             super::secrets_service::SecretError::InvalidName(msg) => {
                 Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)))
@@ -177,30 +207,30 @@ pub async fn create_secret(
 }
 
 /// Update an existing secret.
+///
+/// SECURITY: The response contains only metadata, NOT the plaintext data.
 pub async fn update_secret(
     service: web::Data<Arc<SecretsService>>,
+    req: HttpRequest,
     path: web::Path<(String, String, String)>,
     payload: web::Json<UpdateSecretRequest>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let (owner, repo, secret_name) = path.into_inner();
     let repo_path = repo_path(&owner, &repo);
     let request = payload.into_inner();
 
-    match service.update_secret(
-        &repo_path,
-        &secret_name,
-        request.data,
-        request.replace,
-    ) {
-        Ok(stored) => Ok(HttpResponse::Ok().json(SecretResponse {
-            name: stored.name,
-            data: stored.data,
-        })),
+    match service.update_secret(&repo_path, &secret_name, request.data, request.replace) {
+        Ok(stored) => Ok(HttpResponse::Ok().json(serde_json::json!({
+            "name": stored.name,
+            "version": stored.meta.version,
+            "keys": stored.meta.keys,
+            "updated_at": stored.meta.updated_at,
+        }))),
         Err(e) => match e {
-            super::secrets_service::SecretError::NotFound(_) => {
-                Ok(HttpResponse::NotFound()
-                    .json(ApiError::not_found(&format!("Secret '{}' not found", secret_name))))
-            }
+            super::secrets_service::SecretError::NotFound(_) => Ok(HttpResponse::NotFound().json(
+                ApiError::not_found(&format!("Secret '{}' not found", secret_name)),
+            )),
             super::secrets_service::SecretError::InvalidName(msg) => {
                 Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)))
             }
@@ -213,18 +243,19 @@ pub async fn update_secret(
 /// Delete a secret.
 pub async fn delete_secret(
     service: web::Data<Arc<SecretsService>>,
+    req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&req)?;
     let (owner, repo, secret_name) = path.into_inner();
     let repo_path = repo_path(&owner, &repo);
 
     match service.delete_secret(&repo_path, &secret_name) {
         Ok(()) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => match e {
-            super::secrets_service::SecretError::NotFound(_) => {
-                Ok(HttpResponse::NotFound()
-                    .json(ApiError::not_found(&format!("Secret '{}' not found", secret_name))))
-            }
+            super::secrets_service::SecretError::NotFound(_) => Ok(HttpResponse::NotFound().json(
+                ApiError::not_found(&format!("Secret '{}' not found", secret_name)),
+            )),
             _ => Ok(HttpResponse::InternalServerError()
                 .json(serde_json::json!({"error": e.to_string()}))),
         },

@@ -23,6 +23,22 @@ fn require_auth(req: &HttpRequest) -> ActixResult<()> {
     ))
 }
 
+/// Sanitize replication errors for HTTP responses.
+/// Logs the full error server-side but returns a generic message to the client
+/// to prevent information leakage (internal paths, version details, etc.).
+fn sanitize_error(e: &crate::replication::service::ReplicationError) -> String {
+    use crate::replication::service::ReplicationError;
+    tracing::warn!("Replication error: {}", e);
+    match e {
+        ReplicationError::TargetNotFound(_) => "Target not found".to_string(),
+        ReplicationError::TargetExists(_) => "Target already exists".to_string(),
+        ReplicationError::ConflictDetected { .. } => "Replication conflict detected".to_string(),
+        ReplicationError::ReplicationFailed(_)
+        | ReplicationError::Storage(_)
+        | ReplicationError::LockPoisoned => "Internal replication error".to_string(),
+    }
+}
+
 pub fn configure_replication_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/replication")
@@ -53,10 +69,8 @@ async fn list_targets(
     }
     match service.list_targets() {
         Ok(targets) => Ok(HttpResponse::Ok().json(targets)),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
-        }
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": sanitize_error(&e)}))),
     }
 }
 
@@ -74,7 +88,9 @@ async fn add_target(
     let target = ReplicationTarget::from(body.into_inner());
     match service.register_target(target) {
         Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "created"}))),
-        Err(e) => Ok(HttpResponse::Conflict().json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => {
+            Ok(HttpResponse::Conflict().json(serde_json::json!({"error": sanitize_error(&e)})))
+        }
     }
 }
 
@@ -93,10 +109,8 @@ async fn get_target(
     match service.get_target(id) {
         Ok(Some(t)) => Ok(HttpResponse::Ok().json(t)),
         Ok(None) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": "not found"}))),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
-        }
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": sanitize_error(&e)}))),
     }
 }
 
@@ -114,7 +128,9 @@ async fn remove_target(
     let id = path.into_inner();
     match service.remove_target(id) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "removed"}))),
-        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => {
+            Ok(HttpResponse::NotFound().json(serde_json::json!({"error": sanitize_error(&e)})))
+        }
     }
 }
 
@@ -132,7 +148,9 @@ async fn enable_target(
     let id = path.into_inner();
     match service.enable_target(id) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "enabled"}))),
-        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => {
+            Ok(HttpResponse::NotFound().json(serde_json::json!({"error": sanitize_error(&e)})))
+        }
     }
 }
 
@@ -150,7 +168,9 @@ async fn disable_target(
     let id = path.into_inner();
     match service.disable_target(id) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "disabled"}))),
-        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => {
+            Ok(HttpResponse::NotFound().json(serde_json::json!({"error": sanitize_error(&e)})))
+        }
     }
 }
 
@@ -166,10 +186,8 @@ async fn list_health(
     }
     match service.get_all_health() {
         Ok(health) => Ok(HttpResponse::Ok().json(health)),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
-        }
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": sanitize_error(&e)}))),
     }
 }
 
@@ -188,10 +206,8 @@ async fn get_health(
     match service.get_target_health(id) {
         Ok(Some(h)) => Ok(HttpResponse::Ok().json(h)),
         Ok(None) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": "not found"}))),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
-        }
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": sanitize_error(&e)}))),
     }
 }
 
@@ -207,10 +223,8 @@ async fn get_dashboard(
     }
     match monitor.dashboard() {
         Ok(dash) => Ok(HttpResponse::Ok().json(dash)),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
-        }
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": sanitize_error(&e)}))),
     }
 }
 
@@ -226,10 +240,8 @@ async fn list_conflicts(
     }
     match service.list_conflicts() {
         Ok(conflicts) => Ok(HttpResponse::Ok().json(conflicts)),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
-        }
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": sanitize_error(&e)}))),
     }
 }
 
@@ -253,7 +265,9 @@ async fn resolve_conflict(
     let id = path.into_inner();
     match service.resolve_conflict(id, body.resolution) {
         Ok(()) => Ok(HttpResponse::Ok().json(serde_json::json!({"status": "resolved"}))),
-        Err(e) => Ok(HttpResponse::NotFound().json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => {
+            Ok(HttpResponse::NotFound().json(serde_json::json!({"error": sanitize_error(&e)})))
+        }
     }
 }
 
@@ -269,10 +283,8 @@ async fn check_alerts(
     }
     match monitor.check_alerts() {
         Ok(alerts) => Ok(HttpResponse::Ok().json(alerts)),
-        Err(e) => {
-            Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
-        }
+        Err(e) => Ok(HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": sanitize_error(&e)}))),
     }
 }
 

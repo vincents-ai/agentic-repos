@@ -26,6 +26,9 @@ pub enum Permission {
     LfsLockRead,
     LfsLockDelete,
     LfsLockForce,
+
+    /// Manage replication targets, failover, and sync operations.
+    ReplicationManage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +86,7 @@ impl std::fmt::Display for Permission {
             Permission::LfsLockRead => "LfsLockRead",
             Permission::LfsLockDelete => "LfsLockDelete",
             Permission::LfsLockForce => "LfsLockForce",
+            Permission::ReplicationManage => "ReplicationManage",
         };
         write!(f, "{}", s)
     }
@@ -110,6 +114,7 @@ impl std::str::FromStr for Permission {
             "LfsLockRead" => Ok(Permission::LfsLockRead),
             "LfsLockDelete" => Ok(Permission::LfsLockDelete),
             "LfsLockForce" => Ok(Permission::LfsLockForce),
+            "ReplicationManage" => Ok(Permission::ReplicationManage),
             other => Err(format!("Unknown permission: {}", other)),
         }
     }

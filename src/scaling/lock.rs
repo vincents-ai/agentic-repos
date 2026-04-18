@@ -10,6 +10,13 @@ use std::time::Duration;
 use thiserror::Error;
 use tracing::{debug, warn};
 
+/// Module-level local lock store — shared across all acquire_local/release_local calls.
+static LOCAL_LOCKS: std::sync::LazyLock<
+    std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
+> = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()))
+});
+
 pub type LockResult<T> = std::result::Result<T, LockError>;
 
 #[derive(Error, Debug)]
@@ -234,12 +241,6 @@ impl DistributedLock {
             options.key, self.instance_id
         );
 
-        static LOCAL_LOCKS: std::sync::LazyLock<
-            std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
-        > = std::sync::LazyLock::new(|| {
-            std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()))
-        });
-
         let mut locks = LOCAL_LOCKS.write().await;
         if let Some(existing) = locks.get(&options.key) {
             if existing.starts_with(&self.instance_id) {
@@ -314,12 +315,6 @@ impl DistributedLock {
 
     async fn release_local(&self, handle: &LockHandle) -> LockResult<()> {
         debug!("Releasing local lock: {}", handle.key);
-
-        static LOCAL_LOCKS: std::sync::LazyLock<
-            std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
-        > = std::sync::LazyLock::new(|| {
-            std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()))
-        });
 
         let mut locks = LOCAL_LOCKS.write().await;
         if let Some(existing) = locks.get(&handle.key) {
@@ -420,7 +415,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "local lock re-acquire has a bug where handle value doesn't match stored value"]
     async fn test_local_lock_acquire_release() {
         let lock = DistributedLock::new(None, "test-instance".to_string());
         let options = LockOptions::new("test-lock");

@@ -40,7 +40,13 @@ pub struct BackupService {
     config: BackupConfig,
     git_storage_path: String,
     lfs_storage_path: String,
+    /// Semaphore limiting concurrent backup operations (default: 4).
+    /// Prevents resource exhaustion from parallel backups.
+    concurrency_limit: tokio::sync::Semaphore,
 }
+
+/// Maximum concurrent backup/restore operations.
+const MAX_CONCURRENT_BACKUPS: usize = 4;
 
 impl BackupService {
     pub fn new(
@@ -54,10 +60,17 @@ impl BackupService {
             config,
             git_storage_path,
             lfs_storage_path,
+            concurrency_limit: tokio::sync::Semaphore::new(MAX_CONCURRENT_BACKUPS),
         }
     }
 
     pub async fn create_backup(&self, params: CreateBackupParams) -> BackupResult<Backup> {
+        let _permit = self
+            .concurrency_limit
+            .acquire()
+            .await
+            .map_err(|_| BackupError::BackupFailed("Concurrency limit exceeded".to_string()))?;
+
         let retention = params
             .retention_days
             .unwrap_or(self.config.default_retention_days);
@@ -376,6 +389,11 @@ impl BackupService {
     }
 
     pub async fn restore_backup(&self, request: RestoreRequest) -> BackupResult<RestoreResult> {
+        let _permit =
+            self.concurrency_limit.acquire().await.map_err(|_| {
+                BackupError::RestoreFailed("Concurrency limit exceeded".to_string())
+            })?;
+
         let backup = self
             .storage
             .get(&request.backup_id)

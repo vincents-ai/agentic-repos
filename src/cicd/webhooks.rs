@@ -73,6 +73,178 @@ pub mod handlers {
     use crate::cicd::store::InMemoryBuildReportStore;
     use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 
+    /// Get the webhook secret from environment variable.
+    /// Each provider has its own env var: CICD_GITHUB_SECRET, CICD_GITLAB_TOKEN, CICD_JENKINS_SECRET.
+    fn get_webhook_secret(env_key: &str) -> Option<String> {
+        std::env::var(env_key).ok()
+    }
+
+    /// Verify GitHub webhook signature (HMAC-SHA256).
+    ///
+    /// GitHub sends `X-Hub-Signature-256: sha256=<hex_hmac>`.
+    /// We compute HMAC-SHA256 over the raw body with the shared secret and
+    /// compare using constant-time comparison.
+    fn verify_github_signature(req: &HttpRequest, body: &[u8]) -> Result<(), WebhookRoutingError> {
+        let secret = match get_webhook_secret("CICD_GITHUB_SECRET") {
+            Some(s) => s,
+            None => {
+                // No secret configured — allow through but log warning
+                tracing::warn!(
+                    "No CICD_GITHUB_SECRET configured — webhook signature verification disabled"
+                );
+                return Ok(());
+            }
+        };
+
+        let sig_header = req
+            .headers()
+            .get("X-Hub-Signature-256")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                WebhookRoutingError::UnsupportedProvider(
+                    "Missing X-Hub-Signature-256 header".to_string(),
+                )
+            })?;
+
+        let expected_hex = sig_header.strip_prefix("sha256=").ok_or_else(|| {
+            WebhookRoutingError::UnsupportedProvider(
+                "Invalid X-Hub-Signature-256 format — expected 'sha256=...'".to_string(),
+            )
+        })?;
+
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
+        mac.update(body);
+        let computed = mac.finalize().into_bytes();
+
+        // Constant-time comparison via hmac crate
+        let expected_bytes: Vec<u8> = hex::decode(expected_hex).map_err(|_| {
+            WebhookRoutingError::UnsupportedProvider(
+                "Invalid hex in X-Hub-Signature-256".to_string(),
+            )
+        })?;
+
+        if expected_bytes.len() != computed.as_slice().len() {
+            return Err(WebhookRoutingError::UnsupportedProvider(
+                "Webhook signature verification failed".to_string(),
+            ));
+        }
+
+        // Constant-time byte comparison
+        let mut diff: u8 = 0;
+        for (a, b) in computed.as_slice().iter().zip(expected_bytes.iter()) {
+            diff |= a ^ b;
+        }
+        if diff != 0 {
+            return Err(WebhookRoutingError::UnsupportedProvider(
+                "Webhook signature verification failed".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Verify GitLab webhook token.
+    ///
+    /// GitLab sends `X-Gitlab-Token: <token>` header.
+    /// Constant-time comparison against configured token.
+    fn verify_gitlab_token(req: &HttpRequest) -> Result<(), WebhookRoutingError> {
+        let secret = match get_webhook_secret("CICD_GITLAB_TOKEN") {
+            Some(s) => s,
+            None => {
+                tracing::warn!(
+                    "No CICD_GITLAB_TOKEN configured — webhook token verification disabled"
+                );
+                return Ok(());
+            }
+        };
+
+        let token = req
+            .headers()
+            .get("X-Gitlab-Token")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                WebhookRoutingError::UnsupportedProvider(
+                    "Missing X-Gitlab-Token header".to_string(),
+                )
+            })?;
+
+        // Constant-time comparison
+        if token.as_bytes().len() != secret.as_bytes().len() {
+            return Err(WebhookRoutingError::UnsupportedProvider(
+                "GitLab webhook token verification failed".to_string(),
+            ));
+        }
+        let mut diff: u8 = 0;
+        for (a, b) in token.as_bytes().iter().zip(secret.as_bytes().iter()) {
+            diff |= a ^ b;
+        }
+        if diff != 0 {
+            return Err(WebhookRoutingError::UnsupportedProvider(
+                "GitLab webhook token verification failed".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Verify Jenkins webhook signature (HMAC-SHA1 or SHA256).
+    ///
+    /// Jenkins can send `X-Jenkins-Signature: <hex_hmac>`.
+    fn verify_jenkins_signature(req: &HttpRequest, body: &[u8]) -> Result<(), WebhookRoutingError> {
+        let secret = match get_webhook_secret("CICD_JENKINS_SECRET") {
+            Some(s) => s,
+            None => {
+                tracing::warn!(
+                    "No CICD_JENKINS_SECRET configured — webhook signature verification disabled"
+                );
+                return Ok(());
+            }
+        };
+
+        let sig_header = req
+            .headers()
+            .get("X-Jenkins-Signature")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                WebhookRoutingError::UnsupportedProvider(
+                    "Missing X-Jenkins-Signature header".to_string(),
+                )
+            })?;
+
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
+        mac.update(body);
+        let computed = mac.finalize().into_bytes();
+
+        let expected_hex = sig_header.strip_prefix("sha256=").unwrap_or(sig_header);
+        let expected_bytes: Vec<u8> = hex::decode(expected_hex).map_err(|_| {
+            WebhookRoutingError::UnsupportedProvider(
+                "Invalid hex in X-Jenkins-Signature".to_string(),
+            )
+        })?;
+
+        let mut diff: u8 = 0;
+        for (a, b) in computed.as_slice().iter().zip(expected_bytes.iter()) {
+            diff |= a ^ b;
+        }
+        if diff != 0 {
+            return Err(WebhookRoutingError::UnsupportedProvider(
+                "Jenkins webhook signature verification failed".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     pub fn configure_cicd_routes(cfg: &mut web::ServiceConfig) {
         cfg.route("/webhooks/github", web::post().to(github_webhook))
             .route("/webhooks/gitlab", web::post().to(gitlab_webhook))
@@ -96,6 +268,14 @@ pub mod handlers {
             .unwrap_or("unknown")
             .to_string();
 
+        // Verify GitHub HMAC-SHA256 signature
+        let body_bytes = serde_json::to_vec(&payload).unwrap_or_default();
+        if let Err(e) = verify_github_signature(&req, &body_bytes) {
+            return Ok(
+                HttpResponse::Unauthorized().json(serde_json::json!({"error": e.to_string()}))
+            );
+        }
+
         match route_webhook(
             store.as_ref().as_ref(),
             ProviderHint::Github { event_type },
@@ -115,8 +295,16 @@ pub mod handlers {
 
     async fn gitlab_webhook(
         store: web::Data<Arc<InMemoryBuildReportStore>>,
+        req: HttpRequest,
         payload: web::Json<serde_json::Value>,
     ) -> ActixResult<HttpResponse> {
+        // Verify GitLab token
+        if let Err(e) = verify_gitlab_token(&req) {
+            return Ok(
+                HttpResponse::Unauthorized().json(serde_json::json!({"error": e.to_string()}))
+            );
+        }
+
         match route_webhook(
             store.as_ref().as_ref(),
             ProviderHint::Gitlab,
@@ -131,8 +319,17 @@ pub mod handlers {
 
     async fn jenkins_webhook(
         store: web::Data<Arc<InMemoryBuildReportStore>>,
+        req: HttpRequest,
         payload: web::Json<serde_json::Value>,
     ) -> ActixResult<HttpResponse> {
+        // Verify Jenkins HMAC
+        let body_bytes = serde_json::to_vec(&payload).unwrap_or_default();
+        if let Err(e) = verify_jenkins_signature(&req, &body_bytes) {
+            return Ok(
+                HttpResponse::Unauthorized().json(serde_json::json!({"error": e.to_string()}))
+            );
+        }
+
         match route_webhook(
             store.as_ref().as_ref(),
             ProviderHint::Jenkins,

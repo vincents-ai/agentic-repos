@@ -8,6 +8,18 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::str::FromStr;
+use std::time::{Duration, Instant};
+use tracing::warn;
+
+/// Maximum time allowed to compile a single user-provided regex.
+const REGEX_COMPILE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Maximum length of a user-provided regex pattern.
+const MAX_PATTERN_LENGTH: usize = 4096;
+
+/// Maximum number of capture groups / alternations before we reject.
+/// This is a heuristic to prevent pathological patterns.
+const MAX_PATTERN_COMPLEXITY: usize = 100;
 
 /// A user-defined security rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,13 +77,106 @@ pub fn load_rules_from_json(json: &str) -> Result<Vec<SecurityRule>, serde_json:
     serde_json::from_str(json)
 }
 
+/// Check whether a regex pattern is likely to cause catastrophic backtracking.
+///
+/// This is a heuristic check — it catches the most common pathological patterns
+/// like nested quantifiers `((a+)+)` and deeply nested alternations. It does NOT
+/// guarantee safety against all ReDoS patterns, so execution-time limits are also
+/// applied.
+fn is_likely_pathological(pattern: &str) -> bool {
+    // Reject overly complex patterns
+    let quantifier_count = pattern
+        .chars()
+        .filter(|c| *c == '+' || *c == '*' || *c == '{')
+        .count();
+    if quantifier_count > MAX_PATTERN_COMPLEXITY {
+        return true;
+    }
+
+    // Check for nested quantifiers like (a+)+, (a*)*, (a+)*, etc.
+    // Simplified heuristic: look for `)+`, `)*`, `}+`, `}*` which indicate
+    // a quantifier on a group that already contains quantifiers.
+    let bytes = pattern.as_bytes();
+    for i in 0..bytes.len().saturating_sub(1) {
+        if bytes[i] == b')' || bytes[i] == b'}' {
+            if bytes[i + 1] == b'+' || bytes[i + 1] == b'*' {
+                // Check if there's a quantifier inside the matching group
+                // Look backwards for the matching open paren
+                let mut depth = 0;
+                for j in (0..i).rev() {
+                    if bytes[j] == b')' {
+                        depth += 1;
+                    } else if bytes[j] == b'(' {
+                        if depth == 0 {
+                            // Found the matching open paren, check for inner quantifiers
+                            for k in j..i {
+                                if bytes[k] == b'+' || bytes[k] == b'*' || bytes[k] == b'{' {
+                                    return true; // Nested quantifier detected
+                                }
+                            }
+                            break;
+                        }
+                        depth -= 1;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Compile a regex from a user-provided pattern with safety checks.
+///
+/// Applies the following protections:
+/// 1. Pattern length limit (MAX_PATTERN_LENGTH)
+/// 2. Heuristic check for pathological nested quantifiers
+/// 3. Compile-time measurement (REGEX_COMPILE_TIMEOUT)
+fn safe_compile_regex(pattern: &str) -> Option<Regex> {
+    // Length check
+    if pattern.len() > MAX_PATTERN_LENGTH {
+        warn!(
+            "Rejecting regex pattern: too long ({} bytes, max {})",
+            pattern.len(),
+            MAX_PATTERN_LENGTH
+        );
+        return None;
+    }
+
+    // Heuristic check for pathological patterns
+    if is_likely_pathological(pattern) {
+        warn!("Rejecting regex pattern: likely pathological (nested quantifiers or excessive complexity)");
+        return None;
+    }
+
+    // Compile with timeout measurement
+    let start = Instant::now();
+    match Regex::new(pattern) {
+        Ok(regex) => {
+            let elapsed = start.elapsed();
+            if elapsed > REGEX_COMPILE_TIMEOUT {
+                warn!(
+                    "Rejecting regex pattern: compile took too long ({:?}, max {:?})",
+                    elapsed, REGEX_COMPILE_TIMEOUT
+                );
+                return None;
+            }
+            Some(regex)
+        }
+        Err(e) => {
+            warn!("Failed to compile regex pattern '{}': {}", pattern, e);
+            None
+        }
+    }
+}
+
 /// Compile a list of security rules into matchers.
 pub fn compile_rules(rules: &[SecurityRule]) -> Vec<CompiledRule> {
     rules
         .iter()
         .filter(|r| r.enabled)
         .filter_map(|rule| {
-            let regex = Regex::new(&rule.pattern).ok()?;
+            let regex = safe_compile_regex(&rule.pattern)?;
             let severity = Severity::from_str(&rule.severity).ok()?;
             let file_glob = rule
                 .file_glob
@@ -193,5 +298,76 @@ mod tests {
         let rules = load_rules_from_yaml(yaml).unwrap();
         let compiled = compile_rules(&rules);
         assert!(compiled.is_empty());
+    }
+
+    // ── ReDoS protection tests ──
+
+    #[test]
+    fn test_rejects_nested_quantifier_pattern() {
+        // Classic ReDoS pattern: (a+)+
+        let rules = vec![SecurityRule {
+            name: "redos-attempt".to_string(),
+            description: "Pathological regex".to_string(),
+            pattern: "(a+)+$".to_string(),
+            severity: "high".to_string(),
+            file_glob: None,
+            enabled: true,
+        }];
+        let compiled = compile_rules(&rules);
+        assert!(
+            compiled.is_empty(),
+            "Nested quantifier pattern should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_rejects_overly_long_pattern() {
+        let long_pattern = "a".repeat(MAX_PATTERN_LENGTH + 1);
+        let rules = vec![SecurityRule {
+            name: "long-pattern".to_string(),
+            description: "Too long".to_string(),
+            pattern: long_pattern,
+            severity: "low".to_string(),
+            file_glob: None,
+            enabled: true,
+        }];
+        let compiled = compile_rules(&rules);
+        assert!(
+            compiled.is_empty(),
+            "Overly long pattern should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_accepts_benign_pattern() {
+        let rules = vec![SecurityRule {
+            name: "benign".to_string(),
+            description: "Safe pattern".to_string(),
+            pattern: r"Bearer\s+[A-Za-z0-9]+".to_string(),
+            severity: "high".to_string(),
+            file_glob: None,
+            enabled: true,
+        }];
+        let compiled = compile_rules(&rules);
+        assert_eq!(
+            compiled.len(),
+            1,
+            "Benign pattern should compile successfully"
+        );
+    }
+
+    #[test]
+    fn test_is_likely_pathological_positive() {
+        assert!(is_likely_pathological("(a+)+$"));
+        assert!(is_likely_pathological("(a*)*"));
+        assert!(is_likely_pathological("((x+)+)+"));
+    }
+
+    #[test]
+    fn test_is_likely_pathological_negative() {
+        assert!(!is_likely_pathological("[A-Za-z]+"));
+        assert!(!is_likely_pathological("(foo|bar)"));
+        assert!(!is_likely_pathological("\\d{1,3}"));
+        assert!(!is_likely_pathological("Bearer\\s+[A-Za-z0-9_-]+"));
     }
 }

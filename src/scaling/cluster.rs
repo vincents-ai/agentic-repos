@@ -143,6 +143,11 @@ pub struct ClusterManager {
 
 impl ClusterManager {
     pub fn new(config: ScalingConfig) -> Self {
+        // Validate config to prevent Redis key injection
+        if let Err(e) = config.validate() {
+            panic!("Invalid scaling config: {}", e);
+        }
+
         let local_instance =
             InstanceInfo::new(config.instance_id.clone(), config.cluster_name.clone());
         let distributed_lock = Arc::new(DistributedLock::new(

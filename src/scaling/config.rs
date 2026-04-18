@@ -69,6 +69,50 @@ impl Default for SessionAffinityConfig {
 }
 
 impl ScalingConfig {
+    /// Validate config values to prevent injection into Redis keys and cluster operations.
+    ///
+    /// Rejects values containing colons (namespace separator), newlines (RESP injection),
+    /// null bytes, or excessive length (>64 chars).
+    pub fn validate(&self) -> Result<(), String> {
+        Self::validate_key_component(&self.instance_id, "instance_id")?;
+        Self::validate_key_component(&self.cluster_name, "cluster_name")?;
+        if let Some(ref url) = self.redis_url {
+            // Basic sanity: must start with redis:// or rediss://
+            if !url.starts_with("redis://") && !url.starts_with("rediss://") {
+                return Err("redis_url must start with redis:// or rediss://".to_string());
+            }
+            if url.contains('\n') || url.contains('\r') {
+                return Err("redis_url must not contain newline characters".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_key_component(value: &str, field: &str) -> Result<(), String> {
+        if value.is_empty() {
+            return Err(format!("{} must not be empty", field));
+        }
+        if value.len() > 64 {
+            return Err(format!("{} must not exceed 64 characters", field));
+        }
+        if value.contains(':') {
+            return Err(format!(
+                "{} must not contain ':' (Redis namespace separator)",
+                field
+            ));
+        }
+        if value.contains('\n') || value.contains('\r') {
+            return Err(format!("{} must not contain newline characters", field));
+        }
+        if value.contains('\0') {
+            return Err(format!("{} must not contain null bytes", field));
+        }
+        if value.contains(' ') {
+            return Err(format!("{} must not contain spaces", field));
+        }
+        Ok(())
+    }
+
     pub fn from_env() -> Self {
         let enabled = std::env::var("SCALING_ENABLED")
             .map(|v| v == "true")

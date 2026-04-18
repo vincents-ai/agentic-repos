@@ -283,6 +283,59 @@ impl LocalBackupStorage {
         }
     }
 
+    /// Sanitize a path component to prevent path traversal.
+    /// Rejects empty, `..`, separators, null bytes, and hidden files.
+    fn sanitize_component(component: &str, name: &str) -> Result<String, BackupStorageError> {
+        if component.is_empty() {
+            return Err(BackupStorageError::OperationFailed(format!(
+                "{} must not be empty",
+                name
+            )));
+        }
+        if component.contains("..") {
+            return Err(BackupStorageError::OperationFailed(format!(
+                "{} must not contain '..'",
+                name
+            )));
+        }
+        if component.contains(std::path::MAIN_SEPARATOR) || component.contains('/') || component.contains("\\") {
+            return Err(BackupStorageError::OperationFailed(format!(
+                "{} must not contain path separators",
+                name
+            )));
+        }
+        if component.contains('\0') {
+            return Err(BackupStorageError::OperationFailed(format!(
+                "{} must not contain null bytes",
+                name
+            )));
+        }
+        if component.starts_with('.') {
+            return Err(BackupStorageError::OperationFailed(format!(
+                "{} must not be a hidden file",
+                name
+            )));
+        }
+        Ok(component.to_string())
+    }
+
+    /// Build a safe path under base_path, ensuring the result stays within base_path.
+    fn safe_join(&self, component: &str, name: &str) -> Result<PathBuf, BackupStorageError> {
+        let sanitized = Self::sanitize_component(component, name)?;
+        let candidate = self.base_path.join(&sanitized);
+
+        // Defense-in-depth: canonicalize both and check prefix
+        // (works even if base_path itself has symlinks)
+        let canonical_base = self.base_path.canonicalize().unwrap_or_else(|_| self.base_path.clone());
+        // We can't canonicalize candidate (may not exist yet), so check lexically
+        if !candidate.starts_with(&canonical_base) {
+            return Err(BackupStorageError::OperationFailed(
+                "Path traversal detected".to_string(),
+            ));
+        }
+        Ok(candidate)
+    }
+
     pub async fn initialize(&self) -> Result<(), BackupStorageError> {
         fs::create_dir_all(&self.base_path).await?;
         fs::create_dir_all(self.base_path.join("repositories")).await?;
@@ -293,11 +346,18 @@ impl LocalBackupStorage {
     }
 
     fn get_backup_path(&self, backup: &Backup) -> PathBuf {
+        let tenant_dir = match self.safe_join(&backup.tenant_id, "tenant_id") {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("Invalid tenant_id in backup: {}", e);
+                return self.base_path.join("invalid");
+            }
+        };
         let filename = format!(
             "{}_{}_{}.backup",
             backup.backup_type, backup.tenant_id, backup.id
         );
-        self.base_path.join(&backup.tenant_id).join(filename)
+        tenant_dir.join(filename)
     }
 }
 
@@ -313,7 +373,7 @@ impl BackupStorage for LocalBackupStorage {
             return Err(BackupStorageError::AlreadyExists(backup.id.to_string()));
         }
 
-        let tenant_dir = self.base_path.join(&backup.tenant_id);
+        let tenant_dir = self.safe_join(&backup.tenant_id, "tenant_id")?;
         fs::create_dir_all(&tenant_dir).await?;
 
         let id = backup.id;
@@ -418,7 +478,7 @@ impl BackupStorage for LocalBackupStorage {
             }
 
             if let Some(path) = storage_path {
-                let full_path = self.base_path.join(path);
+                let full_path = self.safe_join(path.as_str(), "storage_path")?;
                 let _ = fs::remove_file(full_path).await;
             }
         }
@@ -467,12 +527,12 @@ impl BackupStorage for LocalBackupStorage {
     }
 
     async fn retrieve_backup_data(&self, path: &str) -> Result<Vec<u8>, BackupStorageError> {
-        let full_path = self.base_path.join(path);
+        let full_path = self.safe_join(path, "path")?;
         Ok(fs::read(&full_path).await?)
     }
 
     async fn delete_backup_data(&self, path: &str) -> Result<(), BackupStorageError> {
-        let full_path = self.base_path.join(path);
+        let full_path = self.safe_join(path, "path")?;
         fs::remove_file(&full_path).await?;
         Ok(())
     }

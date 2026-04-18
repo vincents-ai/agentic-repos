@@ -227,7 +227,11 @@ pub struct S3BackupConfig {
     pub region: String,
     pub endpoint: Option<String>,
     pub prefix: String,
+    /// S3 access key — never serialized to prevent credential exposure.
+    #[serde(skip_serializing)]
     pub access_key: Option<String>,
+    /// S3 secret key — never serialized to prevent credential exposure.
+    #[serde(skip_serializing)]
     pub secret_key: Option<String>,
 }
 

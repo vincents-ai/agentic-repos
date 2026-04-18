@@ -1,10 +1,22 @@
+use crate::auth::middleware::get_current_session;
 use crate::backup::models::{Backup, BackupStatus, BackupType, RestoreRequest, RestoreResult};
 use crate::backup::service::{BackupError, BackupService};
 use crate::features::FeatureFlags;
-use actix_web::{web, HttpResponse, Result};
+use actix_web::{web, HttpRequest, HttpResponse, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
+
+/// Require auth for all backup endpoints.
+fn require_auth(req: &HttpRequest) -> Result<()> {
+    if get_current_session(req).is_some() {
+        return Ok(());
+    }
+    tracing::warn!("Unauthenticated access to backup endpoint: {}", req.path());
+    Err(actix_web::error::ErrorUnauthorized(
+        serde_json::json!({"error": "Authentication required"}).to_string(),
+    ))
+}
 
 #[derive(Deserialize)]
 pub struct CreateBackupRequest {
@@ -153,8 +165,10 @@ fn error_response(error: BackupError) -> HttpResponse {
 pub async fn create_backup(
     backup_service: web::Data<Arc<BackupService>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     req: web::Json<CreateBackupRequest>,
 ) -> Result<HttpResponse> {
+    require_auth(&http_req)?;
     if !feature_flags.backup_recovery {
         return Ok(HttpResponse::Forbidden().json(serde_json::json!({
             "error": "Backup & Recovery feature is not enabled"
@@ -192,8 +206,10 @@ pub async fn create_backup(
 pub async fn list_backups(
     backup_service: web::Data<Arc<BackupService>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     query: web::Query<ListBackupsQuery>,
 ) -> Result<HttpResponse> {
+    require_auth(&http_req)?;
     if !feature_flags.backup_recovery {
         return Ok(HttpResponse::Forbidden().json(serde_json::json!({
             "error": "Backup & Recovery feature is not enabled"
@@ -235,8 +251,10 @@ pub async fn list_backups(
 pub async fn get_backup(
     backup_service: web::Data<Arc<BackupService>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
+    require_auth(&http_req)?;
     if !feature_flags.backup_recovery {
         return Ok(HttpResponse::Forbidden().json(serde_json::json!({
             "error": "Backup & Recovery feature is not enabled"
@@ -262,9 +280,11 @@ pub async fn get_backup(
 pub async fn restore_backup(
     backup_service: web::Data<Arc<BackupService>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     path: web::Path<String>,
     req: web::Json<RestoreBackupRequest>,
 ) -> Result<HttpResponse> {
+    require_auth(&http_req)?;
     if !feature_flags.backup_recovery {
         return Ok(HttpResponse::Forbidden().json(serde_json::json!({
             "error": "Backup & Recovery feature is not enabled"
@@ -298,8 +318,10 @@ pub async fn restore_backup(
 pub async fn delete_backup(
     backup_service: web::Data<Arc<BackupService>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
+    require_auth(&http_req)?;
     if !feature_flags.backup_recovery {
         return Ok(HttpResponse::Forbidden().json(serde_json::json!({
             "error": "Backup & Recovery feature is not enabled"
@@ -327,8 +349,10 @@ pub async fn delete_backup(
 pub async fn cancel_backup(
     backup_service: web::Data<Arc<BackupService>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
+    require_auth(&http_req)?;
     if !feature_flags.backup_recovery {
         return Ok(HttpResponse::Forbidden().json(serde_json::json!({
             "error": "Backup & Recovery feature is not enabled"
@@ -354,8 +378,10 @@ pub async fn cancel_backup(
 pub async fn verify_backup(
     backup_service: web::Data<Arc<BackupService>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
+    require_auth(&http_req)?;
     if !feature_flags.backup_recovery {
         return Ok(HttpResponse::Forbidden().json(serde_json::json!({
             "error": "Backup & Recovery feature is not enabled"

@@ -118,7 +118,7 @@ fn init_capabilities() -> *const [CapabilityInfo; 9] {
                 required_permission: ptr::null(),
             },
         ]);
-        CAPABILITIES_STORAGE.store(Box::leak(caps) as *mut _, Ordering::SeqCst);
+        CAPABILITIES_STORAGE.store(Box::into_raw(caps) as *mut _, Ordering::SeqCst);
     }
     CAPABILITIES_STORAGE.load(Ordering::SeqCst)
 }
@@ -132,7 +132,7 @@ fn init_tags() -> *const [*const c_char; 5] {
             TAG_SSH.as_ptr() as *const c_char,
             TAG_STORAGE.as_ptr() as *const c_char,
         ]);
-        TAGS_STORAGE.store(Box::leak(tags) as *mut _, Ordering::SeqCst);
+        TAGS_STORAGE.store(Box::into_raw(tags) as *mut _, Ordering::SeqCst);
     }
     TAGS_STORAGE.load(Ordering::SeqCst)
 }
@@ -146,7 +146,7 @@ fn init_service() -> *const ServiceInfo {
             description: SERVICE_DESCRIPTION.as_ptr() as *const c_char,
             interface_spec: SERVICE_SPEC.as_ptr() as *const c_char,
         });
-        SERVICE_STORAGE.store(Box::leak(service) as *mut _, Ordering::SeqCst);
+        SERVICE_STORAGE.store(Box::into_raw(service) as *mut _, Ordering::SeqCst);
     }
     SERVICE_STORAGE.load(Ordering::SeqCst)
 }
@@ -189,7 +189,7 @@ fn init_plugin_info() -> *const PluginInfoV2 {
             build_environment: ptr::null(),
             metadata: ptr::null(),
         });
-        PLUGIN_INFO.store(Box::leak(info) as *mut _, Ordering::SeqCst);
+        PLUGIN_INFO.store(Box::into_raw(info) as *mut _, Ordering::SeqCst);
     }
     PLUGIN_INFO.load(Ordering::SeqCst)
 }
@@ -607,11 +607,24 @@ pub unsafe extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) ->
 
     global_registry().clear();
 
-    // Reset static pointers for hot-reload support
-    PLUGIN_INFO.store(ptr::null_mut(), Ordering::SeqCst);
-    CAPABILITIES_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
-    TAGS_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
-    SERVICE_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
+    // Properly free static FFI data using Box::from_raw
+    // (each was allocated with Box::into_raw in init functions)
+    unsafe {
+        if let Some(ptr) = Option::from(PLUGIN_INFO.swap(ptr::null_mut(), Ordering::SeqCst)) {
+            let _ = Box::from_raw(ptr);
+        }
+        if let Some(ptr) =
+            Option::from(CAPABILITIES_STORAGE.swap(ptr::null_mut(), Ordering::SeqCst))
+        {
+            let _ = Box::from_raw(ptr);
+        }
+        if let Some(ptr) = Option::from(TAGS_STORAGE.swap(ptr::null_mut(), Ordering::SeqCst)) {
+            let _ = Box::from_raw(ptr);
+        }
+        if let Some(ptr) = Option::from(SERVICE_STORAGE.swap(ptr::null_mut(), Ordering::SeqCst)) {
+            let _ = Box::from_raw(ptr);
+        }
+    }
 
     PluginResultV2::Success
 }

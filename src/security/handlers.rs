@@ -1,19 +1,75 @@
 use crate::api::models::ApiError;
+use crate::auth::middleware::get_current_session;
 use crate::features::FeatureFlags;
 use crate::security::scanner::{ScanRequest, SecretScanner};
-use actix_web::{web, HttpResponse, Result as ActixResult};
+use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
 use std::sync::Arc;
+
+/// Simple in-process rate limiter for scan endpoint.
+/// Limits to MAX_SCANS_PER_MINUTE per process (not per-user, since auth
+/// already gates access and per-user state would require Redis).
+mod scan_rate_limit {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    const MAX_SCANS_PER_MINUTE: u64 = 30;
+
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    static WINDOW_START: std::sync::OnceLock<std::sync::Mutex<Instant>> =
+        std::sync::OnceLock::new();
+
+    pub fn check() -> bool {
+        let start = WINDOW_START.get_or_init(|| std::sync::Mutex::new(Instant::now()));
+        let mut guard = start.lock().unwrap();
+        if guard.elapsed().as_secs() >= 60 {
+            *guard = Instant::now();
+            COUNT.store(1, Ordering::Relaxed);
+            return true;
+        }
+        drop(guard);
+        let current = COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        current <= MAX_SCANS_PER_MINUTE
+    }
+}
+
+/// Maximum content size for scan requests (10 KB).
+/// Secret scanning doesn't need large payloads — individual files only.
+const MAX_SCAN_CONTENT_BYTES: usize = 10 * 1024;
 
 pub fn configure_security_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/scan", web::post().to(scan_content))
         .route("/results/{scan_id}", web::get().to(get_scan_result));
 }
 
+/// Require authentication for security endpoints.
+fn require_auth(req: &HttpRequest) -> ActixResult<()> {
+    if get_current_session(req).is_some() {
+        return Ok(());
+    }
+    tracing::warn!(
+        "Unauthenticated access to security endpoint: {}",
+        req.path()
+    );
+    Err(actix_web::error::ErrorUnauthorized(
+        serde_json::json!({"error": "Authentication required"}).to_string(),
+    ))
+}
+
 pub async fn scan_content(
     scanner: web::Data<Arc<SecretScanner>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     payload: web::Json<ScanRequest>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&http_req)?;
+
+    // Rate limit scan requests
+    if !scan_rate_limit::check() {
+        return Ok(HttpResponse::TooManyRequests().json(serde_json::json!({
+            "error": "Rate limit exceeded — maximum 30 scans per minute"
+        })));
+    }
+
     if !feature_flags.security_scanning {
         let error = ApiError::new(
             "feature_disabled",
@@ -21,6 +77,13 @@ pub async fn scan_content(
             403,
         );
         return Ok(HttpResponse::Forbidden().json(error));
+    }
+
+    // Validate content size
+    if payload.content.len() > MAX_SCAN_CONTENT_BYTES {
+        return Ok(HttpResponse::PayloadTooLarge().json(serde_json::json!({
+            "error": format!("Content exceeds maximum size of {} bytes", MAX_SCAN_CONTENT_BYTES)
+        })));
     }
 
     let result = scanner.scan(payload.into_inner()).await;
@@ -31,8 +94,11 @@ pub async fn scan_content(
 pub async fn get_scan_result(
     scanner: web::Data<Arc<SecretScanner>>,
     feature_flags: web::Data<FeatureFlags>,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> ActixResult<HttpResponse> {
+    require_auth(&http_req)?;
+
     if !feature_flags.security_scanning {
         let error = ApiError::new(
             "feature_disabled",

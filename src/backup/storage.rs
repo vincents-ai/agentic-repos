@@ -298,7 +298,10 @@ impl LocalBackupStorage {
                 name
             )));
         }
-        if component.contains(std::path::MAIN_SEPARATOR) || component.contains('/') || component.contains("\\") {
+        if component.contains(std::path::MAIN_SEPARATOR)
+            || component.contains('/')
+            || component.contains("\\")
+        {
             return Err(BackupStorageError::OperationFailed(format!(
                 "{} must not contain path separators",
                 name
@@ -326,7 +329,10 @@ impl LocalBackupStorage {
 
         // Defense-in-depth: canonicalize both and check prefix
         // (works even if base_path itself has symlinks)
-        let canonical_base = self.base_path.canonicalize().unwrap_or_else(|_| self.base_path.clone());
+        let canonical_base = self
+            .base_path
+            .canonicalize()
+            .unwrap_or_else(|_| self.base_path.clone());
         // We can't canonicalize candidate (may not exist yet), so check lexically
         if !candidate.starts_with(&canonical_base) {
             return Err(BackupStorageError::OperationFailed(
@@ -519,8 +525,11 @@ impl BackupStorage for LocalBackupStorage {
 
         fs::create_dir_all(parent).await?;
 
+        let encrypted_data = crate::backup::crypto::encrypt(data)
+            .map_err(|e| BackupStorageError::OperationFailed(e))?;
+
         let mut file = fs::File::create(&full_path).await?;
-        file.write_all(data).await?;
+        file.write_all(&encrypted_data).await?;
         file.sync_all().await?;
 
         Ok(path.to_string())
@@ -528,7 +537,9 @@ impl BackupStorage for LocalBackupStorage {
 
     async fn retrieve_backup_data(&self, path: &str) -> Result<Vec<u8>, BackupStorageError> {
         let full_path = self.safe_join(path, "path")?;
-        Ok(fs::read(&full_path).await?)
+        let encrypted = fs::read(&full_path).await?;
+        crate::backup::crypto::decrypt(&encrypted)
+            .map_err(|e| BackupStorageError::OperationFailed(e))
     }
 
     async fn delete_backup_data(&self, path: &str) -> Result<(), BackupStorageError> {

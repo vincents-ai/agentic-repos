@@ -17,8 +17,9 @@ pub struct ResolutionResult {
 }
 
 /// Resolve a conflict using a given strategy.
+/// Logs the resolution decision for audit trail.
 pub fn resolve(conflict: &ReplicationConflict, strategy: ConflictResolution) -> ResolutionResult {
-    match strategy {
+    let result = match strategy {
         ConflictResolution::SourceWins => ResolutionResult {
             winning_version: conflict.source_version.clone(),
             winning_region: conflict.source_region.clone(),
@@ -30,12 +31,34 @@ pub fn resolve(conflict: &ReplicationConflict, strategy: ConflictResolution) -> 
             resolution: ConflictResolution::TargetWins,
         },
         ConflictResolution::LastWriteWins => {
-            // In a real implementation, we'd compare timestamps from metadata.
-            // For now, fall back to source wins with a note.
-            ResolutionResult {
-                winning_version: conflict.source_version.clone(),
-                winning_region: conflict.source_region.clone(),
-                resolution: ConflictResolution::LastWriteWins,
+            // Compare modification timestamps — the later write wins.
+            // If timestamps are unavailable, fall back to source wins
+            // and log a warning.
+            let source_wins = match (conflict.source_modified_at, conflict.target_modified_at) {
+                (Some(src), Some(tgt)) => src >= tgt,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => {
+                    tracing::warn!(
+                        conflict_id = %conflict.id,
+                        "LastWriteWins: no timestamps available, defaulting to source"
+                    );
+                    true
+                }
+            };
+
+            if source_wins {
+                ResolutionResult {
+                    winning_version: conflict.source_version.clone(),
+                    winning_region: conflict.source_region.clone(),
+                    resolution: ConflictResolution::LastWriteWins,
+                }
+            } else {
+                ResolutionResult {
+                    winning_version: conflict.target_version.clone(),
+                    winning_region: conflict.target_region.clone(),
+                    resolution: ConflictResolution::LastWriteWins,
+                }
             }
         }
         ConflictResolution::Merged => ResolutionResult {
@@ -51,7 +74,22 @@ pub fn resolve(conflict: &ReplicationConflict, strategy: ConflictResolution) -> 
             winning_region: String::new(),
             resolution: strategy,
         },
+    };
+
+    // Audit log for conflict resolution
+    if !result.winning_version.is_empty() {
+        tracing::info!(
+            conflict_id = %conflict.id,
+            repository = %conflict.repository_id,
+            object_key = %conflict.object_key,
+            strategy = ?strategy,
+            winning_version = %result.winning_version,
+            winning_region = %result.winning_region,
+            "Replication conflict resolved"
+        );
     }
+
+    result
 }
 
 /// Automatic conflict resolver — applies a policy to a batch of conflicts.

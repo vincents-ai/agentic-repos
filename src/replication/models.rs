@@ -165,6 +165,10 @@ pub struct ReplicationConflict {
     pub source_region: String,
     /// Target region.
     pub target_region: String,
+    /// When the source version was last modified.
+    pub source_modified_at: Option<DateTime<Utc>>,
+    /// When the target version was last modified.
+    pub target_modified_at: Option<DateTime<Utc>>,
     /// How the conflict was (or will be) resolved.
     pub resolution: ConflictResolution,
     pub detected_at: DateTime<Utc>,
@@ -188,6 +192,8 @@ impl ReplicationConflict {
             target_version: target_version.into(),
             source_region: source_region.into(),
             target_region: target_region.into(),
+            source_modified_at: None,
+            target_modified_at: None,
             resolution: ConflictResolution::Pending,
             detected_at: Utc::now(),
             resolved_at: None,

@@ -16,8 +16,8 @@ use crate::skynet::error::SkynetPluginResult;
 use crate::skynet::metadata::PluginMetadata;
 use crate::skynet::storage::global_registry;
 use crate::skynet::{
-    git_ops::GitOperationService, health::HealthChecker, monitoring::MetricsCollector, PLUGIN_NAME,
-    PLUGIN_VERSION,
+    git_ops::GitOperationService, health::HealthChecker, monitoring::MetricsCollector,
+    rate_limit::RateLimiter, PLUGIN_NAME, PLUGIN_VERSION,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +146,9 @@ pub struct GitOperationsPlugin {
     /// Metrics collector
     metrics: Arc<MetricsCollector>,
 
+    /// Rate limiter
+    rate_limiter: Arc<RateLimiter>,
+
     /// Plugin start time
     start_time: Instant,
 
@@ -165,6 +168,10 @@ impl GitOperationsPlugin {
         let health_checker = Arc::new(HealthChecker::new());
         let metrics = Arc::new(MetricsCollector::new());
 
+        let rate_limiter = Arc::new(RateLimiter::new(
+            crate::skynet::rate_limit::RateLimitConfig::default(),
+        ));
+
         Ok(Self {
             metadata: PluginMetadata::git_operations(),
             config,
@@ -174,6 +181,7 @@ impl GitOperationsPlugin {
             start_time: Instant::now(),
             tenant_mappings: Arc::new(std::sync::RwLock::new(HashMap::new())),
             default_backend: Arc::new(std::sync::RwLock::new(None)),
+            rate_limiter,
         })
     }
 
@@ -260,6 +268,26 @@ impl GitOperationsPlugin {
                     return PluginResponse::error(&request.id, "AUTH_ERROR", e.to_string());
                 }
             }
+        }
+
+        // Rate limit gate — use tenant_id if available, otherwise user_id, else "anonymous"
+        let rate_limit_key = request
+            .tenant_id
+            .as_deref()
+            .or(request.user_id.as_deref())
+            .unwrap_or("anonymous");
+        if !self.rate_limiter.allow_request(rate_limit_key) {
+            warn!(
+                "Rate limit exceeded for key={}, method={}, id={}",
+                rate_limit_key, request.method, request.id
+            );
+            self.metrics
+                .record_error(&request.method, "RATE_LIMIT_EXCEEDED");
+            return PluginResponse::error(
+                &request.id,
+                "RATE_LIMIT_EXCEEDED",
+                "Rate limit exceeded — please retry later",
+            );
         }
 
         // Route to appropriate handler

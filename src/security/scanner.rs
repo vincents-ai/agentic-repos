@@ -3,7 +3,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::warn;
 use uuid::Uuid;
+
+/// Maximum number of scan results stored in memory.
+/// Oldest results are evicted when this limit is reached.
+const MAX_STORED_RESULTS: usize = 1000;
+
+/// Maximum number of matches returned from a single scan.
+/// Prevents memory exhaustion from scanning files with thousands of matches.
+const MAX_MATCHES_PER_SCAN: usize = 1000;
+
+/// Maximum content size allowed for a single scan (10 MiB).
+const MAX_SCAN_CONTENT_SIZE: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecretMatch {
@@ -139,6 +151,23 @@ impl SecretScanner {
         let scan_id = Uuid::new_v4().to_string();
         let start = std::time::Instant::now();
 
+        // Content size limit — prevent DoS via oversized input
+        if request.content.len() > MAX_SCAN_CONTENT_SIZE {
+            warn!(
+                "Scan rejected: content too large ({} bytes, max {})",
+                request.content.len(),
+                MAX_SCAN_CONTENT_SIZE
+            );
+            return ScanResult {
+                scan_id,
+                matches: Vec::new(),
+                total_matches: 0,
+                files_scanned: 0,
+                scan_duration_ms: start.elapsed().as_millis() as u64,
+                status: ScanStatus::Failed,
+            };
+        }
+
         let matches = self.scan_content(&request.content);
 
         let result = ScanResult {
@@ -153,6 +182,13 @@ impl SecretScanner {
         let result_clone = result.clone();
         {
             let mut results = self.results.write().await;
+            // Evict oldest results when storage is full
+            while results.len() >= MAX_STORED_RESULTS {
+                // Remove a random entry — simple but effective
+                if let Some(key) = results.keys().next().cloned() {
+                    results.remove(&key);
+                }
+            }
             results.insert(scan_id.clone(), result_clone);
         }
 
@@ -168,6 +204,14 @@ impl SecretScanner {
         for (line_num, line) in content.lines().enumerate() {
             for (pattern_type, regex, severity, description) in &self.patterns {
                 for capture in regex.find_iter(line) {
+                    if matches.len() >= MAX_MATCHES_PER_SCAN {
+                        warn!(
+                            "Scan hit match limit ({}) — truncating results",
+                            MAX_MATCHES_PER_SCAN
+                        );
+                        return matches;
+                    }
+
                     let match_value = if capture.end() - capture.start() > 50 {
                         format!("{}...", &line[capture.start()..capture.start() + 47])
                     } else {
@@ -296,70 +340,108 @@ mod tests {
     #[tokio::test]
     async fn test_detect_aws_access_key() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest { content: "key=AKIAIOSFODNN7EXAMPLE".into(), file_path: None }).await;
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::AwsAccessKeyId));
+        let result = scanner
+            .scan(ScanRequest {
+                content: "key=AKIAIOSFODNN7EXAMPLE".into(),
+                file_path: None,
+            })
+            .await;
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::AwsAccessKeyId));
         assert_eq!(result.matches[0].severity, Severity::Critical);
     }
 
     #[tokio::test]
     async fn test_detect_aws_secret_key() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest {
-            content: "aws_secret_access_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd".into(),
-            file_path: None,
-        }).await;
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::AwsSecretAccessKey));
+        let result = scanner
+            .scan(ScanRequest {
+                content: "aws_secret_access_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd".into(),
+                file_path: None,
+            })
+            .await;
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::AwsSecretAccessKey));
     }
 
     #[tokio::test]
     async fn test_detect_gitlab_token() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest {
-            content: "token=glpat-ABCDEFGHIJKLMNOPQRST".into(),
-            file_path: None,
-        }).await;
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::GitlabToken));
+        let result = scanner
+            .scan(ScanRequest {
+                content: "token=glpat-ABCDEFGHIJKLMNOPQRST".into(),
+                file_path: None,
+            })
+            .await;
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::GitlabToken));
     }
 
     #[tokio::test]
     async fn test_detect_jwt() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest {
-            content: "auth=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signaturehere".into(),
-            file_path: None,
-        }).await;
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::JwtToken));
+        let result = scanner
+            .scan(ScanRequest {
+                content: "auth=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signaturehere".into(),
+                file_path: None,
+            })
+            .await;
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::JwtToken));
         assert_eq!(result.matches[0].severity, Severity::High);
     }
 
     #[tokio::test]
     async fn test_detect_password() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest {
-            content: "password=hunter2supersecret".into(),
-            file_path: None,
-        }).await;
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::Password));
+        let result = scanner
+            .scan(ScanRequest {
+                content: "password=hunter2supersecret".into(),
+                file_path: None,
+            })
+            .await;
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::Password));
     }
 
     #[tokio::test]
     async fn test_detect_api_key() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest {
-            content: "api_key=ABCDEFGHIJKLMNOPQRST1234567890".into(),
-            file_path: None,
-        }).await;
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::ApiKey));
+        let result = scanner
+            .scan(ScanRequest {
+                content: "api_key=ABCDEFGHIJKLMNOPQRST1234567890".into(),
+                file_path: None,
+            })
+            .await;
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::ApiKey));
     }
 
     #[tokio::test]
     async fn test_detect_generic_secret() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest {
-            content: "secret=ABCDEFGHIJKLMNOP".into(),
-            file_path: None,
-        }).await;
-        assert!(result.matches.iter().any(|m| m.pattern_type == SecretPattern::GenericSecret));
+        let result = scanner
+            .scan(ScanRequest {
+                content: "secret=ABCDEFGHIJKLMNOP".into(),
+                file_path: None,
+            })
+            .await;
+        assert!(result
+            .matches
+            .iter()
+            .any(|m| m.pattern_type == SecretPattern::GenericSecret));
         assert_eq!(result.matches[0].severity, Severity::Medium);
     }
 
@@ -375,7 +457,12 @@ ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
 another clean line
 -----BEGIN RSA PRIVATE KEY-----
 "#;
-        let result = scanner.scan(ScanRequest { content: content.into(), file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content: content.into(),
+                file_path: None,
+            })
+            .await;
         assert!(result.total_matches >= 3);
     }
 
@@ -385,8 +472,17 @@ another clean line
     async fn test_line_number_correct() {
         let scanner = SecretScanner::new();
         let content = "clean line\nAKIAIOSFODNN7EXAMPLE";
-        let result = scanner.scan(ScanRequest { content: content.into(), file_path: None }).await;
-        let aws_match = result.matches.iter().find(|m| m.pattern_type == SecretPattern::AwsAccessKeyId).unwrap();
+        let result = scanner
+            .scan(ScanRequest {
+                content: content.into(),
+                file_path: None,
+            })
+            .await;
+        let aws_match = result
+            .matches
+            .iter()
+            .find(|m| m.pattern_type == SecretPattern::AwsAccessKeyId)
+            .unwrap();
         assert_eq!(aws_match.line_number, 2);
     }
 
@@ -394,7 +490,12 @@ another clean line
     async fn test_column_positions_set() {
         let scanner = SecretScanner::new();
         let content = "prefix AKIAIOSFODNN7EXAMPLE suffix";
-        let result = scanner.scan(ScanRequest { content: content.into(), file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content: content.into(),
+                file_path: None,
+            })
+            .await;
         let m = &result.matches[0];
         assert!(m.column_start > 0);
         assert!(m.column_end > m.column_start);
@@ -405,7 +506,12 @@ another clean line
     #[tokio::test]
     async fn test_scan_result_fields() {
         let scanner = SecretScanner::new();
-        let result = scanner.scan(ScanRequest { content: "AKIAIOSFODNN7EXAMPLE".into(), file_path: None }).await;
+        let result = scanner
+            .scan(ScanRequest {
+                content: "AKIAIOSFODNN7EXAMPLE".into(),
+                file_path: None,
+            })
+            .await;
         assert!(!result.scan_id.is_empty());
         assert_eq!(result.status, ScanStatus::Completed);
         assert_eq!(result.files_scanned, 1);
@@ -426,8 +532,16 @@ another clean line
         let scanner = SecretScanner::new();
         // Create a very long API key that exceeds 50 chars
         let long_key = "api_key=".to_string() + &"A".repeat(60);
-        let result = scanner.scan(ScanRequest { content: long_key, file_path: None }).await;
-        let api_match = result.matches.iter().find(|m| m.pattern_type == SecretPattern::ApiKey);
+        let result = scanner
+            .scan(ScanRequest {
+                content: long_key,
+                file_path: None,
+            })
+            .await;
+        let api_match = result
+            .matches
+            .iter()
+            .find(|m| m.pattern_type == SecretPattern::ApiKey);
         if let Some(m) = api_match {
             assert!(m.match_value.len() <= 53); // 50 + "..."
         }

@@ -58,6 +58,20 @@ impl LeaderElection {
         }
     }
 
+    /// Check if a fencing token is still valid (i.e., this instance is still leader
+    /// with the same term). Returns false if leadership has been lost or a new term started.
+    pub async fn validate_fencing_token(&self, token: u64) -> bool {
+        let leader = self.current_leader.read().await;
+        match leader.as_ref() {
+            Some(info) => {
+                !info.is_expired()
+                    && info.instance_id == self.config.instance_id
+                    && info.leadership_term == token
+            }
+            None => false,
+        }
+    }
+
     pub async fn try_become_leader(&self) -> Result<Option<LeaderHandle>, LockError> {
         let lock_key = format!("leader:{}", self.config.cluster_name);
         let options = LockOptions::new(&lock_key)
@@ -138,14 +152,15 @@ impl LeaderElection {
 
     pub async fn run_as_leader<F, Fut, T>(&self, task: F) -> Result<T, LockError>
     where
-        F: FnOnce() -> Fut,
+        F: FnOnce(u64) -> Fut,
         Fut: std::future::Future<Output = T>,
     {
         let handle = self.try_become_leader().await?;
 
         match handle {
             Some(leader_handle) => {
-                let result = task().await;
+                let fencing_token = leader_handle.leader_info().leadership_term;
+                let result = task(fencing_token).await;
                 leader_handle.release().await?;
                 Ok(result)
             }
@@ -182,7 +197,8 @@ impl LeaderHandle {
         self.distributed_lock
             .extend(&mut self.lock_handle, additional_ttl)
             .await?;
-        self.leader_info.expires_at += chrono::Duration::from_std(additional_ttl).unwrap_or(chrono::Duration::seconds(30));
+        self.leader_info.expires_at +=
+            chrono::Duration::from_std(additional_ttl).unwrap_or(chrono::Duration::seconds(30));
         Ok(())
     }
 }

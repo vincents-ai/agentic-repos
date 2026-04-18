@@ -64,14 +64,15 @@ async fn add_target(
     service: web::Data<Arc<ReplicationService>>,
     req: HttpRequest,
     flags: web::Data<FeatureFlags>,
-    body: web::Json<ReplicationTarget>,
+    body: web::Json<CreateTargetRequest>,
 ) -> ActixResult<HttpResponse> {
     require_auth(&req)?;
     if !flags.multi_region {
         return Ok(HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
     }
-    match service.register_target(body.into_inner()) {
+    let target = ReplicationTarget::from(body.into_inner());
+    match service.register_target(target) {
         Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "created"}))),
         Err(e) => Ok(HttpResponse::Conflict().json(serde_json::json!({"error": e.to_string()}))),
     }
@@ -329,15 +330,22 @@ mod tests {
                 .configure(configure_replication_routes),
         )
         .await;
-        let target = ReplicationTarget::new("test-mirror", "eu-west-1", "my-bucket");
+        let create_req = CreateTargetRequest {
+            name: "test-mirror".to_string(),
+            region: "eu-west-1".to_string(),
+            bucket: "my-bucket".to_string(),
+            role_arn: None,
+        };
         let req = test::TestRequest::post()
             .uri("/replication/targets")
-            .set_json(&target)
+            .set_json(&create_req)
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 201);
+        // Get the created target's ID from response
+        let created: ReplicationTarget = test::read_body_json(resp).await;
         let req = test::TestRequest::get()
-            .uri(&format!("/replication/targets/{}", target.id))
+            .uri(&format!("/replication/targets/{}", created.id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -388,14 +396,21 @@ mod tests {
                 .configure(configure_replication_routes),
         )
         .await;
-        let target = ReplicationTarget::new("removeme", "us-west-2", "bucket");
+        let create_req = CreateTargetRequest {
+            name: "removeme".to_string(),
+            region: "us-west-2".to_string(),
+            bucket: "bucket".to_string(),
+            role_arn: None,
+        };
         let req = test::TestRequest::post()
             .uri("/replication/targets")
-            .set_json(&target)
+            .set_json(&create_req)
             .to_request();
-        let _ = test::call_service(&app, req).await;
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let created: ReplicationTarget = test::read_body_json(resp).await;
         let req = test::TestRequest::delete()
-            .uri(&format!("/replication/targets/{}", target.id))
+            .uri(&format!("/replication/targets/{}", created.id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);

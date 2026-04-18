@@ -4,6 +4,20 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Request to create a new replication target.
+/// Only user-settable fields — the server generates id, enabled, timestamps.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTargetRequest {
+    /// Human-readable name (e.g. "us-east-1-mirror").
+    pub name: String,
+    /// AWS region (e.g. "us-east-1").
+    pub region: String,
+    /// S3 bucket ARN or name.
+    pub bucket: String,
+    /// Optional IAM role ARN for cross-account replication.
+    pub role_arn: Option<String>,
+}
+
 /// A replication target — a remote S3 bucket in another region.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationTarget {
@@ -22,7 +36,25 @@ pub struct ReplicationTarget {
     pub updated_at: DateTime<Utc>,
 }
 
+impl From<CreateTargetRequest> for ReplicationTarget {
+    fn from(req: CreateTargetRequest) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4(),
+            name: req.name,
+            region: req.region,
+            bucket: req.bucket,
+            role_arn: req.role_arn,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
 impl ReplicationTarget {
+    /// Convenience constructor for tests and internal use.
+    /// For API requests, use CreateTargetRequest + From trait instead.
     pub fn new(
         name: impl Into<String>,
         region: impl Into<String>,

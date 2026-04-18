@@ -70,6 +70,18 @@ impl SessionAffinity {
 
     pub async fn create_session(&self, session_id: Option<String>) -> SessionConfig {
         let id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        // Validate provided session ID
+        if !validate_session_id(&id) {
+            tracing::warn!("Rejected invalid session ID, generating new one: {:?}", id);
+            let id = uuid::Uuid::new_v4().to_string();
+            let session =
+                SessionConfig::new(id.clone(), self.instance_id.clone(), self.config.ttl_secs);
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(id, session.clone());
+            return session;
+        }
+
         let session =
             SessionConfig::new(id.clone(), self.instance_id.clone(), self.config.ttl_secs);
 
@@ -134,7 +146,7 @@ impl SessionAffinity {
 
     pub fn get_cookie_value(&self, session: &SessionConfig) -> String {
         format!(
-            "{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
+            "{}={}; Path=/; Max-Age={}; HttpOnly; Secure; SameSite=Strict",
             self.config.cookie_name, session.session_id, self.config.ttl_secs
         )
     }
@@ -170,13 +182,34 @@ impl SessionAffinity {
     }
 }
 
+/// Validate a session ID to prevent injection attacks.
+///
+/// Session IDs must be hex-encoded UUIDs or similar safe strings.
+/// Rejects values containing semicolons (cookie injection), newlines (header injection),
+/// null bytes, or excessively long values.
+pub fn validate_session_id(session_id: &str) -> bool {
+    if session_id.is_empty() || session_id.len() > 128 {
+        return false;
+    }
+    // Allow only alphanumeric, hyphens, and underscores
+    session_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 pub fn extract_session_from_cookie(cookie_header: &str, cookie_name: &str) -> Option<String> {
     cookie_header
         .split(';')
         .filter_map(|cookie| {
             let parts: Vec<&str> = cookie.trim().splitn(2, '=').collect();
             if parts.len() == 2 && parts[0] == cookie_name {
-                Some(parts[1].to_string())
+                let value = parts[1].to_string();
+                if validate_session_id(&value) {
+                    Some(value)
+                } else {
+                    tracing::warn!("Rejected invalid session ID from cookie: {:?}", value);
+                    None
+                }
             } else {
                 None
             }
@@ -186,10 +219,16 @@ pub fn extract_session_from_cookie(cookie_header: &str, cookie_name: &str) -> Op
 
 pub fn extract_session_from_header(header_value: &str) -> Option<String> {
     let parts: Vec<&str> = header_value.splitn(2, '=').collect();
-    if parts.len() == 2 {
-        Some(parts[1].to_string())
+    let value = if parts.len() == 2 {
+        parts[1].to_string()
     } else {
-        Some(header_value.to_string())
+        header_value.to_string()
+    };
+    if validate_session_id(&value) {
+        Some(value)
+    } else {
+        tracing::warn!("Rejected invalid session ID from header: {:?}", value);
+        None
     }
 }
 

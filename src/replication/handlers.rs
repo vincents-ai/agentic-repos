@@ -85,7 +85,11 @@ async fn add_target(
         return Ok(HttpResponse::Forbidden()
             .json(serde_json::json!({"error": "multi_region feature is not enabled"})));
     }
-    let target = ReplicationTarget::from(body.into_inner());
+    let create_req = body.into_inner();
+    if let Err(e) = create_req.validate() {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({"error": e})));
+    }
+    let target = ReplicationTarget::from(create_req);
     match service.register_target(target) {
         Ok(()) => Ok(HttpResponse::Created().json(serde_json::json!({"status": "created"}))),
         Err(e) => {

@@ -18,6 +18,53 @@ pub struct CreateTargetRequest {
     pub role_arn: Option<String>,
 }
 
+impl CreateTargetRequest {
+    /// Validate all string fields to prevent injection attacks.
+    pub fn validate(&self) -> Result<(), String> {
+        Self::validate_identifier(&self.name, "name")?;
+        Self::validate_identifier(&self.region, "region")?;
+        Self::validate_bucket(&self.bucket)?;
+        if let Some(ref arn) = self.role_arn {
+            if arn.len() > 2048 {
+                return Err("role_arn must not exceed 2048 characters".to_string());
+            }
+            if arn.contains('\0') {
+                return Err("role_arn must not contain null bytes".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_identifier(value: &str, field: &str) -> Result<(), String> {
+        if value.is_empty() {
+            return Err(format!("{} must not be empty", field));
+        }
+        if value.len() > 128 {
+            return Err(format!("{} must not exceed 128 characters", field));
+        }
+        if value.contains('\0') {
+            return Err(format!("{} must not contain null bytes", field));
+        }
+        if value.contains('\n') || value.contains('\r') {
+            return Err(format!("{} must not contain newline characters", field));
+        }
+        Ok(())
+    }
+
+    fn validate_bucket(value: &str) -> Result<(), String> {
+        if value.is_empty() {
+            return Err("bucket must not be empty".to_string());
+        }
+        if value.len() > 256 {
+            return Err("bucket must not exceed 256 characters".to_string());
+        }
+        if value.contains('\0') {
+            return Err("bucket must not contain null bytes".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// A replication target — a remote S3 bucket in another region.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationTarget {
@@ -256,6 +303,30 @@ impl Default for FailoverConfig {
             auto_promote: false,
             failover_order: Vec::new(),
         }
+    }
+}
+
+impl FailoverConfig {
+    /// Validate configuration values to prevent misuse.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_failures == 0 {
+            return Err("max_failures must be at least 1".to_string());
+        }
+        if self.max_failures > 100 {
+            return Err("max_failures must not exceed 100".to_string());
+        }
+        if self.retry_interval_secs == 0 {
+            return Err("retry_interval_secs must be at least 1".to_string());
+        }
+        if self.retry_interval_secs > 3600 {
+            return Err("retry_interval_secs must not exceed 3600".to_string());
+        }
+        for name in &self.failover_order {
+            if name.is_empty() || name.len() > 128 || name.contains('\0') {
+                return Err(format!("Invalid failover target name: {:?}", name));
+            }
+        }
+        Ok(())
     }
 }
 

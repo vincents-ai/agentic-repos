@@ -389,6 +389,20 @@ impl BackupService {
             )));
         }
 
+        // Enforce tenant scoping: restore must target the same tenant that owns the backup
+        if let Some(ref target_tenant) = request.target_tenant_id {
+            if target_tenant != &backup.tenant_id {
+                tracing::warn!(
+                    "Cross-tenant restore blocked: backup tenant={}, target tenant={}",
+                    backup.tenant_id,
+                    target_tenant
+                );
+                return Err(BackupError::InvalidState(
+                    "Restore target tenant must match the backup's tenant".to_string(),
+                ));
+            }
+        }
+
         info!(
             "Starting restore of backup {} for tenant {}",
             backup.id, backup.tenant_id

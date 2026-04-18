@@ -51,6 +51,29 @@ pub trait ReplicationStore: Send + Sync {
     fn list_ops(&self, target_id: Uuid) -> Result<Vec<ReplicationOp>, ReplicationError>;
     fn add_op(&self, op: ReplicationOp) -> Result<(), ReplicationError>;
     fn update_op(&self, op: ReplicationOp) -> Result<(), ReplicationError>;
+
+    /// Atomically find an operation by ID and update its status.
+    /// Returns the updated operation. Prevents TOCTOU races between read and write.
+    fn update_op_status(
+        &self,
+        op_id: Uuid,
+        status: ReplicationStatus,
+        error: Option<String>,
+        completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<ReplicationOp, ReplicationError> {
+        // Default implementation: read-modify-write (subclasses should override)
+        let mut ops = self.list_ops(op_id)?;
+        let op = ops
+            .iter_mut()
+            .find(|o| o.id == op_id)
+            .ok_or_else(|| ReplicationError::Storage("operation not found".into()))?;
+        op.status = status;
+        op.error = error;
+        op.completed_at = completed_at;
+        let updated = op.clone();
+        self.update_op(updated.clone())?;
+        Ok(updated)
+    }
 }
 
 /// In-memory replication store (for development and testing).
@@ -234,6 +257,29 @@ impl ReplicationStore for InMemoryReplicationStore {
         }
         Ok(())
     }
+
+    /// Atomic find-and-update under a single write lock.
+    fn update_op_status(
+        &self,
+        op_id: Uuid,
+        status: ReplicationStatus,
+        error: Option<String>,
+        completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<ReplicationOp, ReplicationError> {
+        let mut all_ops = self
+            .ops
+            .write()
+            .map_err(|_| ReplicationError::LockPoisoned)?;
+        for (_, target_ops) in all_ops.iter_mut() {
+            if let Some(op) = target_ops.iter_mut().find(|o| o.id == op_id) {
+                op.status = status;
+                op.error = error;
+                op.completed_at = completed_at;
+                return Ok(op.clone());
+            }
+        }
+        Err(ReplicationError::Storage("operation not found".into()))
+    }
 }
 
 /// High-level replication service.
@@ -345,26 +391,24 @@ impl ReplicationService {
         op_id: Uuid,
         target_id: Uuid,
     ) -> Result<(), ReplicationError> {
-        let mut ops = self.store.list_ops(target_id)?;
-        if let Some(op) = ops.iter_mut().find(|o| o.id == op_id) {
-            op.status = ReplicationStatus::Completed;
-            op.completed_at = Some(chrono::Utc::now());
+        let now = chrono::Utc::now();
+        let updated_op =
+            self.store
+                .update_op_status(op_id, ReplicationStatus::Completed, None, Some(now))?;
 
-            // Update health
-            if let Some(mut health) = self.store.get_health(target_id)? {
-                health.status = ReplicationStatus::Completed;
-                health.objects_replicated += op.object_count;
-                health.bytes_replicated += op.total_bytes;
-                health.pending_objects = health.pending_objects.saturating_sub(op.object_count);
-                health.last_replicated_at = op.completed_at;
-                self.store.update_health(health)?;
-            }
-
-            self.store.update_op(op.clone())?;
-            Ok(())
-        } else {
-            Err(ReplicationError::Storage("operation not found".into()))
+        // Update health atomically
+        if let Some(mut health) = self.store.get_health(target_id)? {
+            health.status = ReplicationStatus::Completed;
+            health.objects_replicated += updated_op.object_count;
+            health.bytes_replicated += updated_op.total_bytes;
+            health.pending_objects = health
+                .pending_objects
+                .saturating_sub(updated_op.object_count);
+            health.last_replicated_at = Some(now);
+            self.store.update_health(health)?;
         }
+
+        Ok(())
     }
 
     /// Mark a replication operation as failed.
@@ -374,23 +418,21 @@ impl ReplicationService {
         target_id: Uuid,
         error: &str,
     ) -> Result<(), ReplicationError> {
-        let mut ops = self.store.list_ops(target_id)?;
-        if let Some(op) = ops.iter_mut().find(|o| o.id == op_id) {
-            op.status = ReplicationStatus::Failed;
-            op.error = Some(error.to_string());
-            op.completed_at = Some(chrono::Utc::now());
+        let now = chrono::Utc::now();
+        self.store.update_op_status(
+            op_id,
+            ReplicationStatus::Failed,
+            Some(error.to_string()),
+            Some(now),
+        )?;
 
-            if let Some(mut health) = self.store.get_health(target_id)? {
-                health.status = ReplicationStatus::Failed;
-                health.last_error = Some(error.to_string());
-                self.store.update_health(health)?;
-            }
-
-            self.store.update_op(op.clone())?;
-            Ok(())
-        } else {
-            Err(ReplicationError::Storage("operation not found".into()))
+        if let Some(mut health) = self.store.get_health(target_id)? {
+            health.status = ReplicationStatus::Failed;
+            health.last_error = Some(error.to_string());
+            self.store.update_health(health)?;
         }
+
+        Ok(())
     }
 
     // ── Health monitoring ──

@@ -277,6 +277,10 @@ static PLUGIN: Mutex<Option<Arc<GitOperationsPlugin>>> = Mutex::new(None);
 
 static DISCOVERED_STORAGE_SERVICES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
+/// Maximum number of services to iterate during discovery.
+/// Prevents unbounded pointer traversal if the service list is malformed.
+const MAX_SERVICE_DISCOVERY: usize = 256;
+
 fn discover_storage_services(registry: *const ServiceRegistryV2, context: *const PluginContextV2) {
     if registry.is_null() || context.is_null() {
         return;
@@ -296,6 +300,13 @@ fn discover_storage_services(registry: *const ServiceRegistryV2, context: *const
     unsafe {
         let mut idx = 0;
         loop {
+            if idx >= MAX_SERVICE_DISCOVERY {
+                info!(
+                    "Reached max service discovery limit ({}) — stopping iteration",
+                    MAX_SERVICE_DISCOVERY
+                );
+                break;
+            }
             let service_name_ptr = *service_list.add(idx);
             if service_name_ptr.is_null() {
                 break;

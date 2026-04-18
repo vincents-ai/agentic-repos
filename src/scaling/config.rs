@@ -22,6 +22,10 @@ pub struct ScalingConfig {
     pub session: SessionAffinityConfig,
     /// Graceful shutdown timeout in seconds
     pub shutdown_timeout_secs: u64,
+    /// Shared secret for authenticating cluster instances.
+    /// If set, all instances must sign heartbeat payloads with HMAC-SHA256.
+    /// Loaded from SCALING_CLUSTER_SHARED_SECRET env var.
+    pub cluster_shared_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -48,6 +52,7 @@ impl Default for ScalingConfig {
             leader_election_timeout_secs: 10,
             session: SessionAffinityConfig::default(),
             shutdown_timeout_secs: 30,
+            cluster_shared_secret: None,
         }
     }
 }
@@ -93,6 +98,7 @@ impl ScalingConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(30),
+            cluster_shared_secret: std::env::var("SCALING_CLUSTER_SHARED_SECRET").ok(),
         }
     }
 }

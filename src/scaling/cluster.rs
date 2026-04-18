@@ -2,15 +2,26 @@
 //!
 //! Provides cluster status, instance discovery, and health tracking
 //! for horizontal scaling deployments.
+//!
+//! ## Instance Authentication
+//!
+//! When a `cluster_shared_secret` is configured in `ScalingConfig`, all instances
+//! must present an HMAC of their heartbeat payload signed with that secret.
+//! Instances without a valid HMAC are rejected during registration and discovery.
+//! If no secret is configured, authentication is skipped (single-node dev mode).
 
 use crate::scaling::config::ScalingConfig;
 use crate::scaling::lock::{DistributedLock, LockOptions};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceInfo {
@@ -22,6 +33,10 @@ pub struct InstanceInfo {
     pub status: InstanceStatus,
     pub metadata: HashMap<String, String>,
     pub metrics: InstanceMetrics,
+    /// HMAC-SHA256 of `instance_id + cluster_name + started_at.timestamp()` signed with
+    /// the cluster shared secret. Verified by other instances to prevent rogue registration.
+    #[serde(skip_serializing)]
+    pub auth_tag: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -55,6 +70,7 @@ impl InstanceInfo {
             status: InstanceStatus::Starting,
             metadata: HashMap::new(),
             metrics: InstanceMetrics::default(),
+            auth_tag: None,
         }
     }
 
@@ -70,6 +86,40 @@ impl InstanceInfo {
 
     pub fn uptime_secs(&self) -> i64 {
         (chrono::Utc::now() - self.started_at).num_seconds()
+    }
+
+    /// Compute an HMAC-SHA256 auth tag for this instance using the shared secret.
+    pub fn compute_auth_tag(&self, secret: &str) -> String {
+        let payload = format!(
+            "{}:{}:{}",
+            self.instance_id,
+            self.cluster_name,
+            self.started_at.timestamp()
+        );
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
+        mac.update(payload.as_bytes());
+        let result = mac.finalize();
+        hex::encode(result.into_bytes())
+    }
+
+    /// Verify this instance's auth tag against the shared secret.
+    /// Returns false if no tag is present or if verification fails.
+    /// Uses constant-time comparison to prevent timing attacks.
+    pub fn verify_auth_tag(&self, secret: &str) -> bool {
+        if let Some(ref tag) = self.auth_tag {
+            let expected = self.compute_auth_tag(secret);
+            if tag.len() != expected.len() {
+                return false;
+            }
+            let mut diff: u8 = 0;
+            for (a, b) in tag.as_bytes().iter().zip(expected.as_bytes().iter()) {
+                diff |= a ^ b;
+            }
+            diff == 0
+        } else {
+            false
+        }
     }
 }
 
@@ -134,11 +184,15 @@ impl ClusterManager {
     }
 
     async fn register_instance(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut instance = self.local_instance.clone();
+
+        // Sign our registration with the cluster secret
+        if let Some(ref secret) = self.config.cluster_shared_secret {
+            instance.auth_tag = Some(instance.compute_auth_tag(secret));
+        }
+
         let mut instances = self.instances.write().await;
-        instances.insert(
-            self.local_instance.instance_id.clone(),
-            self.local_instance.clone(),
-        );
+        instances.insert(self.local_instance.instance_id.clone(), instance);
         debug!("Registered instance: {}", self.local_instance.instance_id);
         Ok(())
     }
@@ -147,6 +201,7 @@ impl ClusterManager {
         let instances = Arc::clone(&self.instances);
         let instance_id = self.config.instance_id.clone();
         let interval_secs = self.config.heartbeat_interval_secs;
+        let secret = self.config.cluster_shared_secret.clone();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
@@ -155,6 +210,10 @@ impl ClusterManager {
                 let mut instances = instances.write().await;
                 if let Some(instance) = instances.get_mut(&instance_id) {
                     instance.last_heartbeat = chrono::Utc::now();
+                    // Re-sign heartbeat with fresh tag
+                    if let Some(ref s) = secret {
+                        instance.auth_tag = Some(instance.compute_auth_tag(s));
+                    }
                     debug!("Heartbeat sent for instance {}", instance_id);
                 }
             }
@@ -165,6 +224,7 @@ impl ClusterManager {
         let instances = Arc::clone(&self.instances);
         let timeout_secs = self.config.instance_timeout_secs;
         let local_id = self.config.instance_id.clone();
+        let secret = self.config.cluster_shared_secret.clone();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(timeout_secs / 2));
@@ -175,6 +235,13 @@ impl ClusterManager {
                 instances.retain(|id, instance| {
                     if id == &local_id {
                         return true;
+                    }
+                    // Verify auth tag if secret is configured
+                    if let Some(ref s) = secret {
+                        if !instance.verify_auth_tag(s) {
+                            warn!("Instance {} failed auth tag verification, removing", id);
+                            return false;
+                        }
                     }
                     let elapsed = (now - instance.last_heartbeat).num_seconds();
                     if elapsed > timeout_secs as i64 {
@@ -238,7 +305,10 @@ impl ClusterManager {
     }
 
     pub fn shutdown_signal(&self) -> tokio::sync::broadcast::Receiver<()> {
-        self.shutdown_tx.as_ref().expect("shutdown_tx not initialized").subscribe()
+        self.shutdown_tx
+            .as_ref()
+            .expect("shutdown_tx not initialized")
+            .subscribe()
     }
 
     pub async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

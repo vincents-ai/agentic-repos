@@ -149,24 +149,44 @@ impl CacheConnection {
     }
 
     pub async fn delete_pattern(&mut self, pattern: &str) -> CacheResult<u64> {
-        let keys: Vec<String> = self
-            .conn
-            .keys(pattern)
-            .await
-            .map_err(|e| CacheError::Operation(format!("KEYS failed: {}", e)))?;
+        // Use SCAN instead of KEYS to avoid blocking Redis.
+        // SCAN iterates in small batches, yielding between cursors.
+        let mut total_deleted: u64 = 0;
+        let mut cursor: u64 = 0;
+        let batch_size: u64 = 100;
 
-        if keys.is_empty() {
-            return Ok(0);
+        loop {
+            let (next_cursor, keys): (u64, Vec<String>) = deadpool_redis::redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(pattern)
+                .arg("COUNT")
+                .arg(batch_size)
+                .query_async(&mut self.conn)
+                .await
+                .map_err(|e| CacheError::Operation(format!("SCAN failed: {}", e)))?;
+
+            if !keys.is_empty() {
+                let count: i32 = self
+                    .conn
+                    .del(&keys)
+                    .await
+                    .map_err(|e| CacheError::Operation(format!("DEL failed: {}", e)))?;
+                total_deleted += count as u64;
+            }
+
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
         }
 
-        let count: i32 = self
-            .conn
-            .del(&keys)
-            .await
-            .map_err(|e| CacheError::Operation(format!("DEL failed: {}", e)))?;
-
-        debug!(pattern = pattern, count = count, "Cache delete by pattern");
-        Ok(count as u64)
+        debug!(
+            pattern = pattern,
+            count = total_deleted,
+            "Cache delete by pattern (SCAN)"
+        );
+        Ok(total_deleted)
     }
 
     pub async fn exists<K: AsRef<str>>(&mut self, key: K) -> CacheResult<bool> {
@@ -280,12 +300,30 @@ impl CacheConnection {
         Ok(result)
     }
     pub async fn keys<K: AsRef<str>>(&mut self, pattern: K) -> CacheResult<Vec<String>> {
-        let result: Vec<String> = self
-            .conn
-            .keys(pattern.as_ref())
-            .await
-            .map_err(|e| CacheError::Operation(format!("KEYS failed: {}", e)))?;
-        Ok(result)
+        // Use SCAN instead of KEYS to avoid blocking Redis
+        let mut all_keys: Vec<String> = Vec::new();
+        let mut cursor: u64 = 0;
+        let batch_size: u64 = 100;
+
+        loop {
+            let (next_cursor, batch): (u64, Vec<String>) = deadpool_redis::redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(pattern.as_ref())
+                .arg("COUNT")
+                .arg(batch_size)
+                .query_async(&mut self.conn)
+                .await
+                .map_err(|e| CacheError::Operation(format!("SCAN failed: {}", e)))?;
+
+            all_keys.extend(batch);
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
+
+        Ok(all_keys)
     }
     pub async fn hdel<K: AsRef<str>, F: AsRef<str>>(
         &mut self,

@@ -987,20 +987,31 @@ pub extern "C" fn plugin_execute_v2(
                 .replace("health_", "health.")
                 .replace("metrics_", "metrics.");
 
+            // Extract tenant_id from args to enforce isolation
+            let tenant_id = args_value
+                .get("tenant_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            let user_id = args_value
+                .get("user_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
             let plugin: Option<Arc<GitOperationsPlugin>> =
-                PLUGIN.lock().ok().and_then(|g| g.clone());
+                PLUGIN.lock().unwrap_or_else(|e| e.into_inner()).clone();
 
             if let Some(plugin) = plugin {
-                let runtime_guard = RUNTIME.lock().ok();
-                let rt_opt = runtime_guard.as_ref().and_then(|g| g.as_ref());
+                let runtime_guard = RUNTIME.lock().unwrap_or_else(|e| e.into_inner());
+                let rt_opt = runtime_guard.as_ref();
 
                 if let Some(rt) = rt_opt {
                     let request = PluginRequest {
                         id: uuid::Uuid::new_v4().to_string(),
                         method: method_name,
                         params: args_value,
-                        tenant_id: None,
-                        user_id: None,
+                        tenant_id,
+                        user_id,
                         token: None,
                     };
                     let response = rt.block_on(plugin.handle_request(request));

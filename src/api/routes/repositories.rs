@@ -20,12 +20,18 @@ fn require_auth(req: &HttpRequest) -> ActixResult<()> {
 }
 
 pub fn configure_repository_routes(cfg: &mut web::ServiceConfig) {
-    cfg.route("", web::get().to(list_repositories))
-        .route("/{owner}", web::post().to(create_repository))
-        .route("/{owner}/{repo}", web::get().to(get_repository))
-        .route("/{owner}/{repo}", web::put().to(update_repository))
-        .route("/{owner}/{repo}", web::delete().to(delete_repository))
-        .route("/{owner}/{repo}/branches", web::get().to(list_branches));
+    let read_perm = crate::rbac::middleware::require_permission(
+        crate::rbac::models::Permission::RepositoryRead,
+    );
+    let write_perm = crate::rbac::middleware::require_permission(
+        crate::rbac::models::Permission::RepositoryCreate,
+    );
+    cfg.route("", web::get().to(list_repositories).wrap(read_perm.clone()))
+        .route("/{owner}", web::post().to(create_repository).wrap(write_perm.clone()))
+        .route("/{owner}/{repo}", web::get().to(get_repository).wrap(read_perm.clone()))
+        .route("/{owner}/{repo}", web::put().to(update_repository).wrap(write_perm.clone()))
+        .route("/{owner}/{repo}", web::delete().to(delete_repository).wrap(write_perm.clone()))
+        .route("/{owner}/{repo}/branches", web::get().to(list_branches).wrap(read_perm));
 }
 
 pub async fn list_repositories(

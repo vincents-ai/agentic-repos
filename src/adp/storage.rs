@@ -384,6 +384,7 @@ impl AdpStore {
         repo_path: &Path,
         username: &str,
         operation: &Permission,
+        refname: Option<&str>,
     ) -> Result<bool> {
         let config = match Self::read_access_config(repo_path)? {
             Some(c) => c,
@@ -403,7 +404,15 @@ impl AdpStore {
         // Evaluate rules in order; first match wins
         for rule in &config.rules {
             if rule.user == "*" || rule.user == username {
-                if rule.permissions.contains(operation) {
+                // If a specific refname is given, check path patterns
+                let path_matches = if let Some(refname) = refname {
+                    rule.paths.is_empty()
+                        || rule.paths.iter().any(|p| crate::adp::glob::matches_pattern(p, refname))
+                } else {
+                    // No refname → repo-level check, ignore path filter
+                    true
+                };
+                if path_matches && rule.permissions.contains(operation) {
                     return Ok(true);
                 }
             }

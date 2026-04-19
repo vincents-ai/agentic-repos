@@ -26,8 +26,12 @@ fn require_auth(req: &HttpRequest) -> ActixResult<()> {
 
 /// Secrets route configuration.
 pub fn configure_secrets_routes(cfg: &mut web::ServiceConfig) {
+    let perm = crate::rbac::middleware::require_permission(
+        crate::rbac::models::Permission::RepositoryAdmin,
+    );
     cfg.service(
         web::scope("/{owner}/{repo}/secrets")
+            .wrap(perm)
             .route("/public-key", web::get().to(get_public_key))
             .route("", web::get().to(list_secrets))
             .route("", web::post().to(create_secret))

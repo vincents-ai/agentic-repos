@@ -169,11 +169,12 @@ impl SecretScanner {
         }
 
         let matches = self.scan_content(&request.content);
+        let total_matches = matches.len();
 
         let result = ScanResult {
             scan_id: scan_id.clone(),
             matches,
-            total_matches: 0,
+            total_matches,
             files_scanned: 1,
             scan_duration_ms: start.elapsed().as_millis() as u64,
             status: ScanStatus::Completed,
@@ -192,10 +193,7 @@ impl SecretScanner {
             results.insert(scan_id.clone(), result_clone);
         }
 
-        ScanResult {
-            total_matches: result.matches.len(),
-            ..result
-        }
+        result
     }
 
     fn scan_content(&self, content: &str) -> Vec<SecretMatch> {
@@ -213,7 +211,8 @@ impl SecretScanner {
                     }
 
                     let match_value = if capture.end() - capture.start() > 50 {
-                        format!("{}...", &line[capture.start()..capture.start() + 47])
+                        // Don't leak partial secrets — just report the length
+                        format!("<{} chars redacted>", capture.end() - capture.start())
                     } else {
                         line[capture.start()..capture.end()].to_string()
                     };
@@ -543,7 +542,8 @@ another clean line
             .iter()
             .find(|m| m.pattern_type == SecretPattern::ApiKey);
         if let Some(m) = api_match {
-            assert!(m.match_value.len() <= 53); // 50 + "..."
+            // Long values should be redacted, not showing partial secret
+            assert!(m.match_value.contains("redacted"));
         }
     }
 }

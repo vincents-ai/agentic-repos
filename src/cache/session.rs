@@ -1,4 +1,5 @@
 use crate::auth::session::{Session, SessionStore};
+use crate::cache::crypto::{decrypt_session, encrypt_session};
 use crate::cache::{CacheKey, CachePool, CacheResult};
 use async_trait::async_trait;
 use chrono::Duration;
@@ -72,22 +73,32 @@ impl SessionStore for RedisSessionStore {
             }
         };
 
-        match conn.get(&key).await {
-            Ok(Some(json)) => match serde_json::from_str::<Session>(&json) {
-                Ok(session) => {
-                    if session.is_expired() {
-                        let _ = conn.delete(&key).await;
+        match conn.get_bytes(&key).await {
+            Ok(Some(data)) => {
+                // Decrypt session data
+                let json = match decrypt_session(&data) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        debug!("Failed to decrypt session: {}", e);
+                        return None;
+                    }
+                };
+                match serde_json::from_slice::<Session>(&json) {
+                    Ok(session) => {
+                        if session.is_expired() {
+                            let _ = conn.delete(&key).await;
+                            None
+                        } else {
+                            debug!("Session cache hit");
+                            Some(session)
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Failed to deserialize session: {}", e);
                         None
-                    } else {
-                        debug!("Session cache hit");
-                        Some(session)
                     }
                 }
-                Err(e) => {
-                    debug!("Failed to deserialize session: {}", e);
-                    None
-                }
-            },
+            }
             Ok(None) => {
                 debug!("Session cache miss");
                 None
@@ -110,6 +121,15 @@ impl SessionStore for RedisSessionStore {
             }
         };
 
+        // Encrypt PII before storing in Redis
+        let stored_data = match encrypt_session(json.as_bytes()) {
+            Ok(data) => data,
+            Err(e) => {
+                debug!("Failed to encrypt session: {}", e);
+                return;
+            }
+        };
+
         let mut conn = match self.pool.get_connection().await {
             Ok(c) => c,
             Err(e) => {
@@ -126,7 +146,7 @@ impl SessionStore for RedisSessionStore {
         let ttl_secs = ttl.as_secs();
 
         if let Err(e) = conn
-            .set(&key, &json, StdDuration::from_secs(ttl_secs))
+            .set_bytes(&key, &stored_data, StdDuration::from_secs(ttl_secs))
             .await
         {
             debug!("Failed to set session in cache: {}", e);

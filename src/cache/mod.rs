@@ -1,5 +1,6 @@
 pub mod api;
 pub mod config;
+pub mod crypto;
 pub mod invalidation;
 pub mod keys;
 pub mod lfs;

@@ -42,4 +42,7 @@ mod security_tests;
 #[cfg(test)]
 mod git_integration_tests;
 
+#[cfg(test)]
+mod auth_integration_tests;
+
 pub use error::Result;

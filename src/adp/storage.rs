@@ -726,8 +726,8 @@ mod tests {
         init_bare_repo(dir.path());
 
         // No access config written → default behavior
-        assert!(AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Pull).unwrap());
-        assert!(!AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Push).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Pull, None).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Push, None).unwrap());
     }
 
     #[test]
@@ -743,9 +743,9 @@ mod tests {
         };
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
-        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Pull).unwrap());
-        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Push).unwrap());
-        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Admin).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Pull, None).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Push, None).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Admin, None).unwrap());
     }
 
     #[test]
@@ -761,8 +761,8 @@ mod tests {
         };
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
-        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Pull).unwrap());
-        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Push).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Pull, None).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Push, None).unwrap());
     }
 
     #[test]
@@ -790,13 +790,13 @@ mod tests {
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
         // carol matches her specific rule (Pull) and wildcard (Pull)
-        assert!(AdpStore::check_repo_access(dir.path(), "carol", &Permission::Pull).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "carol", &Permission::Pull, None).unwrap());
         // carol does NOT have Push — neither rule grants it to her
-        assert!(!AdpStore::check_repo_access(dir.path(), "carol", &Permission::Push).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "carol", &Permission::Push, None).unwrap());
 
         // dave matches wildcard rule (Pull only)
-        assert!(AdpStore::check_repo_access(dir.path(), "dave", &Permission::Pull).unwrap());
-        assert!(!AdpStore::check_repo_access(dir.path(), "dave", &Permission::Push).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "dave", &Permission::Pull, None).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "dave", &Permission::Push, None).unwrap());
     }
 
     #[test]
@@ -817,7 +817,7 @@ mod tests {
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
         // eve is not in any rule
-        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Pull).unwrap());
-        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Push).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Pull, None).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Push, None).unwrap());
     }
 }

@@ -28,10 +28,14 @@ impl SshTestKeys {
         // Generate keypair via ssh-keygen (no passphrase)
         let output = Command::new("ssh-keygen")
             .args([
-                "-t", "ed25519",
-                "-N", "",   // no passphrase
-                "-f", private_key_path.to_str().unwrap(),
-                "-C", &format!("{}@e2e-test", username),
+                "-t",
+                "ed25519",
+                "-N",
+                "", // no passphrase
+                "-f",
+                private_key_path.to_str().unwrap(),
+                "-C",
+                &format!("{}@e2e-test", username),
             ])
             .output()?;
 
@@ -39,7 +43,8 @@ impl SshTestKeys {
             return Err(format!(
                 "ssh-keygen failed: {}",
                 String::from_utf8_lossy(&output.stderr)
-            ).into());
+            )
+            .into());
         }
 
         // Read the generated public key
@@ -120,7 +125,8 @@ pub fn configure_ssh_in_system_repo(
         return Err(format!(
             "git-refs config write failed: expected http={}, ssh={}, got http={}, ssh={}",
             http_port, ssh_port, verify.http_port, verify.ssh_port
-        ).into());
+        )
+        .into());
     }
 
     // Write SSH keys to git-refs: refs/adp/users/git/ssh_keys
@@ -128,7 +134,9 @@ pub fn configure_ssh_in_system_repo(
     let mut ssh_keys: Vec<String> = Vec::new();
     for line in ak_content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         if let Some(key_part) = line.splitn(2, ':').nth(1) {
             let key_part = key_part.trim();
             if key_part.starts_with("ssh-") {
@@ -149,7 +157,7 @@ pub fn configure_ssh_in_system_repo(
         .unwrap_or_default();
     lfs_cfg.enabled = true;
     lfs_cfg.base_url = format!("http://127.0.0.1:{}", http_port);
-    lfs_cfg.jwt_secret = "e2e-test-lfs-secret".to_string();
+    lfs_cfg.jwt_secret = Some("e2e-test-lfs-secret".to_string());
     let lfs_value = serde_json::to_value(&lfs_cfg)?;
     AdpStore::write_ref_blob(&system_repo, LFS_CONFIG_REF, &lfs_value)?;
 
@@ -173,7 +181,8 @@ pub fn scan_host_key(
             "ssh-keyscan failed (port {}): {}",
             ssh_port,
             String::from_utf8_lossy(&output.stderr)
-        ).into());
+        )
+        .into());
     }
 
     std::fs::write(known_hosts_path, &output.stdout)?;
@@ -210,14 +219,50 @@ pub fn git_ssh(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let stdout = child.stdout.take().map(|mut s| { let mut buf = Vec::new(); std::io::Read::read_to_end(&mut s, &mut buf).ok(); buf }).unwrap_or_default();
-                let stderr = child.stderr.take().map(|mut s| { let mut buf = Vec::new(); std::io::Read::read_to_end(&mut s, &mut buf).ok(); buf }).unwrap_or_default();
-                return std::process::Output { status, stdout, stderr };
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+                return std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                };
             }
             Ok(None) if std::time::Instant::now() > deadline => {
                 let _ = child.kill();
-                let stdout = child.stdout.take().map(|mut s| { let mut buf = Vec::new(); std::io::Read::read_to_end(&mut s, &mut buf).ok(); buf }).unwrap_or_default();
-                let stderr = child.stderr.take().map(|mut s| { let mut buf = Vec::new(); std::io::Read::read_to_end(&mut s, &mut buf).ok(); buf }).unwrap_or_default();
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
                 return std::process::Output {
                     status: std::process::ExitStatus::from_raw(1 << 8), // exit code 1 on Unix
                     stdout,

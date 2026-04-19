@@ -151,20 +151,14 @@ impl AnonymizationStrategy for EmailAnonymizer {
         if parts.len() == 2 {
             let local = parts[0];
             let domain = parts[1];
-            let anonymized_local: String = local
-                .chars()
-                .enumerate()
-                .map(|(i, c)| {
-                    if i == 0 || i >= local.len() - 1 {
-                        c
-                    } else {
-                        '*'
-                    }
-                })
-                .collect();
-            Ok(format!("{}@{}", anonymized_local, domain))
+            // Hash the local part for irreversibility
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(local.as_bytes());
+            let hash = format!("{:x}", hasher.finalize());
+            Ok(format!("{}@{}", &hash[..8], domain))
         } else {
-            Ok("anonymized@example.com".to_string())
+            Ok("anonymized@invalid".to_string())
         }
     }
 }
@@ -173,13 +167,14 @@ struct NameAnonymizer;
 
 impl AnonymizationStrategy for NameAnonymizer {
     fn anonymize(&self, value: &str) -> Result<String, PrivacyError> {
-        let chars: Vec<char> = value.chars().collect();
-        if chars.is_empty() {
+        if value.trim().is_empty() {
             return Ok("[REDACTED]".to_string());
         }
-        let first = chars[0];
-        let anonymized = format!("{}***", first);
-        Ok(anonymized)
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(value.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        Ok(format!("user_{}", &hash[..8]))
     }
 }
 
@@ -205,13 +200,14 @@ struct PhoneAnonymizer;
 
 impl AnonymizationStrategy for PhoneAnonymizer {
     fn anonymize(&self, value: &str) -> Result<String, PrivacyError> {
-        let digits: String = value.chars().filter(|c| c.is_numeric()).collect();
-        if digits.len() >= 4 {
-            let last_four = &digits[digits.len() - 4..];
-            Ok(format!("***-***-{}", last_four))
-        } else {
-            Ok("***-***-****".to_string())
+        if value.trim().is_empty() {
+            return Ok("[REDACTED]".to_string());
         }
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(value.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        Ok(format!("phone_{}", &hash[..8]))
     }
 }
 
@@ -219,13 +215,13 @@ struct HashAnonymizer;
 
 impl AnonymizationStrategy for HashAnonymizer {
     fn anonymize(&self, value: &str) -> Result<String, PrivacyError> {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use sha2::{Digest, Sha256};
 
-        let mut hasher = DefaultHasher::new();
-        value.hash(&mut hasher);
-        let hash = hasher.finish();
-        Ok(format!("anon_{}", hash))
+        let mut hasher = Sha256::new();
+        hasher.update(value.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        // Return first 12 hex chars — enough for uniqueness, not reversible
+        Ok(format!("anon_{}", &hash[..12]))
     }
 }
 
@@ -501,9 +497,11 @@ mod tests {
         let result = anonymizer
             .anonymize("email", "test.user@example.com")
             .unwrap();
+        // Local part is hashed, domain is preserved for analysis
         assert!(result.contains('@'));
-        assert!(result.contains('*'));
-        assert!(result.ends_with("@example.com"));
+        assert!(result.contains("example.com"));
+        // Original local part is gone
+        assert!(!result.contains("test.user"));
     }
 
     #[test]
@@ -511,8 +509,10 @@ mod tests {
         let anonymizer = DataAnonymizer::new();
 
         let result = anonymizer.anonymize("name", "John Doe").unwrap();
-        assert!(result.starts_with('J'));
-        assert!(result.contains('*'));
+        // Name is fully hashed
+        assert!(result.starts_with("user_"));
+        assert!(!result.contains('J'));
+        assert!(!result.contains("John"));
     }
 
     #[test]
@@ -528,8 +528,9 @@ mod tests {
         let anonymizer = DataAnonymizer::new();
 
         let result = anonymizer.anonymize("phone", "+1-555-123-4567").unwrap();
-        assert!(result.contains("4567"));
-        assert!(result.contains('*'));
+        // Phone is fully hashed
+        assert!(result.starts_with("phone_"));
+        assert!(!result.contains("4567"));
     }
 
     #[tokio::test]

@@ -80,7 +80,27 @@ impl PermissionCache {
             .with("user")
             .with(user_id)
             .with("permissions");
-        self.get_json(&key.to_redis_key()).await
+        let cached: Option<CachedPermissions> = self.get_json(&key.to_redis_key()).await?;
+
+        match cached {
+            Some(perms) => {
+                // Validate TTL: reject stale entries that survived Redis TTL
+                if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(&perms.expires_at) {
+                    if chrono::Utc::now() > expires {
+                        debug!(
+                            key = key.to_redis_key(),
+                            "Permission cache entry expired at {}",
+                            perms.expires_at
+                        );
+                        // Clean up the stale entry
+                        let _ = self.invalidate_user_permissions(user_id, tenant_id).await;
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(perms))
+            }
+            None => Ok(None),
+        }
     }
 
     #[instrument(skip(self, permissions), fields(user_id = %user_id, tenant_id = %tenant_id))]

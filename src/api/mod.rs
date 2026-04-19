@@ -34,7 +34,8 @@ async fn metrics_endpoint(sdlc: Option<web::Data<Arc<SdlcService>>>) -> HttpResp
             .content_type("text/plain; version=0.0.4")
             .body(metrics),
         Err(e) => {
-            HttpResponse::InternalServerError().body(format!("Failed to encode metrics: {}", e))
+            tracing::error!("Failed to encode metrics: {}", e);
+            HttpResponse::InternalServerError().body("Internal error")
         }
     }
 }

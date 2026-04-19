@@ -6,10 +6,8 @@ pub mod routes;
 
 use crate::compliance::dora::{DoraService, InMemoryDoraStore};
 use crate::compliance::dora_nis2_handlers::DoraNis2State;
-use crate::compliance::handlers::{ComplianceState, configure_compliance_routes};
+use crate::compliance::handlers::{configure_compliance_routes, ComplianceState};
 use crate::compliance::nis2::{InMemoryNis2Store, Nis2Service};
-use crate::webhooks::service::WebhookService;
-use crate::webhooks::storage::InMemoryWebhookStorage;
 use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
@@ -17,6 +15,8 @@ use crate::rbac::RbacService;
 use crate::scaling::{ClusterManager, HealthChecker, ScalingConfig};
 use crate::sdlc::{InMemorySdlcStore, SdlcService};
 use crate::server::AppConfigurator;
+use crate::webhooks::service::WebhookService;
+use crate::webhooks::storage::InMemoryWebhookStorage;
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
 use routes::cluster::ClusterState;
 use std::sync::Arc;
@@ -113,9 +113,15 @@ impl ApiServer {
         });
 
         let config_clone = config.clone();
-        let sdlc_service = web::Data::new(Arc::new(SdlcService::new(Arc::new(InMemorySdlcStore::new()))));
-        let webhook_service = web::Data::new(Arc::new(WebhookService::new(Arc::new(InMemoryWebhookStorage::new()))));
-        let compliance_state = web::Data::new(ComplianceState::new(crate::compliance::ComplianceConfig::default()));
+        let sdlc_service = web::Data::new(Arc::new(SdlcService::new(Arc::new(
+            InMemorySdlcStore::new(),
+        ))));
+        let webhook_service = web::Data::new(Arc::new(WebhookService::new(Arc::new(
+            InMemoryWebhookStorage::new(),
+        ))));
+        let compliance_state = web::Data::new(ComplianceState::new(
+            crate::compliance::ComplianceConfig::default(),
+        ));
         let dora_nis2_state = web::Data::new(Arc::new(DoraNis2State {
             dora: Arc::new(DoraService::new(Arc::new(InMemoryDoraStore::new()))),
             nis2: Arc::new(Nis2Service::new(Arc::new(InMemoryNis2Store::new()))),
@@ -143,12 +149,29 @@ impl ApiServer {
                 .app_data(dora_nis2_state.clone())
                 .app_data(secrets_service.clone())
                 // RBAC service — required by require_permission middleware
-                .app_data(rbac_service_data.clone().unwrap_or_else(|| web::Data::new(Arc::new(RbacService::new(Arc::new(InMemoryRbacStorage::new()))))))
+                .app_data(rbac_service_data.clone().unwrap_or_else(|| {
+                    web::Data::new(Arc::new(RbacService::new(Arc::new(
+                        InMemoryRbacStorage::new(),
+                    ))))
+                }))
                 .wrap(Logger::default())
+                // Security headers for all responses
+                .wrap(
+                    actix_web::middleware::DefaultHeaders::new()
+                        .add(("X-Content-Type-Options", "nosniff"))
+                        .add(("X-Frame-Options", "DENY"))
+                        .add(("X-XSS-Protection", "1; mode=block"))
+                        .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
+                        .add(("Content-Security-Policy", "default-src 'self'"))
+                        .add(("Permissions-Policy", "camera=(), microphone=(), geolocation=()")),
+                )
                 .route("/metrics", web::get().to(metrics_endpoint))
                 .service(web::scope("/api/v1/compliance").configure(|cfg| {
                     configure_compliance_routes(cfg, compliance_state.clone());
-                    crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(cfg, dora_nis2_state.clone());
+                    crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(
+                        cfg,
+                        dora_nis2_state.clone(),
+                    );
                 }))
                 .service(web::scope("/api/v1").configure(routes::configure_routes));
 

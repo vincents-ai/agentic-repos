@@ -37,7 +37,7 @@ pub struct UpdateWebhookRequest {
 pub struct WebhookResponse {
     pub id: String,
     pub url: String,
-    pub secret_keys: Vec<String>,
+    // NOTE: secret_keys intentionally excluded — internal config, not exposed via API
     pub entity_schemas: Vec<String>,
     pub events: Vec<String>,
     pub tenant_id: String,
@@ -58,12 +58,14 @@ pub struct WebhookDeliveryResponse {
     pub delivered_at: chrono::DateTime<chrono::Utc>,
 }
 
+// NOTE: secret_keys is intentionally excluded from API responses.
+// Secret key allowlists are internal configuration, not exposed to API consumers.
+
 impl From<Webhook> for WebhookResponse {
     fn from(webhook: Webhook) -> Self {
         Self {
             id: webhook.id.to_string(),
             url: webhook.url,
-            secret_keys: webhook.secret_keys,
             entity_schemas: webhook.entity_schemas,
             events: webhook.events.iter().map(|e| e.to_string()).collect(),
             tenant_id: webhook.tenant_id,
@@ -119,6 +121,13 @@ pub async fn create_webhook(
     webhook_service: web::Data<Arc<WebhookService>>,
     req: web::Json<CreateWebhookRequest>,
 ) -> Result<HttpResponse> {
+    // Validate that secret_keys does not contain wildcards
+    if req.secret_keys.iter().any(|k| k == "*") {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Wildcard secret_keys are not allowed. Specify individual keys."
+        })));
+    }
+
     let events: HashSet<WebhookEvent> = req.events.iter().cloned().collect();
 
     match webhook_service
@@ -278,44 +287,43 @@ pub struct DeliveryQuery {
     pub limit: Option<usize>,
 }
 
-
 pub fn configure_webhook_routes(cfg: &mut web::ServiceConfig) {
     cfg.route(
-            "",
-            web::post()
-                .to(create_webhook)
-                .wrap(require_permission(Permission::WebhookManage)),
-        )
-        .route(
-            "",
-            web::get()
-                .to(list_webhooks)
-                .wrap(require_permission(Permission::WebhookManage)),
-        )
-        .route(
-            "/{id}",
-            web::get()
-                .to(get_webhook)
-                .wrap(require_permission(Permission::WebhookManage)),
-        )
-        .route(
-            "/{id}",
-            web::put()
-                .to(update_webhook)
-                .wrap(require_permission(Permission::WebhookManage)),
-        )
-        .route(
-            "/{id}",
-            web::delete()
-                .to(delete_webhook)
-                .wrap(require_permission(Permission::WebhookManage)),
-        )
-        .route(
-            "/{id}/deliveries",
-            web::get()
-                .to(get_webhook_deliveries)
-                .wrap(require_permission(Permission::WebhookManage)),
-        );
+        "",
+        web::post()
+            .to(create_webhook)
+            .wrap(require_permission(Permission::WebhookManage)),
+    )
+    .route(
+        "",
+        web::get()
+            .to(list_webhooks)
+            .wrap(require_permission(Permission::WebhookManage)),
+    )
+    .route(
+        "/{id}",
+        web::get()
+            .to(get_webhook)
+            .wrap(require_permission(Permission::WebhookManage)),
+    )
+    .route(
+        "/{id}",
+        web::put()
+            .to(update_webhook)
+            .wrap(require_permission(Permission::WebhookManage)),
+    )
+    .route(
+        "/{id}",
+        web::delete()
+            .to(delete_webhook)
+            .wrap(require_permission(Permission::WebhookManage)),
+    )
+    .route(
+        "/{id}/deliveries",
+        web::get()
+            .to(get_webhook_deliveries)
+            .wrap(require_permission(Permission::WebhookManage)),
+    );
 }
 
 #[cfg(test)]
@@ -341,7 +349,7 @@ mod tests {
 
         let resp = WebhookResponse::from(wh.clone());
         assert_eq!(resp.url, "https://example.com/hook");
-        assert_eq!(resp.secret_keys, vec!["DB_PASSWORD"]);
+        // secret_keys not exposed in API response
         assert_eq!(resp.entity_schemas, vec!["webhook-config"]);
         assert!(resp.events.contains(&"push".to_string()));
         assert_eq!(resp.tenant_id, "tenant-1");

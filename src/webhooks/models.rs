@@ -139,15 +139,16 @@ impl Webhook {
     }
 
     /// Check if this webhook is allowed to access a specific secret key.
-    /// Returns true if the webhook can access the given secret.
+    /// Returns true if the specific key is in the explicit allowlist.
+    /// Wildcards ("*") are rejected — each secret must be individually listed.
     pub fn can_access_secret(&self, secret_key: &str) -> bool {
         // If secret_keys is empty, webhook cannot access any secrets
         if self.secret_keys.is_empty() {
             return false;
         }
-        // If secret_keys contains "*", webhook can access all secrets
+        // Wildcard access is forbidden — each key must be explicitly listed
         if self.secret_keys.contains(&"*".to_string()) {
-            return true;
+            return false;
         }
         // Check if the specific key is in the allowlist
         self.secret_keys.iter().any(|k| k == secret_key)
@@ -309,10 +310,11 @@ mod tests {
     }
 
     #[test]
-    fn test_secret_access_wildcard_allows_all() {
+    fn test_secret_access_wildcard_is_rejected() {
         let mut wh = test_webhook();
         wh.secret_keys = vec!["*".to_string()];
-        assert!(wh.can_access_secret("anything"));
+        // Wildcard access is forbidden — must list keys explicitly
+        assert!(!wh.can_access_secret("anything"));
     }
 
     #[test]

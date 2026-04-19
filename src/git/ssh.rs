@@ -386,20 +386,18 @@ impl russh::server::Handler for SshHandler {
         }
 
         let auth_manager = self.auth_manager.lock().await;
-        let fingerprint = public_key
-            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256);
+        let fingerprint = public_key.fingerprint(russh::keys::ssh_key::HashAlg::Sha256);
         let key_fingerprint = fingerprint.to_string();
         let fingerprint_hex = hex::encode(fingerprint.as_bytes());
 
         // Phase 1: Resolve identity from key fingerprint → username
         // This uses the git-refs identity store (ADR-031)
-        let resolved_user: Option<String> = self
-            .git_service
-            .get_storage_root()
-            .and_then(|root| {
-                let system_repo = root.join(crate::adp::bootstrap::SYSTEM_REPO_PATH);
-                crate::adp::storage::AdpStore::resolve_key_identity(&system_repo, &fingerprint_hex).ok().flatten()
-            });
+        let resolved_user: Option<String> = self.git_service.get_storage_root().and_then(|root| {
+            let system_repo = root.join(crate::adp::bootstrap::SYSTEM_REPO_PATH);
+            crate::adp::storage::AdpStore::resolve_key_identity(&system_repo, &fingerprint_hex)
+                .ok()
+                .flatten()
+        });
 
         if let Some(ref username) = resolved_user {
             // Phase 2: Verify the key is still listed in user's ssh_keys
@@ -569,14 +567,19 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root()
+                        let storage_root = self
+                            .git_service
+                            .get_storage_root()
                             .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
 
                         // Per-repo access control (ADR-031)
-                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Pull) {
-                            let error_msg = format!("ERROR: Access denied for repository '{}'\n", repository);
-                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Pull)
+                        {
+                            let error_msg =
+                                format!("ERROR: Access denied for repository '{}'\n", repository);
+                            session
+                                .data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 1)?;
                             session.eof(channel)?;
                             return Ok(());
@@ -669,14 +672,21 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root()
+                        let storage_root = self
+                            .git_service
+                            .get_storage_root()
                             .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
 
                         // Per-repo access control (ADR-031)
-                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Push) {
-                            let error_msg = format!("ERROR: Write access denied for repository '{}'\n", repository);
-                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Push)
+                        {
+                            let error_msg = format!(
+                                "ERROR: Write access denied for repository '{}'\n",
+                                repository
+                            );
+                            session
+                                .data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 1)?;
                             session.eof(channel)?;
                             return Ok(());
@@ -774,7 +784,9 @@ impl russh::server::Handler for SshHandler {
                         let repo = parts[1..].join("/");
 
                         let generator =
-                            crate::lfs::LfsTokenGenerator::new(self.lfs_config.jwt_secret.clone());
+                            crate::lfs::LfsTokenGenerator::new(
+                                self.lfs_config.jwt_secret.clone().unwrap_or_default()
+                            );
                         let lfs_op = if operation == "download" {
                             crate::lfs::LfsOperation::Download
                         } else {
@@ -918,23 +930,35 @@ impl SshHandler {
         let username = match &self.authenticated_user {
             Some(u) => u,
             None => {
-                warn!("Access denied: no authenticated user for repo {:?}", repo_path);
+                warn!(
+                    "Access denied: no authenticated user for repo {:?}",
+                    repo_path
+                );
                 return false;
             }
         };
 
         match crate::adp::storage::AdpStore::check_repo_access(repo_path, username, &permission) {
             Ok(true) => {
-                debug!("Access granted: user '{}' has {:?} on {:?}", username, permission, repo_path);
+                debug!(
+                    "Access granted: user '{}' has {:?} on {:?}",
+                    username, permission, repo_path
+                );
                 true
             }
             Ok(false) => {
-                warn!("Access denied: user '{}' lacks {:?} on {:?}", username, permission, repo_path);
+                warn!(
+                    "Access denied: user '{}' lacks {:?} on {:?}",
+                    username, permission, repo_path
+                );
                 false
             }
             Err(e) => {
                 // On error, default to deny for write, allow for read (fail-open for reads)
-                error!("Access check error for user '{}' on {:?}: {}", username, repo_path, e);
+                error!(
+                    "Access check error for user '{}' on {:?}: {}",
+                    username, repo_path, e
+                );
                 matches!(permission, crate::adp::access::Permission::Pull)
             }
         }

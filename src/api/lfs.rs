@@ -32,7 +32,11 @@ where
     A: AuditStorage + 'static,
 {
     pub fn new(storage: Arc<S>, config: AppConfig) -> Self {
-        let jwt_secret = config.lfs.jwt_secret.clone();
+        let jwt_secret = config
+            .lfs
+            .jwt_secret
+            .clone()
+            .unwrap_or_default();
         Self {
             storage,
             config,

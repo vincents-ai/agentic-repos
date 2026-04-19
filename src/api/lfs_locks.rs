@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::config::LfsConfig;
 use crate::features::FeatureFlags;
 use crate::lfs::{
-    CreateLockRequest, DeleteLockRequest, LfsLockManager, LockManagerError,
-    LockStorage, VerifyLocksRequest,
+    CreateLockRequest, DeleteLockRequest, LfsLockManager, LockManagerError, LockStorage,
+    VerifyLocksRequest,
 };
 use crate::rbac::{Permission, RbacService};
 
@@ -56,8 +56,17 @@ impl LfsLocksHandler {
 
 fn extract_username_from_request(
     req: &HttpRequest,
-    jwt_secret: &str,
+    jwt_secret: &Option<String>,
 ) -> Result<String, HttpResponse> {
+    let secret = match jwt_secret {
+        Some(s) if !s.is_empty() => s.as_str(),
+        _ => {
+            return Err(HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                "message": "LFS is not configured. Contact your administrator."
+            })));
+        }
+    };
+
     if let Some(auth_header) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
@@ -67,7 +76,7 @@ fn extract_username_from_request(
 
                 if let Ok(token_data) = decode::<crate::lfs::LfsClaims>(
                     token,
-                    &DecodingKey::from_secret(jwt_secret.as_ref()),
+                    &DecodingKey::from_secret(secret.as_ref()),
                     &validation,
                 ) {
                     return Ok(token_data.claims.tenant.clone());
@@ -119,17 +128,14 @@ pub async fn create_lock(
         None
     };
 
-    match handler
-        .lock_manager
-        .create_lock(
-            &tenant,
-            &repo,
-            body.into_inner(),
-            &username,
-            None,
-            expiration_secs,
-        )
-    {
+    match handler.lock_manager.create_lock(
+        &tenant,
+        &repo,
+        body.into_inner(),
+        &username,
+        None,
+        expiration_secs,
+    ) {
         Ok(response) => HttpResponse::Created().json(response),
         Err(LockManagerError::AlreadyLocked(path)) => HttpResponse::Conflict().json(json!({
             "message": format!("File {} is already locked", path)
@@ -174,18 +180,15 @@ pub async fn list_locks(
 
     let id_filter = query.id.as_ref().and_then(|s| Uuid::parse_str(s).ok());
 
-    match handler
-        .lock_manager
-        .list_locks(
-            &tenant,
-            &repo,
-            query.path.as_deref(),
-            id_filter,
-            query.refspec.as_deref(),
-            query.limit,
-            query.cursor.as_deref(),
-        )
-    {
+    match handler.lock_manager.list_locks(
+        &tenant,
+        &repo,
+        query.path.as_deref(),
+        id_filter,
+        query.refspec.as_deref(),
+        query.limit,
+        query.cursor.as_deref(),
+    ) {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => HttpResponse::InternalServerError().json(json!({
             "message": e.to_string()
@@ -292,17 +295,14 @@ pub async fn verify_locks(
 
     let refspec = body.git_ref.as_ref().map(|r| r.name.as_str());
 
-    match handler
-        .lock_manager
-        .verify_locks(
-            &tenant,
-            &repo,
-            &username,
-            refspec,
-            body.limit,
-            body.cursor.as_deref(),
-        )
-    {
+    match handler.lock_manager.verify_locks(
+        &tenant,
+        &repo,
+        &username,
+        refspec,
+        body.limit,
+        body.cursor.as_deref(),
+    ) {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => HttpResponse::InternalServerError().json(json!({
             "message": e.to_string()

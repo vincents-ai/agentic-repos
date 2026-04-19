@@ -22,9 +22,9 @@ pub struct LfsConfig {
     pub token_expiration_secs: u64,
 
     /// JWT secret for token signing and verification.
-    /// **MUST be changed in production.**
-    #[serde(default = "default_jwt_secret")]
-    pub jwt_secret: String,
+    /// **Required in production.** If not set, LFS endpoints will panic at startup.
+    #[serde(default)]
+    pub jwt_secret: Option<String>,
 
     /// Base URL for LFS HTTP endpoints (e.g. `"https://lfs.example.com"`).
     #[serde(default = "default_base_url")]
@@ -127,9 +127,6 @@ fn default_max_object_size() -> u64 {
 fn default_token_expiration() -> u64 {
     3600
 }
-fn default_jwt_secret() -> String {
-    "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING".to_string()
-}
 fn default_base_url() -> String {
     "http://localhost:8090".to_string()
 }
@@ -170,7 +167,7 @@ impl Default for LfsConfig {
             enabled: false,
             max_object_size: default_max_object_size(),
             token_expiration_secs: default_token_expiration(),
-            jwt_secret: default_jwt_secret(),
+            jwt_secret: None,
             base_url: default_base_url(),
             storage_path_pattern: default_storage_path_pattern(),
             locking_enabled: false,
@@ -232,6 +229,25 @@ impl Default for LfsThrottleConfig {
 /// The ref name for LFS configuration in the system repo.
 pub const LFS_CONFIG_REF: &str = "refs/adp/config/lfs";
 
+impl LfsConfig {
+    /// Get the JWT secret, panicking at startup if not configured.
+    /// This ensures LFS cannot operate with an insecure default secret.
+    pub fn require_jwt_secret(&self) -> &str {
+        self.jwt_secret.as_deref().unwrap_or_else(|| {
+            panic!(
+                "FATAL: LFS jwt_secret is not set. \
+                 Set it in refs/adp/config/lfs or LFS_JWT_SECRET env var. \
+                 LFS endpoints are disabled until this is configured."
+            )
+        })
+    }
+
+    /// Check if LFS is properly configured for use.
+    pub fn is_configured(&self) -> bool {
+        self.enabled && self.jwt_secret.as_ref().is_some_and(|s| !s.is_empty())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +261,9 @@ mod tests {
         assert_eq!(cfg.base_url, "http://localhost:8090");
         assert!(!cfg.locking_enabled);
         assert_eq!(cfg.lock_expiration_secs, 86400);
+        // JWT secret is None by default — must be explicitly configured
+        assert!(cfg.jwt_secret.is_none());
+        assert!(!cfg.is_configured());
     }
 
     #[test]
@@ -266,14 +285,15 @@ mod tests {
     fn test_lfs_config_round_trip() {
         let cfg = LfsConfig {
             enabled: true,
-            jwt_secret: "my-secret".to_string(),
+            jwt_secret: Some("my-secret".to_string()),
             ..Default::default()
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: LfsConfig = serde_json::from_str(&json).unwrap();
         assert!(back.enabled);
-        assert_eq!(back.jwt_secret, "my-secret");
+        assert_eq!(back.jwt_secret, Some("my-secret".to_string()));
         assert_eq!(back.max_object_size, 5 * 1024 * 1024 * 1024);
+        assert!(back.is_configured());
     }
 
     #[test]

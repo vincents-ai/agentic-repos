@@ -125,6 +125,10 @@ impl LfsObjectCache {
         oid: &str,
         verified_at: &str,
     ) -> crate::cache::CacheResult<()> {
+        // Atomic read-modify-write: fetch, update, store back.
+        // The get_object/set_object methods go through the same pool connection.
+        // For full atomicity under high contention, a Redis Lua script would be needed,
+        // but LFS verification is idempotent so the race window is benign.
         if let Some(mut metadata) = self.get_object(tenant_id, oid).await? {
             metadata.verified = true;
             metadata.verified_at = Some(verified_at.to_string());

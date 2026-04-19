@@ -189,7 +189,9 @@ impl SessionStore for RedisSessionStore {
         };
 
         let ttl = self.pool.config().session_ttl();
-        let _ = conn.expire(&key, ttl).await;
+        if let Err(e) = conn.expire(&key, ttl).await {
+            tracing::warn!("Failed to refresh session TTL: {}", e);
+        }
     }
 
     async fn cleanup_expired(&self) {

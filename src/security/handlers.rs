@@ -65,18 +65,18 @@ pub async fn scan_content(
 
     // Rate limit scan requests
     if !scan_rate_limit::check() {
+        tracing::warn!("Scan rate limit exceeded");
         return Ok(HttpResponse::TooManyRequests().json(serde_json::json!({
             "error": "Rate limit exceeded — maximum 30 scans per minute"
         })));
     }
 
     if !feature_flags.security_scanning {
-        let error = ApiError::new(
+        return Ok(HttpResponse::Forbidden().json(ApiError::new(
             "feature_disabled",
             "Security scanning feature is not enabled",
             403,
-        );
-        return Ok(HttpResponse::Forbidden().json(error));
+        )));
     }
 
     // Validate content size
@@ -86,9 +86,39 @@ pub async fn scan_content(
         })));
     }
 
-    let result = scanner.scan(payload.into_inner()).await;
+    // Audit log: who initiated the scan
+    let user = crate::auth::middleware::get_current_session(&http_req)
+        .and_then(|s| s.user.username)
+        .unwrap_or_else(|| "unknown".to_string());
+    let file_path = payload.file_path.clone().unwrap_or_default();
+    tracing::info!(
+        user = %user,
+        file_path = %file_path,
+        content_len = payload.content.len(),
+        "Security scan initiated"
+    );
 
-    Ok(HttpResponse::Ok().json(result))
+    let scan_req = payload.into_inner();
+    let report = scanner.scan(scan_req).await;
+
+    // Audit log: scan results summary
+    if !report.matches.is_empty() {
+        tracing::warn!(
+            user = %user,
+            file_path = %file_path,
+            findings_count = report.matches.len(),
+            severities = ?report.matches.iter().map(|f| &f.severity).collect::<Vec<_>>(),
+            "Security scan found secrets"
+        );
+    } else {
+        tracing::info!(
+            user = %user,
+            file_path = %file_path,
+            "Security scan clean — no findings"
+        );
+    }
+
+    Ok(HttpResponse::Ok().json(report))
 }
 
 pub async fn get_scan_result(

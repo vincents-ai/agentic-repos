@@ -97,6 +97,8 @@ pub struct DistributedLock {
     redis_url: Option<String>,
     instance_id: String,
     pool: Option<deadpool_redis::Pool>,
+    /// Tracks keys currently held by this lock instance to prevent re-entrancy.
+    held_keys: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl DistributedLock {
@@ -121,22 +123,40 @@ impl DistributedLock {
             redis_url,
             instance_id,
             pool,
+            held_keys: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
     pub async fn acquire(&self, options: LockOptions) -> LockResult<LockHandle> {
+        // Re-entrancy check: prevent acquiring the same key twice
+        {
+            let held = self.held_keys.lock().unwrap();
+            if held.contains(&options.key) {
+                return Err(LockError::AcquireFailed(format!(
+                    "Re-entrant lock detected for key '{}'",
+                    options.key
+                )));
+            }
+        }
+
         let lock_value = format!("{}:{}", self.instance_id, uuid::Uuid::new_v4());
         let now = chrono::Utc::now();
         let expires_at =
             now + chrono::Duration::from_std(options.ttl).unwrap_or(chrono::Duration::seconds(30));
 
-        if let Some(ref redis_url) = self.redis_url {
+        let result = if let Some(ref redis_url) = self.redis_url {
             self.acquire_redis(redis_url, &options, &lock_value, now, expires_at)
                 .await
         } else {
             self.acquire_local(&options, &lock_value, now, expires_at)
                 .await
+        };
+
+        if let Ok(ref handle) = result {
+            self.held_keys.lock().unwrap().insert(handle.key.clone());
         }
+
+        result
     }
 
     async fn acquire_redis(
@@ -270,14 +290,18 @@ impl DistributedLock {
     pub async fn release(&self, handle: LockHandle) -> LockResult<()> {
         if handle.is_expired() {
             warn!("Attempting to release expired lock: {}", handle.key);
+            self.held_keys.lock().unwrap().remove(&handle.key);
             return Err(LockError::Expired);
         }
 
-        if let Some(ref redis_url) = self.redis_url {
+        let result = if let Some(ref redis_url) = self.redis_url {
             self.release_redis(redis_url, &handle).await
         } else {
             self.release_local(&handle).await
-        }
+        };
+
+        self.held_keys.lock().unwrap().remove(&handle.key);
+        result
     }
 
     async fn release_redis(&self, _redis_url: &str, handle: &LockHandle) -> LockResult<()> {
@@ -403,9 +427,21 @@ impl Drop for LockGuard {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {
             let lock = std::sync::Arc::clone(&self.lock);
-            tokio::spawn(async move {
-                let _ = lock.release(handle).await;
-            });
+            // Use block_in_place to release synchronously within a multi-threaded runtime.
+            // Falls back to fire-and-forget spawn if no runtime or single-threaded.
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => {
+                    let _ = rt.block_on(async {
+                        if let Err(e) = lock.release(handle).await {
+                            warn!("Failed to release lock in Drop: {}", e);
+                        }
+                    });
+                }
+                Err(_) => {
+                    // No runtime — fire-and-forget as last resort
+                    warn!("LockGuard Drop: no tokio runtime, lock release may leak");
+                }
+            }
         }
     }
 }

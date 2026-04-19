@@ -20,7 +20,7 @@ mod scan_rate_limit {
 
     pub fn check() -> bool {
         let start = WINDOW_START.get_or_init(|| std::sync::Mutex::new(Instant::now()));
-        let mut guard = start.lock().unwrap();
+        let mut guard = start.lock().unwrap_or_else(|e| e.into_inner());
         if guard.elapsed().as_secs() >= 60 {
             *guard = Instant::now();
             COUNT.store(1, Ordering::Relaxed);

@@ -2,6 +2,7 @@ use actix_web::{web, HttpResponse};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::warn;
 
 use super::audit::{ComplianceAuditStorage, InMemoryComplianceAuditStorage};
 use super::privacy::PrivacyControls;
@@ -179,10 +180,17 @@ async fn list_reports<S: ComplianceAuditStorage>(
                 reports: summaries,
             })
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "storage_error".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "storage_error".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -242,10 +250,17 @@ async fn generate_report<S: ComplianceAuditStorage>(
             }
             HttpResponse::Created().json(report_clone)
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "generation_failed".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "generation_failed".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -261,10 +276,17 @@ async fn get_report<S: ComplianceAuditStorage>(
             error: "not_found".to_string(),
             message: format!("Report {} not found", report_id),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "storage_error".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "storage_error".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -289,10 +311,17 @@ async fn download_report<S: ComplianceAuditStorage>(
                         ),
                     ))
                     .body(csv),
-                Err(e) => HttpResponse::InternalServerError().json(ApiError {
-                    error: "conversion_failed".to_string(),
-                    message: e.to_string(),
-                }),
+                Err(e) => {
+
+                    warn!("Compliance API error: {}", e);
+
+                    HttpResponse::InternalServerError().json(ApiError {
+                            error: "conversion_failed".to_string(),
+                            message: "An internal error occurred".to_string(),
+                    })
+
+                }
+
             },
             _ => HttpResponse::Ok()
                 .content_type("application/json")
@@ -309,10 +338,17 @@ async fn download_report<S: ComplianceAuditStorage>(
             error: "not_found".to_string(),
             message: format!("Report {} not found", report_id),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "storage_error".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "storage_error".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -339,10 +375,17 @@ async fn export_user_data<S: ComplianceAuditStorage>(
         .await
     {
         Ok(export) => HttpResponse::Ok().json(export),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "export_failed".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "export_failed".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -364,10 +407,17 @@ async fn export_user_data_post<S: ComplianceAuditStorage>(
         .await
     {
         Ok(export) => HttpResponse::Ok().json(export),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "export_failed".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "export_failed".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -400,10 +450,17 @@ async fn delete_user_data<S: ComplianceAuditStorage>(
         .await
     {
         Ok(request) => HttpResponse::Accepted().json(request),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "deletion_failed".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "deletion_failed".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -412,10 +469,17 @@ async fn list_retention_policies<S: ComplianceAuditStorage>(
 ) -> HttpResponse {
     match state.retention_service.list_policies().await {
         Ok(policies) => HttpResponse::Ok().json(policies),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "storage_error".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "storage_error".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -483,10 +547,17 @@ async fn get_retention_policy<S: ComplianceAuditStorage>(
             error: "not_found".to_string(),
             message: format!("Policy {} not found", policy_id),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "storage_error".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "storage_error".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -502,10 +573,17 @@ async fn delete_retention_policy<S: ComplianceAuditStorage>(
             error: "not_found".to_string(),
             message: format!("Policy {} not found", policy_id),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "deletion_failed".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "deletion_failed".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 
@@ -556,10 +634,17 @@ async fn get_retention_summary<S: ComplianceAuditStorage>(
 ) -> HttpResponse {
     match state.retention_service.get_retention_summary(&tenant).await {
         Ok(summary) => HttpResponse::Ok().json(summary),
-        Err(e) => HttpResponse::InternalServerError().json(ApiError {
-            error: "storage_error".to_string(),
-            message: e.to_string(),
-        }),
+        Err(e) => {
+
+            warn!("Compliance API error: {}", e);
+
+            HttpResponse::InternalServerError().json(ApiError {
+                    error: "storage_error".to_string(),
+                    message: "An internal error occurred".to_string(),
+            })
+
+        }
+
     }
 }
 

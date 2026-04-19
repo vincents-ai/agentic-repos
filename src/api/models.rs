@@ -118,6 +118,9 @@ impl ApiError {
     }
 
     pub fn internal_error(message: &str) -> Self {
-        Self::new("internal_server_error", message, 500)
+        // Log full error server-side for debugging
+        tracing::error!("Internal error: {}", message);
+        // Return generic message to client — don't leak internals
+        Self::new("internal_server_error", "An internal error occurred", 500)
     }
 }

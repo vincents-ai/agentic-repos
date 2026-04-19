@@ -3,6 +3,7 @@ pub mod dora;
 pub mod dora_nis2_handlers;
 pub mod encryption;
 pub mod eu_data_protection;
+pub mod gdpr_hipaa_handlers;
 pub mod handlers;
 pub mod hipaa;
 pub mod nis2;

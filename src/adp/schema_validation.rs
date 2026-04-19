@@ -1,6 +1,9 @@
 //! Schema-aware pre-receive hook for git push validation.
 //!
 //! Validates pushed refs against matching RefSchema before accepting.
+//! Awaiting schema registry integration.
+
+#![allow(dead_code)]
 //! This is the first line of defense for data integrity.
 
 use crate::adp::schema::{SchemaCache, SchemaValidationError};
@@ -16,29 +19,25 @@ pub enum SchemaValidationHookError {
     },
 
     /// Invalid schema definition
-    InvalidSchema {
-        schema_id: String,
-        details: String,
-    },
+    InvalidSchema { schema_id: String, details: String },
 
     /// Failed to read blob from repo
-    BlobReadFailed {
-        ref_name: String,
-        details: String,
-    },
+    BlobReadFailed { ref_name: String, details: String },
 
     /// JSON parse failed
-    InvalidJson {
-        ref_name: String,
-        details: String,
-    },
+    InvalidJson { ref_name: String, details: String },
 }
 
 impl std::fmt::Display for SchemaValidationHookError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ValidationFailed { ref_name, errors } => {
-                write!(f, "schema validation failed for ref {}: {} errors", ref_name, errors.len())?;
+                write!(
+                    f,
+                    "schema validation failed for ref {}: {} errors",
+                    ref_name,
+                    errors.len()
+                )?;
                 for err in errors.iter().take(3) {
                     write!(f, "\n  - {}", err)?;
                 }
@@ -48,7 +47,11 @@ impl std::fmt::Display for SchemaValidationHookError {
                 Ok(())
             }
             Self::InvalidSchema { schema_id, details } => {
-                write!(f, "invalid schema in refs/adp/schema/{}: {}", schema_id, details)
+                write!(
+                    f,
+                    "invalid schema in refs/adp/schema/{}: {}",
+                    schema_id, details
+                )
             }
             Self::BlobReadFailed { ref_name, details } => {
                 write!(f, "failed to read blob for ref {}: {}", ref_name, details)
@@ -78,7 +81,9 @@ pub fn validate_push(
     for (refname, _old_oid, new_oid) in ref_updates {
         // Skip deletions or non-existent refs
         let new_oid = match new_oid {
-            Some(oid) if !oid.is_empty() && oid != "0000000000000000000000000000000000000000" => oid,
+            Some(oid) if !oid.is_empty() && oid != "0000000000000000000000000000000000000000" => {
+                oid
+            }
             _ => continue, // Skip deletes or null OIDs
         };
 
@@ -146,24 +151,24 @@ pub fn validate_push(
 fn read_blob_data(repo_path: &Path, oid: &str) -> Result<Vec<u8>, SchemaValidationHookError> {
     use gix::ObjectId;
 
-    let object_id = ObjectId::from_hex(oid.as_bytes())
-        .map_err(|e| SchemaValidationHookError::BlobReadFailed {
+    let object_id = ObjectId::from_hex(oid.as_bytes()).map_err(|e| {
+        SchemaValidationHookError::BlobReadFailed {
             ref_name: oid.to_string(),
             details: format!("invalid OID: {}", e),
-        })?;
+        }
+    })?;
 
-    let repo = gix::open(repo_path)
-        .map_err(|e| SchemaValidationHookError::BlobReadFailed {
-            ref_name: oid.to_string(),
-            details: format!("failed to open repo: {}", e),
-        })?;
+    let repo = gix::open(repo_path).map_err(|e| SchemaValidationHookError::BlobReadFailed {
+        ref_name: oid.to_string(),
+        details: format!("failed to open repo: {}", e),
+    })?;
 
-    let obj = repo
-        .find_object(object_id)
-        .map_err(|e| SchemaValidationHookError::BlobReadFailed {
-            ref_name: oid.to_string(),
-            details: format!("failed to find object: {}", e),
-        })?;
+    let obj =
+        repo.find_object(object_id)
+            .map_err(|e| SchemaValidationHookError::BlobReadFailed {
+                ref_name: oid.to_string(),
+                details: format!("failed to find object: {}", e),
+            })?;
 
     // Check it's a blob
     if obj.kind != gix::objs::Kind::Blob {

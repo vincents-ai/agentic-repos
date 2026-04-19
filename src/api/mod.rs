@@ -6,6 +6,7 @@ pub mod routes;
 
 use crate::compliance::dora::{DoraService, InMemoryDoraStore};
 use crate::compliance::dora_nis2_handlers::DoraNis2State;
+use crate::compliance::gdpr_hipaa_handlers::GdprHipaaState;
 use crate::compliance::handlers::{configure_compliance_routes, ComplianceState};
 use crate::compliance::nis2::{InMemoryNis2Store, Nis2Service};
 use crate::features::FeatureFlags;
@@ -127,6 +128,14 @@ impl ApiServer {
             dora: Arc::new(DoraService::new(Arc::new(InMemoryDoraStore::new()))),
             nis2: Arc::new(Nis2Service::new(Arc::new(InMemoryNis2Store::new()))),
         }));
+        let gdpr_hipaa_state: web::Data<Arc<GdprHipaaState>> = web::Data::new(Arc::new(GdprHipaaState {
+            gdpr: Arc::new(crate::compliance::eu_data_protection::EuComplianceService::new(
+                crate::compliance::eu_data_protection::InMemoryEuComplianceStore::shared(),
+            )),
+            hipaa: Arc::new(crate::compliance::hipaa::HipaaService::new(
+                crate::compliance::hipaa::InMemoryBaaStore::shared(),
+            )),
+        }));
 
         // Secrets service — AGE key management for SOPS-encrypted secrets
         let secrets_storage_root = git_service
@@ -172,6 +181,10 @@ impl ApiServer {
                     crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(
                         cfg,
                         dora_nis2_state.clone(),
+                    );
+                    crate::compliance::gdpr_hipaa_handlers::configure_gdpr_hipaa_routes(
+                        cfg,
+                        gdpr_hipaa_state.clone(),
                     );
                 }))
                 .service(web::scope("/api/v1").configure(routes::configure_routes));

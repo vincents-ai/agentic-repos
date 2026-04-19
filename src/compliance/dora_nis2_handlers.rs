@@ -10,10 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::dora::{
-    DoraService, IctIncident, IctRiskManagementFramework, IncidentClassification,
-    IncidentSeverity, InformationSharingArrangement,
-    SharingType, ThirdPartyProvider, ThirdPartyServiceType,
-    ProviderCriticality,
+    DoraService, IctIncident, IctRiskManagementFramework, IncidentClassification, IncidentSeverity,
+    InformationSharingArrangement, ProviderCriticality, SharingType, ThirdPartyProvider,
+    ThirdPartyServiceType,
 };
 use super::nis2::{
     EntityType, Nis2EntityProfile, Nis2Incident, Nis2IncidentCategory, Nis2IncidentSeverity,
@@ -67,14 +66,20 @@ pub fn configure_dora_routes(cfg: &mut web::ServiceConfig) {
             .route("/framework", web::post().to(dora_save_framework))
             .route("/incidents", web::get().to(dora_list_incidents))
             .route("/incidents", web::post().to(dora_report_incident))
-            .route("/incidents/{id}/notify", web::post().to(dora_notify_authority))
+            .route(
+                "/incidents/{id}/notify",
+                web::post().to(dora_notify_authority),
+            )
             .route("/incidents/overdue", web::get().to(dora_overdue_reports))
             .route("/testing/{year}", web::get().to(dora_get_testing))
             .route("/testing/{year}", web::post().to(dora_save_testing))
             .route("/providers", web::get().to(dora_list_providers))
             .route("/providers", web::post().to(dora_register_provider))
             .route("/providers/missing-exit", web::get().to(dora_missing_exit))
-            .route("/providers/needing-audit", web::get().to(dora_needing_audit))
+            .route(
+                "/providers/needing-audit",
+                web::get().to(dora_needing_audit),
+            )
             .route("/sharing", web::get().to(dora_list_sharing))
             .route("/sharing", web::post().to(dora_save_sharing))
             .route("/status", web::get().to(dora_status)),
@@ -207,8 +212,7 @@ async fn dora_save_testing(
     body: web::Json<SaveTestingRequest>,
 ) -> HttpResponse {
     let year = path.into_inner();
-    let programme =
-        super::dora::ResilienceTestingProgramme::new(year, &body.approved_by);
+    let programme = super::dora::ResilienceTestingProgramme::new(year, &body.approved_by);
     match state.dora.save_testing_programme(&programme) {
         Ok(()) => HttpResponse::Created().json(&programme),
         Err(e) => internal_err(&e),
@@ -254,15 +258,16 @@ async fn dora_register_provider(
         "medium" => ProviderCriticality::Medium,
         "high" => ProviderCriticality::High,
         "critical" => ProviderCriticality::Critical,
-        _ => return api_err("invalid_criticality", "Must be: low, medium, high, critical"),
+        _ => {
+            return api_err(
+                "invalid_criticality",
+                "Must be: low, medium, high, critical",
+            )
+        }
     };
 
-    let provider = ThirdPartyProvider::new(
-        &body.name,
-        service_type,
-        criticality,
-        &body.contract_ref,
-    );
+    let provider =
+        ThirdPartyProvider::new(&body.name, service_type, criticality, &body.contract_ref);
     match state.dora.register_provider(&provider) {
         Ok(()) => HttpResponse::Created().json(&provider),
         Err(e) => internal_err(&e),
@@ -318,11 +323,15 @@ async fn dora_save_sharing(
         "multilateral" => SharingType::Multilateral,
         "government" => SharingType::Government,
         "eu" => SharingType::EuInstitution,
-        _ => return api_err("invalid_type", "Must be: isac, bilateral, multilateral, government, eu"),
+        _ => {
+            return api_err(
+                "invalid_type",
+                "Must be: isac, bilateral, multilateral, government, eu",
+            )
+        }
     };
 
-    let arrangement =
-        InformationSharingArrangement::new(&body.partner_name, arr_type, &body.scope);
+    let arrangement = InformationSharingArrangement::new(&body.partner_name, arr_type, &body.scope);
     match state.dora.save_sharing_arrangement(&arrangement) {
         Ok(()) => HttpResponse::Created().json(&arrangement),
         Err(e) => internal_err(&e),
@@ -346,15 +355,33 @@ pub fn configure_nis2_routes(cfg: &mut web::ServiceConfig) {
             .route("/entities", web::get().to(nis2_list_entities))
             .route("/entities", web::post().to(nis2_register_entity))
             .route("/entities/{id}", web::get().to(nis2_get_entity))
-            .route("/security-measures/{entity_id}", web::get().to(nis2_get_measures))
+            .route(
+                "/security-measures/{entity_id}",
+                web::get().to(nis2_get_measures),
+            )
             .route("/security-measures", web::post().to(nis2_save_measures))
-            .route("/security-measures/overdue", web::get().to(nis2_overdue_assessments))
+            .route(
+                "/security-measures/overdue",
+                web::get().to(nis2_overdue_assessments),
+            )
             .route("/incidents", web::get().to(nis2_list_incidents))
             .route("/incidents", web::post().to(nis2_report_incident))
-            .route("/incidents/{id}/notify/initial", web::post().to(nis2_initial_notify))
-            .route("/incidents/{id}/notify/detailed", web::post().to(nis2_detailed_notify))
-            .route("/incidents/{id}/notify/final", web::post().to(nis2_final_report))
-            .route("/incidents/overdue", web::get().to(nis2_overdue_notifications))
+            .route(
+                "/incidents/{id}/notify/initial",
+                web::post().to(nis2_initial_notify),
+            )
+            .route(
+                "/incidents/{id}/notify/detailed",
+                web::post().to(nis2_detailed_notify),
+            )
+            .route(
+                "/incidents/{id}/notify/final",
+                web::post().to(nis2_final_report),
+            )
+            .route(
+                "/incidents/overdue",
+                web::get().to(nis2_overdue_notifications),
+            )
             .route("/status", web::get().to(nis2_status)),
     );
 }
@@ -497,7 +524,12 @@ async fn nis2_report_incident(
         "medium" => Nis2IncidentSeverity::Medium,
         "significant" => Nis2IncidentSeverity::Significant,
         "major" => Nis2IncidentSeverity::Major,
-        _ => return api_err("invalid_severity", "Must be: low, medium, significant, major"),
+        _ => {
+            return api_err(
+                "invalid_severity",
+                "Must be: low, medium, significant, major",
+            )
+        }
     };
     let category = match body.category.to_lowercase().as_str() {
         "compromise" => Nis2IncidentCategory::SystemCompromise,
@@ -600,10 +632,74 @@ async fn nis2_status(state: web::Data<Arc<DoraNis2State>>) -> HttpResponse {
 // Combined Route Configuration
 // ═══════════════════════════════════════════════════════════════════════════════
 
-pub fn configure_dora_nis2_routes(cfg: &mut web::ServiceConfig, state: web::Data<Arc<DoraNis2State>>) {
-    cfg.app_data(state);
-    configure_dora_routes(cfg);
-    configure_nis2_routes(cfg);
+pub fn configure_dora_nis2_routes(
+    cfg: &mut web::ServiceConfig,
+    state: web::Data<Arc<DoraNis2State>>,
+) {
+    let perm = crate::rbac::middleware::require_permission(
+        crate::rbac::models::Permission::ComplianceManage,
+    );
+    cfg.app_data(state)
+        .service(
+            web::scope("/dora")
+                .wrap(perm.clone())
+                .route("/framework", web::get().to(dora_get_framework))
+                .route("/framework", web::post().to(dora_save_framework))
+                .route("/incidents", web::get().to(dora_list_incidents))
+                .route("/incidents", web::post().to(dora_report_incident))
+                .route(
+                    "/incidents/{id}/notify",
+                    web::post().to(dora_notify_authority),
+                )
+                .route("/incidents/overdue", web::get().to(dora_overdue_reports))
+                .route("/testing/{year}", web::get().to(dora_get_testing))
+                .route("/testing/{year}", web::post().to(dora_save_testing))
+                .route("/providers", web::get().to(dora_list_providers))
+                .route("/providers", web::post().to(dora_register_provider))
+                .route("/providers/missing-exit", web::get().to(dora_missing_exit))
+                .route(
+                    "/providers/needing-audit",
+                    web::get().to(dora_needing_audit),
+                )
+                .route("/sharing", web::get().to(dora_list_sharing))
+                .route("/sharing", web::post().to(dora_save_sharing))
+                .route("/status", web::get().to(dora_status)),
+        )
+        .service(
+            web::scope("/nis2")
+                .wrap(perm)
+                .route("/entities", web::get().to(nis2_list_entities))
+                .route("/entities", web::post().to(nis2_register_entity))
+                .route("/entities/{id}", web::get().to(nis2_get_entity))
+                .route(
+                    "/security-measures/{entity_id}",
+                    web::get().to(nis2_get_measures),
+                )
+                .route("/security-measures", web::post().to(nis2_save_measures))
+                .route(
+                    "/security-measures/overdue",
+                    web::get().to(nis2_overdue_assessments),
+                )
+                .route("/incidents", web::get().to(nis2_list_incidents))
+                .route("/incidents", web::post().to(nis2_report_incident))
+                .route(
+                    "/incidents/{id}/notify/initial",
+                    web::post().to(nis2_initial_notify),
+                )
+                .route(
+                    "/incidents/{id}/notify/detailed",
+                    web::post().to(nis2_detailed_notify),
+                )
+                .route(
+                    "/incidents/{id}/notify/final",
+                    web::post().to(nis2_final_report),
+                )
+                .route(
+                    "/incidents/overdue",
+                    web::get().to(nis2_overdue_notifications),
+                )
+                .route("/status", web::get().to(nis2_status)),
+        );
 }
 
 #[cfg(test)]
@@ -640,9 +736,7 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 201);
 
-        let req = test::TestRequest::get()
-            .uri("/dora/framework")
-            .to_request();
+        let req = test::TestRequest::get().uri("/dora/framework").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -680,9 +774,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get()
-            .uri("/dora/incidents")
-            .to_request();
+        let req = test::TestRequest::get().uri("/dora/incidents").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -720,9 +812,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get()
-            .uri("/dora/status")
-            .to_request();
+        let req = test::TestRequest::get().uri("/dora/status").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -783,9 +873,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get()
-            .uri("/nis2/entities")
-            .to_request();
+        let req = test::TestRequest::get().uri("/nis2/entities").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -801,7 +889,11 @@ mod tests {
         .await;
 
         // Register entity first
-        let entity = Nis2EntityProfile::new("Test", EntityType::Essential, Nis2Sector::DigitalInfrastructure);
+        let entity = Nis2EntityProfile::new(
+            "Test",
+            EntityType::Essential,
+            Nis2Sector::DigitalInfrastructure,
+        );
         let eid = entity.id;
         state.nis2.register_entity(&entity).unwrap();
 
@@ -829,9 +921,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get()
-            .uri("/nis2/status")
-            .to_request();
+        let req = test::TestRequest::get().uri("/nis2/status").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -858,7 +948,6 @@ mod tests {
         assert_eq!(resp.status(), 201);
     }
 }
-
 
 #[cfg(test)]
 mod request_tests {

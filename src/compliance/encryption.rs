@@ -1,7 +1,9 @@
 //! Data encryption at rest for HIPAA compliance.
-//!
+//
 //! Provides AES-256-GCM encryption/decryption for repository data at rest,
 //! key management, and encryption verification.
+
+#![allow(dead_code)]
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -13,12 +15,15 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Encryption key metadata — tracks key creation, rotation, and status.
+/// The key material (key_b64) is excluded from serialization to prevent
+/// accidental exposure in API responses or logs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptionKey {
     pub id: Uuid,
     /// Human-readable key name.
     pub name: String,
-    /// Base64-encoded 256-bit key.
+    /// Base64-encoded 256-bit key. Excluded from serialization.
+    #[serde(skip_serializing)]
     pub key_b64: String,
     /// Whether this key is currently active.
     pub active: bool,
@@ -28,6 +33,19 @@ pub struct EncryptionKey {
     pub rotated_at: Option<DateTime<Utc>>,
     /// SHA-256 fingerprint of the key for verification.
     pub fingerprint: String,
+}
+
+impl Drop for EncryptionKey {
+    fn drop(&mut self) {
+        // Zeroize key material on drop to prevent lingering in memory
+        // Use unsafe to get mutable access to the string bytes for zeroing
+        unsafe {
+            let bytes = self.key_b64.as_bytes_mut();
+            for byte in bytes {
+                std::ptr::write_volatile(byte, 0);
+            }
+        }
+    }
 }
 
 impl EncryptionKey {

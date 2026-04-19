@@ -98,48 +98,52 @@ impl ComplianceState<InMemoryComplianceAuditStorage> {
     }
 }
 
+use crate::rbac::middleware::require_permission;
+use crate::rbac::models::Permission;
+
 pub fn configure_compliance_routes<S: ComplianceAuditStorage + 'static>(
     cfg: &mut web::ServiceConfig,
     state: web::Data<ComplianceState<S>>,
 ) {
+    let perm = require_permission(Permission::ComplianceManage);
     cfg.app_data(state)
-        .route("/reports", web::get().to(list_reports::<S>))
-        .route("/reports", web::post().to(generate_report::<S>))
-        .route("/reports/{id}", web::get().to(get_report::<S>))
+        .route("/reports", web::get().to(list_reports::<S>).wrap(perm.clone()))
+        .route("/reports", web::post().to(generate_report::<S>).wrap(perm.clone()))
+        .route("/reports/{id}", web::get().to(get_report::<S>).wrap(perm.clone()))
         .route(
             "/reports/{id}/download",
-            web::get().to(download_report::<S>),
+            web::get().to(download_report::<S>).wrap(perm.clone()),
         )
-        .route("/gdpr/data-export", web::get().to(export_user_data::<S>))
+        .route("/gdpr/data-export", web::get().to(export_user_data::<S>).wrap(perm.clone()))
         .route(
             "/gdpr/data-export",
-            web::post().to(export_user_data_post::<S>),
+            web::post().to(export_user_data_post::<S>).wrap(perm.clone()),
         )
-        .route("/gdpr/data", web::delete().to(delete_user_data::<S>))
+        .route("/gdpr/data", web::delete().to(delete_user_data::<S>).wrap(perm.clone()))
         .route(
             "/retention/policies",
-            web::get().to(list_retention_policies::<S>),
+            web::get().to(list_retention_policies::<S>).wrap(perm.clone()),
         )
         .route(
             "/retention/policies",
-            web::post().to(create_retention_policy::<S>),
+            web::post().to(create_retention_policy::<S>).wrap(perm.clone()),
         )
         .route(
             "/retention/policies/{id}",
-            web::get().to(get_retention_policy::<S>),
+            web::get().to(get_retention_policy::<S>).wrap(perm.clone()),
         )
         .route(
             "/retention/policies/{id}",
-            web::delete().to(delete_retention_policy::<S>),
+            web::delete().to(delete_retention_policy::<S>).wrap(perm.clone()),
         )
-        .route("/retention/enforce", web::post().to(enforce_retention::<S>))
+        .route("/retention/enforce", web::post().to(enforce_retention::<S>).wrap(perm.clone()))
         .route(
             "/retention/enforce-all",
-            web::post().to(enforce_all_retention::<S>),
+            web::post().to(enforce_all_retention::<S>).wrap(perm.clone()),
         )
         .route(
             "/retention/summary",
-            web::get().to(get_retention_summary::<S>),
+            web::get().to(get_retention_summary::<S>).wrap(perm.clone()),
         );
 }
 

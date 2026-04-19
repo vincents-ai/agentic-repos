@@ -83,11 +83,8 @@ pub fn detect_entity_changes(
     let timestamp = chrono::Utc::now();
 
     // Find all refs that existed in old or new
-    let all_refs: std::collections::HashSet<&str> = old_map
-        .keys()
-        .chain(new_map.keys())
-        .copied()
-        .collect();
+    let all_refs: std::collections::HashSet<&str> =
+        old_map.keys().chain(new_map.keys()).copied().collect();
 
     for refname in all_refs {
         let old_oid = old_map.get(refname);
@@ -168,11 +165,10 @@ pub fn extract_entity_id(refname: &str, namespace_pattern: &str) -> String {
 fn read_blob_json(repo_path: &Path, oid: &str) -> Result<Option<serde_json::Value>, String> {
     use gix::ObjectId;
 
-    let object_id = ObjectId::from_hex(oid.as_bytes())
-        .map_err(|e| format!("invalid OID: {}", e))?;
+    let object_id =
+        ObjectId::from_hex(oid.as_bytes()).map_err(|e| format!("invalid OID: {}", e))?;
 
-    let repo = gix::open(repo_path)
-        .map_err(|e| format!("failed to open repo: {}", e))?;
+    let repo = gix::open(repo_path).map_err(|e| format!("failed to open repo: {}", e))?;
 
     let obj = match repo.find_object(object_id) {
         Ok(o) => o,
@@ -203,10 +199,7 @@ mod tests {
 
     #[test]
     fn test_extract_entity_id_double_wildcard() {
-        let id = extract_entity_id(
-            "refs/engram/task/abc123/sub/xyz",
-            "refs/engram/task/**",
-        );
+        let id = extract_entity_id("refs/engram/task/abc123/sub/xyz", "refs/engram/task/**");
         assert_eq!(id, "abc123/sub/xyz");
     }
 

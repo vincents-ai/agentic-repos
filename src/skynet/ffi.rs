@@ -631,7 +631,20 @@ pub unsafe extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) ->
 
 #[no_mangle]
 pub unsafe extern "C" fn plugin_health_check_v2(_context: *const PluginContextV2) -> HealthStatus {
-    HealthStatus::Healthy
+    // Verify critical subsystems are operational
+    let plugin_ok = PLUGIN.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    let runtime_ok = RUNTIME.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+
+    if plugin_ok && runtime_ok {
+        HealthStatus::Healthy
+    } else {
+        tracing::warn!(
+            "Health check: plugin={}, runtime={}",
+            if plugin_ok { "ok" } else { "MISSING" },
+            if runtime_ok { "ok" } else { "MISSING" }
+        );
+        HealthStatus::Degraded
+    }
 }
 
 fn request_v2_to_plugin_request(req: *const RequestV2) -> Option<PluginRequest> {

@@ -45,4 +45,7 @@ mod git_integration_tests;
 #[cfg(test)]
 mod auth_integration_tests;
 
+#[cfg(test)]
+mod lfs_security_tests;
+
 pub use error::Result;

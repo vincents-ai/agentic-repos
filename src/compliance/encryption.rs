@@ -76,8 +76,8 @@ pub struct EncryptedData {
     pub ciphertext_b64: String,
     /// Encryption timestamp.
     pub encrypted_at: DateTime<Utc>,
-    /// SHA-256 hash of the plaintext (for integrity verification).
-    pub plaintext_hash: String,
+    // Note: No plaintext hash stored. AES-256-GCM's authentication tag
+    // provides integrity verification without leaking plaintext information.
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -216,17 +216,11 @@ impl EncryptionService {
             .encrypt(nonce, plaintext)
             .map_err(|e| EncryptionError::Encrypt(e.to_string()))?;
 
-        // Compute plaintext hash for integrity
-        let mut hasher = Sha256::new();
-        hasher.update(plaintext);
-        let plaintext_hash = format!("{:x}", hasher.finalize());
-
         Ok(EncryptedData {
             key_id: key.id,
             nonce_b64: BASE64.encode(nonce_bytes),
             ciphertext_b64: BASE64.encode(ciphertext),
             encrypted_at: Utc::now(),
-            plaintext_hash,
         })
     }
 
@@ -254,13 +248,8 @@ impl EncryptionService {
             .decrypt(nonce, ciphertext.as_ref())
             .map_err(|e| EncryptionError::Decrypt(e.to_string()))?;
 
-        // Verify integrity
-        let mut hasher = Sha256::new();
-        hasher.update(&plaintext);
-        let actual_hash = format!("{:x}", hasher.finalize());
-        if actual_hash != data.plaintext_hash {
-            return Err(EncryptionError::IntegrityCheckFailed);
-        }
+        // AES-256-GCM authentication tag already verified integrity.
+        // If decrypt() succeeds, the ciphertext was not tampered with.
 
         Ok(plaintext)
     }
@@ -307,7 +296,6 @@ mod tests {
         let encrypted = svc.encrypt(plaintext).unwrap();
 
         assert_ne!(encrypted.ciphertext_b64, BASE64.encode(plaintext));
-        assert!(!encrypted.plaintext_hash.is_empty());
 
         let decrypted = svc.decrypt(&encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -394,12 +382,15 @@ mod tests {
 
         let encrypted = svc.encrypt(b"original data").unwrap();
 
-        // Tamper with the plaintext hash
+        // Tamper with the ciphertext — AES-GCM auth tag should reject it
         let mut tampered = encrypted.clone();
-        tampered.plaintext_hash = "tampered_hash".to_string();
+        let mut ct_bytes = BASE64.decode(&tampered.ciphertext_b64).unwrap();
+        if !ct_bytes.is_empty() {
+            ct_bytes[0] ^= 0xFF; // flip bits
+        }
+        tampered.ciphertext_b64 = BASE64.encode(ct_bytes);
 
         let result = svc.decrypt(&tampered);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Integrity"));
     }
 }

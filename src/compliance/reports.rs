@@ -580,6 +580,9 @@ impl ComplianceReportStorage for InMemoryReportStorage {
     }
 }
 
+/// Maximum audit query results per report generation to prevent memory exhaustion.
+const MAX_QUERY_RESULTS: usize = 10000;
+
 pub struct ComplianceReportGenerator<S: ComplianceAuditStorage> {
     audit_storage: Arc<S>,
 }
@@ -604,7 +607,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -627,7 +630,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -645,7 +648,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -660,7 +663,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -809,7 +812,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -824,7 +827,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -839,7 +842,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -963,7 +966,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -1071,7 +1074,7 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
                 Some(period_end),
                 None,
                 None,
-                100000,
+                MAX_QUERY_RESULTS,
                 0,
             )
             .await
@@ -1346,12 +1349,41 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
         })
     }
 
+    /// Sanitize a CSV value to prevent formula injection.
+    /// Prepends a single quote if the value starts with =, +, -, @, or tab/carriage-return.
+    fn sanitize_csv_value(value: &str) -> String {
+        let trimmed = value.trim_start();
+        if trimmed.starts_with('=')
+            || trimmed.starts_with('+')
+            || trimmed.starts_with('-')
+            || trimmed.starts_with('@')
+            || trimmed.starts_with('\t')
+            || trimmed.starts_with('\r')
+        {
+            format!("'{}", value)
+        } else if value.contains(',') || value.contains('"') || value.contains('\n') {
+            // Standard CSV escaping: wrap in quotes, double any internal quotes
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_string()
+        }
+    }
+
     pub fn format_report_as_csv(report: &ComplianceReport) -> Result<String, ReportError> {
         let mut csv = String::new();
         csv.push_str("Field,Value\n");
-        csv.push_str(&format!("Report ID,{}\n", report.id));
-        csv.push_str(&format!("Report Type,{}\n", report.report_type));
-        csv.push_str(&format!("Tenant ID,{}\n", report.tenant_id));
+        csv.push_str(&format!(
+            "Report ID,{}\n",
+            Self::sanitize_csv_value(&report.id)
+        ));
+        csv.push_str(&format!(
+            "Report Type,{}\n",
+            Self::sanitize_csv_value(&report.report_type.to_string())
+        ));
+        csv.push_str(&format!(
+            "Tenant ID,{}\n",
+            Self::sanitize_csv_value(&report.tenant_id)
+        ));
         csv.push_str(&format!(
             "Generated At,{}\n",
             report.generated_at.to_rfc3339()
@@ -1360,15 +1392,25 @@ impl<S: ComplianceAuditStorage> ComplianceReportGenerator<S> {
             "Period Start,{}\n",
             report.period_start.to_rfc3339()
         ));
-        csv.push_str(&format!("Period End,{}\n", report.period_end.to_rfc3339()));
+        csv.push_str(&format!(
+            "Period End,{}\n",
+            report.period_end.to_rfc3339()
+        ));
         csv.push_str(&format!("Status,{:?}\n", report.status));
-        csv.push_str(&format!("Summary,{}\n", report.summary));
+        csv.push_str(&format!(
+            "Summary,{}\n",
+            Self::sanitize_csv_value(&report.summary)
+        ));
         if let Some(score) = report.compliance_score {
             csv.push_str(&format!("Compliance Score,{:.2}%\n", score));
         }
         csv.push_str("\nRecommendations:\n");
         for (i, rec) in report.recommendations.iter().enumerate() {
-            csv.push_str(&format!("{},{}\n", i + 1, rec));
+            csv.push_str(&format!(
+                "{},{}\n",
+                i + 1,
+                Self::sanitize_csv_value(rec)
+            ));
         }
         Ok(csv)
     }

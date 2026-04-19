@@ -61,8 +61,9 @@ pub struct SamlConfig {
     /// Attribute name mapping: SAML attribute → local field
     pub attribute_map: AttributeMap,
     /// If true, reject assertions without a valid XML signature.
-    /// Leave false during development / when IdP channel is trusted-transport only.
-    #[serde(default)]
+    /// Must be `true` in production — unsigned assertions allow impersonation.
+    /// May be `false` only in development with trusted-transport IdP.
+    #[serde(default = "default_require_signed")]
     pub require_signed_assertions: bool,
 }
 
@@ -88,6 +89,10 @@ fn default_name_attr() -> String {
 }
 fn default_groups_attr() -> String {
     "groups".to_string()
+}
+
+fn default_require_signed() -> bool {
+    true
 }
 
 impl Default for AttributeMap {
@@ -125,6 +130,8 @@ struct ParsedResponse {
     conditions_not_on_or_after: Option<String>,
     audience: Option<String>,
     attributes: HashMap<String, Vec<String>>,
+    /// Whether the assertion contains a <Signature> element.
+    has_signature: bool,
 }
 
 /// SAML 2.0 Service Provider.
@@ -213,6 +220,28 @@ impl SamlSp {
             return Err(SamlError::StatusNotSuccess(parsed.status_code));
         }
 
+        // Signature verification (presence check)
+        // Full XML-DSig verification requires xmlsec bindings not yet available.
+        // At minimum, we verify the assertion contains a <Signature> element when required.
+        if self.config.require_signed_assertions {
+            if !parsed.has_signature {
+                return Err(SamlError::InvalidResponse(
+                    "SAML assertion is not signed — require_signed_assertions is enabled".into(),
+                ));
+            }
+            if self.config.idp.certificate_pem.is_none() {
+                tracing::warn!(
+                    "SAML assertion has <Signature> but no IdP certificate configured — \
+                     signature cannot be cryptographically verified"
+                );
+            }
+        } else {
+            tracing::warn!(
+                "SAML assertion processed without signature verification — \
+                 UNSAFE for production, enable require_signed_assertions"
+            );
+        }
+
         // Audience restriction
         if let Some(ref aud) = parsed.audience {
             if aud != &self.config.sp_entity_id {
@@ -276,6 +305,7 @@ impl SamlSp {
             conditions_not_on_or_after: None,
             audience: None,
             attributes: HashMap::new(),
+            has_signature: false,
         };
 
         // State machine for attribute parsing
@@ -354,6 +384,9 @@ impl SamlSp {
                         }
                         "AttributeValue" => {
                             in_attr_value = true;
+                        }
+                        "Signature" => {
+                            result.has_signature = true;
                         }
                         _ => {}
                     }

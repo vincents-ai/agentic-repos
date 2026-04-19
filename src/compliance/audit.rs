@@ -392,6 +392,247 @@ impl ComplianceAuditStorage for InMemoryComplianceAuditStorage {
     }
 }
 
+/// File-based append-only audit log storage.
+/// Each event is written as a single JSON line (JSONL) to the log file.
+/// Reads scan the file sequentially — suitable for moderate volumes.
+/// For high-volume production, replace with a database-backed implementation.
+pub struct FileBasedAuditStorage {
+    path: std::path::PathBuf,
+    max_file_size_bytes: u64,
+}
+
+impl FileBasedAuditStorage {
+    pub fn new(path: std::path::PathBuf, max_file_size_bytes: u64) -> Self {
+        Self {
+            path,
+            max_file_size_bytes,
+        }
+    }
+
+    fn read_all_events(&self) -> Result<Vec<ComplianceAuditEvent>, AuditAggregationError> {
+        if !self.path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&self.path)
+            .map_err(|e| AuditAggregationError::Storage(format!("Failed to read audit log: {}", e)))?;
+        let mut events = Vec::new();
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<ComplianceAuditEvent>(line) {
+                Ok(event) => events.push(event),
+                Err(e) => {
+                    tracing::warn!("Skipping malformed audit event: {}", e);
+                }
+            }
+        }
+        Ok(events)
+    }
+
+    fn matches_filter(
+        e: &ComplianceAuditEvent,
+        tenant_id: Option<&str>,
+        event_types: Option<&[ComplianceEventType]>,
+        start_time: Option<DateTime<Utc>>,
+        end_time: Option<DateTime<Utc>>,
+        user_id: Option<&str>,
+        resource_type: Option<&str>,
+    ) -> bool {
+        if let Some(t) = tenant_id {
+            if e.tenant_id != t {
+                return false;
+            }
+        }
+        if let Some(types) = event_types {
+            if !types.contains(&e.event_type) {
+                return false;
+            }
+        }
+        if let Some(start) = start_time {
+            if e.timestamp < start {
+                return false;
+            }
+        }
+        if let Some(end) = end_time {
+            if e.timestamp > end {
+                return false;
+            }
+        }
+        if let Some(uid) = user_id {
+            if e.actor.user_id.as_deref() != Some(uid) {
+                return false;
+            }
+        }
+        if let Some(rt) = resource_type {
+            if e.resource.resource_type != rt {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[async_trait::async_trait]
+impl ComplianceAuditStorage for FileBasedAuditStorage {
+    async fn store(&self, event: ComplianceAuditEvent) -> Result<(), AuditAggregationError> {
+        // Check file size limit before appending
+        if self.path.exists() {
+            if let Ok(metadata) = std::fs::metadata(&self.path) {
+                if metadata.len() > self.max_file_size_bytes {
+                    tracing::warn!(
+                        "Audit log file exceeds {} bytes, rotating",
+                        self.max_file_size_bytes
+                    );
+                    // Rotate: rename current file and start fresh
+                    let rotated_path = format!("{}.{}", self.path.display(), chrono::Utc::now().format("%Y%m%d%H%M%S"));
+                    let _ = std::fs::rename(&self.path, &rotated_path);
+                }
+            }
+        }
+
+        let mut line = serde_json::to_string(&event)
+            .map_err(|e| AuditAggregationError::Storage(format!("Serialization failed: {}", e)))?;
+        line.push('\n');
+
+        // Use OpenOptions::append for atomic appends
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|e| AuditAggregationError::Storage(format!("Failed to open audit log: {}", e)))?;
+
+        file.write_all(line.as_bytes())
+            .map_err(|e| AuditAggregationError::Storage(format!("Failed to write audit event: {}", e)))?;
+
+        file.sync_all()
+            .map_err(|e| AuditAggregationError::Storage(format!("Failed to sync audit log: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn query(
+        &self,
+        tenant_id: Option<&str>,
+        event_types: Option<&[ComplianceEventType]>,
+        start_time: Option<DateTime<Utc>>,
+        end_time: Option<DateTime<Utc>>,
+        user_id: Option<&str>,
+        resource_type: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<ComplianceAuditEvent>, AuditAggregationError> {
+        let events = self.read_all_events()?;
+        let filtered: Vec<ComplianceAuditEvent> = events
+            .iter()
+            .filter(|e| {
+                Self::matches_filter(
+                    e,
+                    tenant_id,
+                    event_types,
+                    start_time,
+                    end_time,
+                    user_id,
+                    resource_type,
+                )
+            })
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect();
+        Ok(filtered)
+    }
+
+    async fn count(
+        &self,
+        tenant_id: Option<&str>,
+        event_types: Option<&[ComplianceEventType]>,
+        start_time: Option<DateTime<Utc>>,
+        end_time: Option<DateTime<Utc>>,
+    ) -> Result<u64, AuditAggregationError> {
+        let events = self.read_all_events()?;
+        let count = events
+            .iter()
+            .filter(|e| {
+                Self::matches_filter(e, tenant_id, event_types, start_time, end_time, None, None)
+            })
+            .count();
+        Ok(count as u64)
+    }
+
+    async fn delete_before(
+        &self,
+        before: DateTime<Utc>,
+        tenant_id: Option<&str>,
+    ) -> Result<u64, AuditAggregationError> {
+        let events = self.read_all_events()?;
+        let initial_count = events.len();
+        let retained: Vec<ComplianceAuditEvent> = events
+            .into_iter()
+            .filter(|e| {
+                if e.timestamp >= before {
+                    return true;
+                }
+                if let Some(t) = tenant_id {
+                    return e.tenant_id != t;
+                }
+                false
+            })
+            .collect();
+        let deleted = initial_count - retained.len();
+
+        // Rewrite the file with retained events
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&self.path)
+            .map_err(|e| AuditAggregationError::Storage(format!("Failed to rewrite audit log: {}", e)))?;
+
+        for event in &retained {
+            let mut line = serde_json::to_string(event)
+                .map_err(|e| AuditAggregationError::Storage(format!("Serialization failed: {}", e)))?;
+            line.push('\n');
+            file.write_all(line.as_bytes())
+                .map_err(|e| AuditAggregationError::Storage(format!("Failed to write audit event: {}", e)))?;
+        }
+        file.sync_all()
+            .map_err(|e| AuditAggregationError::Storage(format!("Failed to sync audit log: {}", e)))?;
+
+        Ok(deleted as u64)
+    }
+
+    async fn get_events_for_user(
+        &self,
+        user_id: &str,
+        tenant_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<ComplianceAuditEvent>, AuditAggregationError> {
+        self.query(tenant_id, None, None, None, Some(user_id), None, limit, 0)
+            .await
+    }
+
+    async fn get_events_for_resource(
+        &self,
+        resource_type: &str,
+        resource_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ComplianceAuditEvent>, AuditAggregationError> {
+        let events = self.read_all_events()?;
+        let filtered: Vec<ComplianceAuditEvent> = events
+            .iter()
+            .filter(|e| {
+                e.resource.resource_type == resource_type && e.resource.resource_id == resource_id
+            })
+            .take(limit)
+            .cloned()
+            .collect();
+        Ok(filtered)
+    }
+}
+
 pub struct AuditAggregator<S: ComplianceAuditStorage> {
     storage: Arc<S>,
 }

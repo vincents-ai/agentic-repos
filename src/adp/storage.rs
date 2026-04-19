@@ -315,14 +315,16 @@ impl AdpStore {
     ///
     /// Reads `refs/adp/keys/{fingerprint_hex}` from the system repo.
     /// Returns `None` if the key is not registered.
-    pub fn resolve_key_identity(system_repo_path: &Path, fingerprint_hex: &str) -> Result<Option<String>> {
+    pub fn resolve_key_identity(
+        system_repo_path: &Path,
+        fingerprint_hex: &str,
+    ) -> Result<Option<String>> {
         let refname = format!("refs/adp/keys/{}", fingerprint_hex);
         match Self::read_ref_blob(system_repo_path, &refname) {
             Ok(value) => {
-                let username = value["username"].as_str()
-                    .ok_or_else(|| AdpStoreError::NotFound(format!(
-                        "{}: missing 'username' field", refname
-                    )))?;
+                let username = value["username"].as_str().ok_or_else(|| {
+                    AdpStoreError::NotFound(format!("{}: missing 'username' field", refname))
+                })?;
                 Ok(Some(username.to_string()))
             }
             Err(AdpStoreError::NotFound(_)) => Ok(None),
@@ -447,7 +449,11 @@ fn next_sidecar_ref(gix_repo: &gix::Repository, primary_ref: &str) -> Result<Str
         ""
     };
 
-    let sidecar_pattern = format!("refs/adp/{}/v*/{}", ns, id);
+    let sidecar_pattern = if id.is_empty() {
+        format!("refs/adp/v-{}-*", ns)
+    } else {
+        format!("refs/adp/{}/v*/{}", ns, id)
+    };
     let platform = gix_repo.references()?;
     let iter = platform.all()?;
 
@@ -469,7 +475,13 @@ fn next_sidecar_ref(gix_repo: &gix::Repository, primary_ref: &str) -> Result<Str
     }
 
     let next_n = max_n + 1;
-    Ok(format!("refs/adp/{}/v{}/{}", ns, next_n, id))
+    // Use flat sidecar format: refs/adp/v-{ns}-{n} for refs without sub-paths
+    // to avoid file/directory conflict (refs/adp/theme file blocks refs/adp/theme/ dir)
+    if id.is_empty() {
+        Ok(format!("refs/adp/v-{}-{}", ns, next_n))
+    } else {
+        Ok(format!("refs/adp/{}/v{}/{}", ns, next_n, id))
+    }
 }
 
 fn extract_version_segment(refname: &str, ns: &str, _id: &str) -> Option<u32> {
@@ -643,24 +655,19 @@ mod tests {
         assert_eq!(username, "alice");
 
         // User identity ref
-        let identity = AdpStore::read_ref_blob(
-            dir.path(),
-            "refs/adp/users/alice/identity",
-        )
-        .unwrap();
+        let identity =
+            AdpStore::read_ref_blob(dir.path(), "refs/adp/users/alice/identity").unwrap();
         assert_eq!(identity["username"].as_str().unwrap(), "alice");
 
         // SSH keys array
-        let keys: Vec<String> = AdpStore::read_ref_blob(
-            dir.path(),
-            "refs/adp/users/alice/ssh_keys",
-        )
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap().to_string())
-        .collect();
+        let keys: Vec<String> =
+            AdpStore::read_ref_blob(dir.path(), "refs/adp/users/alice/ssh_keys")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
         assert_eq!(keys.len(), 1);
         assert!(keys[0].starts_with("ssh-ed25519"));
     }
@@ -679,22 +686,24 @@ mod tests {
         let dir = TempDir::new().unwrap();
         init_bare_repo(dir.path());
 
-        let fingerprint_hex = "a1b2c3d4e5f6".repeat(5).chars().take(64).collect::<String>();
+        let fingerprint_hex = "a1b2c3d4e5f6"
+            .repeat(5)
+            .chars()
+            .take(64)
+            .collect::<String>();
         let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestkey alice@example.com";
 
         AdpStore::register_user_key(dir.path(), "alice", &fingerprint_hex, key).unwrap();
         AdpStore::register_user_key(dir.path(), "alice", &fingerprint_hex, key).unwrap();
 
-        let keys: Vec<String> = AdpStore::read_ref_blob(
-            dir.path(),
-            "refs/adp/users/alice/ssh_keys",
-        )
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap().to_string())
-        .collect();
+        let keys: Vec<String> =
+            AdpStore::read_ref_blob(dir.path(), "refs/adp/users/alice/ssh_keys")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
         assert_eq!(keys.len(), 1, "should not duplicate identical keys");
     }
 

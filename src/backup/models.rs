@@ -94,6 +94,7 @@ pub struct Backup {
     pub completed_at: Option<DateTime<Utc>>,
     pub size_bytes: u64,
     pub checksum: Option<String>,
+    #[serde(skip_serializing)]
     pub storage_path: Option<String>,
     pub error_message: Option<String>,
     pub metadata: HashMap<String, String>,
@@ -186,12 +187,14 @@ impl Backup {
 pub struct BackupConfig {
     pub enabled: bool,
     pub storage_backend: BackupStorageBackend,
+    #[serde(skip_serializing)]
     pub local_path: Option<String>,
     pub s3_config: Option<S3BackupConfig>,
     pub default_retention_days: u32,
     pub max_concurrent_backups: usize,
     pub compression_enabled: bool,
     pub encryption_enabled: bool,
+    #[serde(skip_serializing)]
     pub encryption_key: Option<String>,
     pub schedule: Vec<BackupSchedule>,
     pub verification_enabled: bool,

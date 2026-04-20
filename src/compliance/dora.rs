@@ -646,7 +646,10 @@ pub trait DoraStore: Send + Sync {
 
     // Testing
     fn save_testing_programme(&self, programme: &ResilienceTestingProgramme) -> Result<(), String>;
-    fn get_testing_programme(&self, year: i32) -> Result<Option<ResilienceTestingProgramme>, String>;
+    fn get_testing_programme(
+        &self,
+        year: i32,
+    ) -> Result<Option<ResilienceTestingProgramme>, String>;
 
     // Third-party
     fn register_provider(&self, provider: &ThirdPartyProvider) -> Result<(), String>;
@@ -654,8 +657,10 @@ pub trait DoraStore: Send + Sync {
     fn update_provider(&self, provider: &ThirdPartyProvider) -> Result<(), String>;
 
     // Information sharing
-    fn save_sharing_arrangement(&self, arrangement: &InformationSharingArrangement)
-        -> Result<(), String>;
+    fn save_sharing_arrangement(
+        &self,
+        arrangement: &InformationSharingArrangement,
+    ) -> Result<(), String>;
     fn list_sharing_arrangements(&self) -> Result<Vec<InformationSharingArrangement>, String>;
 }
 
@@ -720,10 +725,7 @@ impl DoraStore for InMemoryDoraStore {
         Ok(incidents.get(&id).cloned())
     }
 
-    fn save_testing_programme(
-        &self,
-        programme: &ResilienceTestingProgramme,
-    ) -> Result<(), String> {
+    fn save_testing_programme(&self, programme: &ResilienceTestingProgramme) -> Result<(), String> {
         let mut progs = self.testing_programmes.write().map_err(|e| e.to_string())?;
         progs.insert(programme.year, programme.clone());
         Ok(())
@@ -781,10 +783,7 @@ impl DoraService {
 
     // ── Framework ──
 
-    pub fn save_framework(
-        &self,
-        framework: &IctRiskManagementFramework,
-    ) -> Result<(), String> {
+    pub fn save_framework(&self, framework: &IctRiskManagementFramework) -> Result<(), String> {
         self.store.save_framework(framework)
     }
 
@@ -893,7 +892,10 @@ impl DoraService {
         let providers = self.store.list_providers().unwrap_or_default();
         let sharing = self.store.list_sharing_arrangements().unwrap_or_default();
 
-        let overdue_reports = incidents.iter().filter(|i| i.is_reporting_deadline_breached()).count();
+        let overdue_reports = incidents
+            .iter()
+            .filter(|i| i.is_reporting_deadline_breached())
+            .count();
         let open_incidents = incidents
             .iter()
             .filter(|i| !matches!(i.status, IncidentStatus::Closed))
@@ -962,7 +964,9 @@ mod tests {
                 review_date: Utc::now(),
             },
         );
-        assert!(fw.strategies.contains_key(&IctRiskArea::InformationSecurity));
+        assert!(fw
+            .strategies
+            .contains_key(&IctRiskArea::InformationSecurity));
     }
 
     #[test]
@@ -1000,19 +1004,33 @@ mod tests {
         );
         svc.report_incident(&incident).unwrap();
 
-        svc.notify_authority(incident.id, "EU-FCA-2026-001").unwrap();
+        svc.notify_authority(incident.id, "EU-FCA-2026-001")
+            .unwrap();
 
         let updated = svc.store.get_incident(incident.id).unwrap().unwrap();
         assert_eq!(updated.status, IncidentStatus::Reported);
         assert!(updated.notified_at.is_some());
-        assert_eq!(updated.authority_reference.as_deref(), Some("EU-FCA-2026-001"));
+        assert_eq!(
+            updated.authority_reference.as_deref(),
+            Some("EU-FCA-2026-001")
+        );
     }
 
     #[test]
     fn test_list_incidents() {
         let svc = make_service();
-        let i1 = IctIncident::new("i1", "desc", IncidentSeverity::Minor, IncidentClassification::SystemFailure);
-        let i2 = IctIncident::new("i2", "desc", IncidentSeverity::Major, IncidentClassification::CyberAttack);
+        let i1 = IctIncident::new(
+            "i1",
+            "desc",
+            IncidentSeverity::Minor,
+            IncidentClassification::SystemFailure,
+        );
+        let i2 = IctIncident::new(
+            "i2",
+            "desc",
+            IncidentSeverity::Major,
+            IncidentClassification::CyberAttack,
+        );
         svc.report_incident(&i1).unwrap();
         svc.report_incident(&i2).unwrap();
 
@@ -1084,8 +1102,18 @@ mod tests {
     #[test]
     fn test_providers_missing_exit_strategy() {
         let svc = make_service();
-        let p1 = ThirdPartyProvider::new("AWS", ThirdPartyServiceType::CloudInfrastructure, ProviderCriticality::Critical, "ref1");
-        let mut p2 = ThirdPartyProvider::new("GitHub", ThirdPartyServiceType::SoftwareAsAService, ProviderCriticality::High, "ref2");
+        let p1 = ThirdPartyProvider::new(
+            "AWS",
+            ThirdPartyServiceType::CloudInfrastructure,
+            ProviderCriticality::Critical,
+            "ref1",
+        );
+        let mut p2 = ThirdPartyProvider::new(
+            "GitHub",
+            ThirdPartyServiceType::SoftwareAsAService,
+            ProviderCriticality::High,
+            "ref2",
+        );
         p2.has_exit_strategy = true;
 
         svc.register_provider(&p1).unwrap();
@@ -1099,7 +1127,12 @@ mod tests {
     #[test]
     fn test_critical_providers_needing_audit() {
         let svc = make_service();
-        let mut p = ThirdPartyProvider::new("AWS", ThirdPartyServiceType::CloudInfrastructure, ProviderCriticality::Critical, "ref");
+        let mut p = ThirdPartyProvider::new(
+            "AWS",
+            ThirdPartyServiceType::CloudInfrastructure,
+            ProviderCriticality::Critical,
+            "ref",
+        );
         p.last_audited_at = Some(Utc::now() - chrono::Duration::days(120));
 
         svc.register_provider(&p).unwrap();
@@ -1113,8 +1146,11 @@ mod tests {
     #[test]
     fn test_sharing_arrangement() {
         let svc = make_service();
-        let arrangement =
-            InformationSharingArrangement::new("FS-ISAC", SharingType::Isac, "Cyber threat intelligence");
+        let arrangement = InformationSharingArrangement::new(
+            "FS-ISAC",
+            SharingType::Isac,
+            "Cyber threat intelligence",
+        );
         svc.save_sharing_arrangement(&arrangement).unwrap();
 
         let arrangements = svc.list_sharing_arrangements().unwrap();
@@ -1143,16 +1179,27 @@ mod tests {
         svc.save_framework(&fw).unwrap();
 
         // Report incident
-        let incident = IctIncident::new("test", "desc", IncidentSeverity::Minor, IncidentClassification::SystemFailure);
+        let incident = IctIncident::new(
+            "test",
+            "desc",
+            IncidentSeverity::Minor,
+            IncidentClassification::SystemFailure,
+        );
         svc.report_incident(&incident).unwrap();
 
         // Register provider
-        let mut provider = ThirdPartyProvider::new("AWS", ThirdPartyServiceType::CloudInfrastructure, ProviderCriticality::High, "ref");
+        let mut provider = ThirdPartyProvider::new(
+            "AWS",
+            ThirdPartyServiceType::CloudInfrastructure,
+            ProviderCriticality::High,
+            "ref",
+        );
         provider.has_exit_strategy = true;
         svc.register_provider(&provider).unwrap();
 
         // Add sharing arrangement
-        let sharing = InformationSharingArrangement::new("FS-ISAC", SharingType::Isac, "Threat intel");
+        let sharing =
+            InformationSharingArrangement::new("FS-ISAC", SharingType::Isac, "Threat intel");
         svc.save_sharing_arrangement(&sharing).unwrap();
 
         let status = svc.compliance_status();

@@ -60,7 +60,6 @@ pub trait StorageBackend: Send + Sync {
     fn root(&self) -> Option<&Path>;
 }
 
-
 pub mod local {
     use super::{StorageBackend, StorageError};
     use async_trait::async_trait;
@@ -531,7 +530,10 @@ mod tests {
         let storage = LocalStorage::new(tmpdir.path().to_path_buf());
 
         storage.create_directory("mydir".as_ref()).await.unwrap();
-        storage.write("mydir/file.txt".as_ref(), b"data").await.unwrap();
+        storage
+            .write("mydir/file.txt".as_ref(), b"data")
+            .await
+            .unwrap();
         storage.delete("mydir".as_ref()).await.unwrap();
         assert!(!storage.exists("mydir".as_ref()).await.unwrap());
     }
@@ -564,7 +566,10 @@ mod tests {
         let storage = LocalStorage::new(tmpdir.path().to_path_buf());
 
         // Write to nested path — should auto-create parent dirs
-        storage.write("a/b/c/file.txt".as_ref(), b"nested").await.unwrap();
+        storage
+            .write("a/b/c/file.txt".as_ref(), b"nested")
+            .await
+            .unwrap();
         let read = storage.read("a/b/c/file.txt".as_ref()).await.unwrap();
         assert_eq!(read, b"nested");
     }

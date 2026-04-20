@@ -217,7 +217,6 @@ impl LockError {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

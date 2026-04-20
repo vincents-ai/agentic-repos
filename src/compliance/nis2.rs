@@ -87,11 +87,7 @@ pub struct Nis2EntityProfile {
 }
 
 impl Nis2EntityProfile {
-    pub fn new(
-        name: impl Into<String>,
-        entity_type: EntityType,
-        sector: Nis2Sector,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, entity_type: EntityType, sector: Nis2Sector) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
@@ -294,7 +290,10 @@ impl Nis2Incident {
             entity_id,
             title: title.into(),
             description: description.into(),
-            is_significant: matches!(severity, Nis2IncidentSeverity::Significant | Nis2IncidentSeverity::Major),
+            is_significant: matches!(
+                severity,
+                Nis2IncidentSeverity::Significant | Nis2IncidentSeverity::Major
+            ),
             severity,
             status: Nis2IncidentStatus::Detected,
             category,
@@ -626,7 +625,10 @@ impl Nis2Service {
         self.store.save_security_measures(measures)
     }
 
-    pub fn get_security_measures(&self, entity_id: Uuid) -> Result<Option<SecurityMeasures>, String> {
+    pub fn get_security_measures(
+        &self,
+        entity_id: Uuid,
+    ) -> Result<Option<SecurityMeasures>, String> {
         self.store.get_security_measures(entity_id)
     }
 
@@ -735,11 +737,20 @@ impl Nis2Service {
 
         Nis2ComplianceStatus {
             total_entities: entities.len(),
-            essential_entities: entities.iter().filter(|e| e.entity_type == EntityType::Essential).count(),
-            important_entities: entities.iter().filter(|e| e.entity_type == EntityType::Important).count(),
+            essential_entities: entities
+                .iter()
+                .filter(|e| e.entity_type == EntityType::Essential)
+                .count(),
+            important_entities: entities
+                .iter()
+                .filter(|e| e.entity_type == EntityType::Important)
+                .count(),
             total_incidents: incidents.len(),
             significant_incidents: incidents.iter().filter(|i| i.is_significant).count(),
-            open_incidents: incidents.iter().filter(|i| i.status != Nis2IncidentStatus::Closed).count(),
+            open_incidents: incidents
+                .iter()
+                .filter(|i| i.status != Nis2IncidentStatus::Closed)
+                .count(),
             overdue_initial_notifications: overdue.initial_notification_overdue.len(),
             overdue_detailed_notifications: overdue.detailed_notification_overdue.len(),
             overdue_final_reports: overdue.final_report_overdue.len(),
@@ -782,7 +793,11 @@ mod tests {
 
     #[test]
     fn test_entity_creation() {
-        let entity = Nis2EntityProfile::new("GitCorp", EntityType::Essential, Nis2Sector::DigitalInfrastructure);
+        let entity = Nis2EntityProfile::new(
+            "GitCorp",
+            EntityType::Essential,
+            Nis2Sector::DigitalInfrastructure,
+        );
         assert_eq!(entity.entity_type, EntityType::Essential);
         assert_eq!(entity.sector, Nis2Sector::DigitalInfrastructure);
     }
@@ -790,7 +805,11 @@ mod tests {
     #[test]
     fn test_register_and_get_entity() {
         let svc = make_service();
-        let entity = Nis2EntityProfile::new("GitCorp", EntityType::Essential, Nis2Sector::DigitalInfrastructure);
+        let entity = Nis2EntityProfile::new(
+            "GitCorp",
+            EntityType::Essential,
+            Nis2Sector::DigitalInfrastructure,
+        );
         let id = entity.id;
         svc.register_entity(&entity).unwrap();
 
@@ -895,19 +914,27 @@ mod tests {
         svc.report_incident(&incident).unwrap();
 
         // Initial notification
-        svc.submit_initial_notification(id, "CSIRT-EU-2026-001", "Initial: data breach detected").unwrap();
+        svc.submit_initial_notification(id, "CSIRT-EU-2026-001", "Initial: data breach detected")
+            .unwrap();
         let i = svc.store.get_incident(id).unwrap().unwrap();
         assert_eq!(i.status, Nis2IncidentStatus::InitialNotified);
         assert!(i.initial_notification.is_some());
 
         // Detailed notification
-        svc.submit_detailed_notification(id, "CSIRT-EU-2026-001", "Detailed: 50k records affected").unwrap();
+        svc.submit_detailed_notification(id, "CSIRT-EU-2026-001", "Detailed: 50k records affected")
+            .unwrap();
         let i = svc.store.get_incident(id).unwrap().unwrap();
         assert_eq!(i.status, Nis2IncidentStatus::DetailedNotified);
         assert!(i.detailed_notification.is_some());
 
         // Final report
-        svc.submit_final_report(id, "CSIRT-EU-2026-001", "Final: remediated, root cause identified", "Unpatched server").unwrap();
+        svc.submit_final_report(
+            id,
+            "CSIRT-EU-2026-001",
+            "Final: remediated, root cause identified",
+            "Unpatched server",
+        )
+        .unwrap();
         let i = svc.store.get_incident(id).unwrap().unwrap();
         assert_eq!(i.status, Nis2IncidentStatus::Closed);
         assert!(i.final_report.is_some());
@@ -947,8 +974,13 @@ mod tests {
     fn test_compliance_status_with_data() {
         let svc = make_service();
 
-        let e1 = Nis2EntityProfile::new("Essential Corp", EntityType::Essential, Nis2Sector::Energy);
-        let e2 = Nis2EntityProfile::new("Important Corp", EntityType::Important, Nis2Sector::DigitalProviders);
+        let e1 =
+            Nis2EntityProfile::new("Essential Corp", EntityType::Essential, Nis2Sector::Energy);
+        let e2 = Nis2EntityProfile::new(
+            "Important Corp",
+            EntityType::Important,
+            Nis2Sector::DigitalProviders,
+        );
         svc.register_entity(&e1).unwrap();
         svc.register_entity(&e2).unwrap();
 

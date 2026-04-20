@@ -151,7 +151,11 @@ mod tests {
         let patterns = builtin_patterns();
         for p in &patterns {
             // Ensure the regex compiles and can match something
-            assert!(!p.description.is_empty(), "Pattern {:?} has no description", p.pattern_type);
+            assert!(
+                !p.description.is_empty(),
+                "Pattern {:?} has no description",
+                p.pattern_type
+            );
         }
     }
 
@@ -160,7 +164,10 @@ mod tests {
     #[test]
     fn detect_aws_access_key() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::AwsAccessKeyId).unwrap();
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::AwsAccessKeyId)
+            .unwrap();
         assert!(p.regex.is_match("AKIAIOSFODNN7EXAMPLE"));
         assert!(p.regex.is_match("key=AKIA1234567890ABCDEF"));
         assert!(!p.regex.is_match("NOT_A_KEY_AT_ALL"));
@@ -169,23 +176,36 @@ mod tests {
     #[test]
     fn detect_aws_secret_key() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::AwsSecretAccessKey).unwrap();
-        assert!(p.regex.is_match("aws_secret_access_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"));
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::AwsSecretAccessKey)
+            .unwrap();
+        assert!(p
+            .regex
+            .is_match("aws_secret_access_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"));
         assert!(!p.regex.is_match("aws_secret_access_key = short"));
     }
 
     #[test]
     fn detect_github_token() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::GithubToken).unwrap();
-        assert!(p.regex.is_match("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl"));
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::GithubToken)
+            .unwrap();
+        assert!(p
+            .regex
+            .is_match("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl"));
         assert!(!p.regex.is_match("ghp_too_short"));
     }
 
     #[test]
     fn detect_gitlab_token() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::GitlabToken).unwrap();
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::GitlabToken)
+            .unwrap();
         assert!(p.regex.is_match("glpat-ABCDEFGHIJKLMNOPQRST"));
         assert!(!p.regex.is_match("glpat-tooshort"));
     }
@@ -193,15 +213,23 @@ mod tests {
     #[test]
     fn detect_jwt() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::JwtToken).unwrap();
-        assert!(p.regex.is_match("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.sig123"));
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::JwtToken)
+            .unwrap();
+        assert!(p
+            .regex
+            .is_match("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.sig123"));
         assert!(!p.regex.is_match("notajwt"));
     }
 
     #[test]
     fn detect_private_key() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::PrivateKey).unwrap();
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::PrivateKey)
+            .unwrap();
         assert!(p.regex.is_match("-----BEGIN RSA PRIVATE KEY-----"));
         assert!(p.regex.is_match("-----BEGIN PRIVATE KEY-----"));
         assert!(!p.regex.is_match("-----BEGIN PUBLIC KEY-----"));
@@ -210,7 +238,10 @@ mod tests {
     #[test]
     fn detect_password() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::Password).unwrap();
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::Password)
+            .unwrap();
         assert!(p.regex.is_match("password = hunter2xxxxx"));
         assert!(p.regex.is_match("passwd:supersecret123"));
         assert!(!p.regex.is_match("password = short")); // Less than 8 chars
@@ -219,7 +250,10 @@ mod tests {
     #[test]
     fn detect_api_key() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::ApiKey).unwrap();
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::ApiKey)
+            .unwrap();
         assert!(p.regex.is_match("api_key=ABCDEFGHIJKLMNOPQRST1234"));
         assert!(!p.regex.is_match("api_key=short"));
     }
@@ -227,7 +261,10 @@ mod tests {
     #[test]
     fn detect_generic_secret() {
         let patterns = builtin_patterns();
-        let p = patterns.iter().find(|p| p.pattern_type == SecretPatternType::GenericSecret).unwrap();
+        let p = patterns
+            .iter()
+            .find(|p| p.pattern_type == SecretPatternType::GenericSecret)
+            .unwrap();
         assert!(p.regex.is_match("secret = ABCDEFGHIJKLMNOP"));
         assert!(p.regex.is_match("token:ABCDEFGHIJKLMNOP"));
         assert!(!p.regex.is_match("secret = short"));

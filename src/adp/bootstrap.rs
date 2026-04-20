@@ -113,28 +113,83 @@ pub fn bootstrap_engram_schemas(storage_root: &Path) -> Result<()> {
     let system_repo_path = storage_root.join(SYSTEM_REPO_PATH);
 
     let schemas = vec![
-        schema_def("engram-task", "refs/engram/task/*", "Engram Task",
-            json_schema_task(), ui_hints_task()),
-        schema_def("engram-context", "refs/engram/context/*", "Engram Context",
-            json_schema_generic("context"), default_ui()),
-        schema_def("engram-reasoning", "refs/engram/reasoning/*", "Engram Reasoning",
-            json_schema_generic("reasoning"), default_ui()),
-        schema_def("engram-knowledge", "refs/engram/knowledge/*", "Engram Knowledge",
-            json_schema_generic("knowledge"), default_ui()),
-        schema_def("engram-session", "refs/engram/session/*", "Engram Session",
-            json_schema_session(), ui_hints_session()),
-        schema_def("engram-adr", "refs/engram/adr/*", "Engram ADR",
-            json_schema_adr(), ui_hints_adr()),
-        schema_def("engram-theory", "refs/engram/theory/*", "Engram Theory",
-            json_schema_generic("theory"), default_ui()),
-        schema_def("engram-state-reflection", "refs/engram/state_reflection/*", "Engram State Reflection",
-            json_schema_generic("state_reflection"), default_ui()),
-        schema_def("engram-doc-fragment", "refs/engram/doc_fragment/*", "Engram DocFragment",
-            json_schema_generic("doc_fragment"), default_ui()),
-        schema_def("engram-compliance", "refs/engram/compliance/*", "Engram Compliance",
-            json_schema_generic("compliance"), default_ui()),
-        schema_def("engram-workflow", "refs/engram/workflow/*", "Engram Workflow",
-            json_schema_generic("workflow"), default_ui()),
+        schema_def(
+            "engram-task",
+            "refs/engram/task/*",
+            "Engram Task",
+            json_schema_task(),
+            ui_hints_task(),
+        ),
+        schema_def(
+            "engram-context",
+            "refs/engram/context/*",
+            "Engram Context",
+            json_schema_generic("context"),
+            default_ui(),
+        ),
+        schema_def(
+            "engram-reasoning",
+            "refs/engram/reasoning/*",
+            "Engram Reasoning",
+            json_schema_generic("reasoning"),
+            default_ui(),
+        ),
+        schema_def(
+            "engram-knowledge",
+            "refs/engram/knowledge/*",
+            "Engram Knowledge",
+            json_schema_generic("knowledge"),
+            default_ui(),
+        ),
+        schema_def(
+            "engram-session",
+            "refs/engram/session/*",
+            "Engram Session",
+            json_schema_session(),
+            ui_hints_session(),
+        ),
+        schema_def(
+            "engram-adr",
+            "refs/engram/adr/*",
+            "Engram ADR",
+            json_schema_adr(),
+            ui_hints_adr(),
+        ),
+        schema_def(
+            "engram-theory",
+            "refs/engram/theory/*",
+            "Engram Theory",
+            json_schema_generic("theory"),
+            default_ui(),
+        ),
+        schema_def(
+            "engram-state-reflection",
+            "refs/engram/state_reflection/*",
+            "Engram State Reflection",
+            json_schema_generic("state_reflection"),
+            default_ui(),
+        ),
+        schema_def(
+            "engram-doc-fragment",
+            "refs/engram/doc_fragment/*",
+            "Engram DocFragment",
+            json_schema_generic("doc_fragment"),
+            default_ui(),
+        ),
+        schema_def(
+            "engram-compliance",
+            "refs/engram/compliance/*",
+            "Engram Compliance",
+            json_schema_generic("compliance"),
+            default_ui(),
+        ),
+        schema_def(
+            "engram-workflow",
+            "refs/engram/workflow/*",
+            "Engram Workflow",
+            json_schema_generic("workflow"),
+            default_ui(),
+        ),
     ];
 
     let mut created = 0u32;
@@ -164,29 +219,44 @@ pub fn bootstrap_operational_schemas(storage_root: &Path) -> Result<()> {
 
     let schemas = vec![
         schema_def_with_desc(
-            "webhook-config", "refs/webhooks/*", "Webhook Configuration",
+            "webhook-config",
+            "refs/webhooks/*",
+            "Webhook Configuration",
             "Outbound webhook configuration stored in git refs",
-            json_schema_webhook_config(), ui_hints_webhook_config(),
+            json_schema_webhook_config(),
+            ui_hints_webhook_config(),
         ),
         schema_def_with_desc(
-            "deploy-target", "refs/deploy/*", "Deploy Target",
+            "deploy-target",
+            "refs/deploy/*",
+            "Deploy Target",
             "Deployment target configuration (staging, production, etc.)",
-            json_schema_deploy_target(), ui_hints_deploy_target(),
+            json_schema_deploy_target(),
+            ui_hints_deploy_target(),
         ),
         schema_def_with_desc(
-            "ci-pipeline", "refs/ci/*", "CI Pipeline",
+            "ci-pipeline",
+            "refs/ci/*",
+            "CI Pipeline",
             "Continuous integration pipeline definition",
-            json_schema_ci_pipeline(), ui_hints_ci_pipeline(),
+            json_schema_ci_pipeline(),
+            ui_hints_ci_pipeline(),
         ),
         schema_def_with_desc(
-            "team-member", "refs/team/*", "Team Member",
+            "team-member",
+            "refs/team/*",
+            "Team Member",
             "Team member profile and role assignment",
-            json_schema_team_member(), ui_hints_team_member(),
+            json_schema_team_member(),
+            ui_hints_team_member(),
         ),
         schema_def_with_desc(
-            "review-checklist", "refs/review/*", "Review Checklist",
+            "review-checklist",
+            "refs/review/*",
+            "Review Checklist",
             "Code review checklist template",
-            json_schema_review_checklist(), ui_hints_review_checklist(),
+            json_schema_review_checklist(),
+            ui_hints_review_checklist(),
         ),
     ];
 
@@ -244,37 +314,50 @@ fn schema_def_with_desc(
     }
 }
 
-fn default_ui() -> Option<UiHints> { None }
+fn default_ui() -> Option<UiHints> {
+    None
+}
 
 fn ui_hints_task() -> Option<UiHints> {
     Some(UiHints {
         view: Some("entity-list".to_string()),
         list_fields: vec!["title".into(), "status".into(), "priority".into()],
-        detail_fields: vec!["title".into(), "description".into(), "status".into(), "priority".into()],
+        detail_fields: vec![
+            "title".into(),
+            "description".into(),
+            "status".into(),
+            "priority".into(),
+        ],
         fields: {
             let mut m = HashMap::new();
-            m.insert("status".into(), FieldConfig {
-                widget: Some("badge".into()),
-                color_map: {
-                    let mut c = HashMap::new();
-                    c.insert("todo".into(), "gray".into());
-                    c.insert("in_progress".into(), "blue".into());
-                    c.insert("done".into(), "green".into());
-                    c.insert("blocked".into(), "red".into());
-                    c
+            m.insert(
+                "status".into(),
+                FieldConfig {
+                    widget: Some("badge".into()),
+                    color_map: {
+                        let mut c = HashMap::new();
+                        c.insert("todo".into(), "gray".into());
+                        c.insert("in_progress".into(), "blue".into());
+                        c.insert("done".into(), "green".into());
+                        c.insert("blocked".into(), "red".into());
+                        c
+                    },
                 },
-            });
-            m.insert("priority".into(), FieldConfig {
-                widget: Some("badge".into()),
-                color_map: {
-                    let mut c = HashMap::new();
-                    c.insert("low".into(), "gray".into());
-                    c.insert("medium".into(), "yellow".into());
-                    c.insert("high".into(), "orange".into());
-                    c.insert("critical".into(), "red".into());
-                    c
+            );
+            m.insert(
+                "priority".into(),
+                FieldConfig {
+                    widget: Some("badge".into()),
+                    color_map: {
+                        let mut c = HashMap::new();
+                        c.insert("low".into(), "gray".into());
+                        c.insert("medium".into(), "yellow".into());
+                        c.insert("high".into(), "orange".into());
+                        c.insert("critical".into(), "red".into());
+                        c
+                    },
                 },
-            });
+            );
             m
         },
     })
@@ -381,7 +464,12 @@ fn ui_hints_webhook_config() -> Option<UiHints> {
     Some(UiHints {
         view: Some("entity-list".to_string()),
         list_fields: vec!["url".into(), "events".into(), "active".into()],
-        detail_fields: vec!["url".into(), "events".into(), "secret_keys".into(), "active".into()],
+        detail_fields: vec![
+            "url".into(),
+            "events".into(),
+            "secret_keys".into(),
+            "active".into(),
+        ],
         fields: HashMap::new(),
     })
 }
@@ -407,20 +495,28 @@ fn ui_hints_deploy_target() -> Option<UiHints> {
     Some(UiHints {
         view: Some("entity-list".to_string()),
         list_fields: vec!["name".into(), "environment".into(), "branch".into()],
-        detail_fields: vec!["name".into(), "environment".into(), "url".into(), "auto_deploy".into()],
+        detail_fields: vec![
+            "name".into(),
+            "environment".into(),
+            "url".into(),
+            "auto_deploy".into(),
+        ],
         fields: {
             let mut m = HashMap::new();
-            m.insert("environment".into(), FieldConfig {
-                widget: Some("badge".to_string()),
-                color_map: {
-                    let mut cm = HashMap::new();
-                    cm.insert("production".into(), "red".into());
-                    cm.insert("staging".into(), "amber".into());
-                    cm.insert("preview".into(), "blue".into());
-                    cm.insert("development".into(), "green".into());
-                    cm
+            m.insert(
+                "environment".into(),
+                FieldConfig {
+                    widget: Some("badge".to_string()),
+                    color_map: {
+                        let mut cm = HashMap::new();
+                        cm.insert("production".into(), "red".into());
+                        cm.insert("staging".into(), "amber".into());
+                        cm.insert("preview".into(), "blue".into());
+                        cm.insert("development".into(), "green".into());
+                        cm
+                    },
                 },
-            });
+            );
             m
         },
     })
@@ -484,20 +580,28 @@ fn ui_hints_team_member() -> Option<UiHints> {
     Some(UiHints {
         view: Some("entity-list".to_string()),
         list_fields: vec!["username".into(), "role".into(), "email".into()],
-        detail_fields: vec!["username".into(), "email".into(), "role".into(), "teams".into()],
+        detail_fields: vec![
+            "username".into(),
+            "email".into(),
+            "role".into(),
+            "teams".into(),
+        ],
         fields: {
             let mut m = HashMap::new();
-            m.insert("role".into(), FieldConfig {
-                widget: Some("badge".to_string()),
-                color_map: {
-                    let mut cm = HashMap::new();
-                    cm.insert("owner".into(), "purple".into());
-                    cm.insert("admin".into(), "red".into());
-                    cm.insert("developer".into(), "blue".into());
-                    cm.insert("viewer".into(), "green".into());
-                    cm
+            m.insert(
+                "role".into(),
+                FieldConfig {
+                    widget: Some("badge".to_string()),
+                    color_map: {
+                        let mut cm = HashMap::new();
+                        cm.insert("owner".into(), "purple".into());
+                        cm.insert("admin".into(), "red".into());
+                        cm.insert("developer".into(), "blue".into());
+                        cm.insert("viewer".into(), "green".into());
+                        cm
+                    },
                 },
-            });
+            );
             m
         },
     })
@@ -571,8 +675,7 @@ pub fn register_admin_key(
     )?;
 
     // Update access config to add admin user as owner
-    let mut access_config = AdpStore::read_access_config(&system_repo_path)?
-        .unwrap_or_default();
+    let mut access_config = AdpStore::read_access_config(&system_repo_path)?.unwrap_or_default();
 
     if !access_config.owners.contains(&admin_username.to_string()) {
         access_config.owners.push(admin_username.to_string());
@@ -597,10 +700,7 @@ pub const ROOT_PUBLIC_KEY_REF: &str = "refs/adp/config/public-key";
 /// `refs/adp/config/public-key`.
 ///
 /// Returns the path to the root key file.
-pub fn bootstrap_root_key(
-    storage_root: &Path,
-    root_key_path: &Path,
-) -> Result<std::path::PathBuf> {
+pub fn bootstrap_root_key(storage_root: &Path, root_key_path: &Path) -> Result<std::path::PathBuf> {
     use age::secrecy::ExposeSecret;
     use age::x25519::Identity;
 
@@ -687,7 +787,8 @@ mod tests {
         assert!(server_cfg.is_object());
 
         let lfs_cfg = AdpStore::read_ref_blob(&system_path, LFS_CONFIG_REF).unwrap();
-        assert!(lfs_cfg.is_object());();
+        assert!(lfs_cfg.is_object());
+        ();
         assert!(server_cfg.is_object());
 
         let access_cfg = AdpStore::read_access_config(&system_path).unwrap();
@@ -724,7 +825,8 @@ mod tests {
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
 
         // Verify identity ref was created
-        let identity = AdpStore::read_ref_blob(&system_path, "refs/adp/users/admin/identity").unwrap();
+        let identity =
+            AdpStore::read_ref_blob(&system_path, "refs/adp/users/admin/identity").unwrap();
         assert_eq!(identity["username"].as_str().unwrap(), "admin");
 
         // Verify SSH keys array was created
@@ -771,9 +873,13 @@ mod tests {
 
         // Public key should be in system repo
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
-        let pubkey_ref = AdpStore::read_ref_blob(&system_path, "refs/adp/config/public-key").unwrap();
+        let pubkey_ref =
+            AdpStore::read_ref_blob(&system_path, "refs/adp/config/public-key").unwrap();
         assert!(pubkey_ref["public_key"].is_string());
-        assert!(pubkey_ref["public_key"].as_str().unwrap().starts_with("age1"));
+        assert!(pubkey_ref["public_key"]
+            .as_str()
+            .unwrap()
+            .starts_with("age1"));
     }
 
     #[test]
@@ -802,7 +908,12 @@ mod tests {
 
         // All 11 schemas should exist
         let schemas = AdpStore::list_schemas(&system_path).unwrap();
-        assert_eq!(schemas.len(), 11, "expected 11 engram schemas, got {}", schemas.len());
+        assert_eq!(
+            schemas.len(),
+            11,
+            "expected 11 engram schemas, got {}",
+            schemas.len()
+        );
 
         // Check specific schema
         let task_schema = AdpStore::read_schema(&system_path, "engram-task").unwrap();
@@ -822,7 +933,11 @@ mod tests {
 
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
         let schemas = AdpStore::list_schemas(&system_path).unwrap();
-        assert_eq!(schemas.len(), 11, "should still be exactly 11 schemas after double bootstrap");
+        assert_eq!(
+            schemas.len(),
+            11,
+            "should still be exactly 11 schemas after double bootstrap"
+        );
     }
 
     #[test]
@@ -854,7 +969,11 @@ mod tests {
 
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
         let schemas = AdpStore::list_schemas(&system_path).unwrap();
-        assert_eq!(schemas.len(), 5, "should still be exactly 5 schemas after double bootstrap");
+        assert_eq!(
+            schemas.len(),
+            5,
+            "should still be exactly 5 schemas after double bootstrap"
+        );
     }
 
     #[test]
@@ -867,6 +986,10 @@ mod tests {
 
         let system_path = dir.path().join(SYSTEM_REPO_PATH);
         let schemas = AdpStore::list_schemas(&system_path).unwrap();
-        assert_eq!(schemas.len(), 16, "11 engram + 5 operational = 16 total schemas");
+        assert_eq!(
+            schemas.len(),
+            16,
+            "11 engram + 5 operational = 16 total schemas"
+        );
     }
 }

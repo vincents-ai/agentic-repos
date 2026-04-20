@@ -16,8 +16,7 @@
 use crate::adp::secrets::key_manager::RepoKeyManager;
 use crate::adp::secrets::sops::SecretsManager;
 use crate::adp::secrets::{
-    repo_private_key_ref, repo_public_key_ref,
-    PUBLIC_KEY_PREFIX, SECRETS_PREFIX,
+    repo_private_key_ref, repo_public_key_ref, PUBLIC_KEY_PREFIX, SECRETS_PREFIX,
 };
 use crate::adp::storage::AdpStore;
 use base64::Engine;
@@ -134,8 +133,7 @@ impl SecretsService {
         // Store encrypted private key in system repo
         let system_repo = self.storage_root.join("_adp/system");
         let private_ref = repo_private_key_ref(&repo_id);
-        let private_value =
-            serde_json::json!({ "encrypted_key": base64::engine::general_purpose::STANDARD.encode(&encrypted_private) });
+        let private_value = serde_json::json!({ "encrypted_key": base64::engine::general_purpose::STANDARD.encode(&encrypted_private) });
         AdpStore::write_ref_blob(&system_repo, &private_ref, &private_value)
             .map_err(|e| SecretError::Git(e.to_string()))?;
 
@@ -187,9 +185,7 @@ impl SecretsService {
     /// Uses a flat string (owner--repo) to avoid ref name issues with slashes.
     fn repo_id_from_path(&self, repo_path: &Path) -> String {
         let path_str = repo_path.to_string_lossy();
-        let stripped = path_str
-            .trim_end_matches(".git")
-            .trim_end_matches('/');
+        let stripped = path_str.trim_end_matches(".git").trim_end_matches('/');
         let parts: Vec<&str> = stripped.rsplitn(3, '/').collect();
         match parts.len() {
             n if n >= 2 => format!("{}--{}", parts[1], parts[0]),
@@ -245,8 +241,8 @@ impl SecretsService {
         let refname = format!("{}{}", SECRETS_PREFIX, secret_name);
         let blob_json = self.read_ref_json(repo_path, &refname)?;
 
-        let blob: SecretBlob =
-            serde_json::from_value(blob_json).map_err(|e| SecretError::Encryption(e.to_string()))?;
+        let blob: SecretBlob = serde_json::from_value(blob_json)
+            .map_err(|e| SecretError::Encryption(e.to_string()))?;
 
         // Decrypt using repo's private key
         let private_key = self.decrypt_repo_private_key(repo_path)?;
@@ -376,8 +372,8 @@ impl SecretsService {
             meta: meta.clone(),
         };
 
-        let blob_json = serde_json::to_value(&blob)
-            .map_err(|e| SecretError::Encryption(e.to_string()))?;
+        let blob_json =
+            serde_json::to_value(&blob).map_err(|e| SecretError::Encryption(e.to_string()))?;
 
         self.write_ref_json(repo_path, refname, &blob_json)?;
 
@@ -433,9 +429,7 @@ impl SecretsService {
                     .entries
                     .iter()
                     .find(|e| e.filename == "data")
-                    .ok_or_else(|| {
-                        SecretError::Git(format!("{}/tree/data not found", refname))
-                    })?;
+                    .ok_or_else(|| SecretError::Git(format!("{}/tree/data not found", refname)))?;
                 let blob_obj = gix_repo
                     .find_object(entry.oid)
                     .map_err(|e| SecretError::Git(e.to_string()))?;
@@ -455,8 +449,8 @@ impl SecretsService {
     ) -> Result<(), SecretError> {
         let gix_repo = gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
 
-        let json_bytes = serde_json::to_vec_pretty(value)
-            .map_err(|e| SecretError::Encryption(e.to_string()))?;
+        let json_bytes =
+            serde_json::to_vec_pretty(value).map_err(|e| SecretError::Encryption(e.to_string()))?;
 
         let blob = gix::objs::Blob { data: json_bytes };
         let blob_id = gix_repo
@@ -500,9 +494,9 @@ impl SecretsService {
             .write_object(&commit)
             .map_err(|e: gix::object::write::Error| SecretError::Git(e.to_string()))?;
 
+        use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit};
         use gix::refs::FullName;
         use gix::refs::Target;
-        use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit};
 
         gix_repo
             .edit_reference(RefEdit {
@@ -522,8 +516,8 @@ impl SecretsService {
     fn delete_ref(&self, repo_path: &Path, refname: &str) -> Result<(), SecretError> {
         let gix_repo = gix::open(repo_path).map_err(|e| SecretError::Git(e.to_string()))?;
 
-        use gix::refs::FullName;
         use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
+        use gix::refs::FullName;
 
         gix_repo
             .edit_reference(RefEdit {
@@ -766,16 +760,23 @@ mod tests {
         let repo = make_repo();
 
         let data = HashMap::from([
-            ("connection_string".to_string(),
-             "host=db.example.com;port=5432;user=admin;password=p@$$w0rd!".to_string()),
-            ("json_config".to_string(),
-             r#"{"ssl":true,"timeout":30,"options":["a","b"]}"#.to_string()),
+            (
+                "connection_string".to_string(),
+                "host=db.example.com;port=5432;user=admin;password=p@$$w0rd!".to_string(),
+            ),
+            (
+                "json_config".to_string(),
+                r#"{"ssl":true,"timeout":30,"options":["a","b"]}"#.to_string(),
+            ),
         ]);
 
         svc.create_secret(&repo, "db-config", data.clone()).unwrap();
 
         let retrieved = svc.get_secret(&repo, "db-config").unwrap();
-        assert_eq!(retrieved.data["connection_string"], data["connection_string"]);
+        assert_eq!(
+            retrieved.data["connection_string"],
+            data["connection_string"]
+        );
         assert_eq!(retrieved.data["json_config"], data["json_config"]);
     }
 

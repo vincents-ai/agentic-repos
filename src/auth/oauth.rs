@@ -12,9 +12,13 @@ pub enum AuthError {
     UserInfo(String),
     #[error("Configuration error: {0}")]
     Configuration(String),
+    #[error("CSRF state mismatch or expired")]
+    CsrfStateMismatch,
+    #[error("Missing CSRF state parameter")]
+    CsrfStateMissing,
 }
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use oauth2::{
     basic::BasicClient, basic::BasicTokenType, reqwest::async_http_client, AuthUrl,
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, RefreshToken, Scope,
@@ -22,6 +26,9 @@ use oauth2::{
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,15 +138,88 @@ pub struct OAuthUser {
 pub struct AuthorizationRequest {
     pub url: Url,
     pub csrf_token: CsrfToken,
+    pub redirect_url: Option<String>,
 }
+
+// ---------------------------------------------------------------------------
+// CSRF State Store
+// ---------------------------------------------------------------------------
+
+/// Metadata stored alongside each CSRF state token during the OAuth authorize phase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthStateEntry {
+    pub provider: OAuthProvider,
+    pub redirect_url: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Trait for persisting and verifying OAuth CSRF state tokens.
+#[async_trait::async_trait]
+pub trait OAuthStateStore: Send + Sync {
+    /// Store a state token with its associated entry.
+    async fn set(&self, state: &str, entry: OAuthStateEntry);
+    /// Verify and atomically consume a state token. Returns `None` if not found or expired.
+    async fn verify_and_consume(&self, state: &str) -> Option<OAuthStateEntry>;
+    /// Remove expired entries.
+    async fn cleanup_expired(&self);
+}
+
+/// Default in-memory implementation of [`OAuthStateStore`].
+#[allow(dead_code)]
+pub struct InMemoryOAuthStateStore {
+    states: Arc<RwLock<HashMap<String, OAuthStateEntry>>>,
+    ttl: Duration,
+}
+
+impl InMemoryOAuthStateStore {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            states: Arc::new(RwLock::new(HashMap::new())),
+            ttl,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl OAuthStateStore for InMemoryOAuthStateStore {
+    async fn set(&self, state: &str, entry: OAuthStateEntry) {
+        let mut states = self.states.write().await;
+        states.insert(state.to_string(), entry);
+    }
+
+    async fn verify_and_consume(&self, state: &str) -> Option<OAuthStateEntry> {
+        let mut states = self.states.write().await;
+        let entry = states.remove(state)?;
+        // Reject if expired
+        if Utc::now() - entry.created_at > self.ttl {
+            None
+        } else {
+            Some(entry)
+        }
+    }
+
+    async fn cleanup_expired(&self) {
+        let mut states = self.states.write().await;
+        let ttl = self.ttl;
+        states.retain(|_, entry| Utc::now() - entry.created_at <= ttl);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OAuth Service
+// ---------------------------------------------------------------------------
 
 pub struct OAuthService {
     config: OAuthConfig,
     http_client: Client,
+    state_store: Arc<dyn OAuthStateStore>,
 }
 
 impl OAuthService {
-    pub fn new(config: OAuthConfig) -> Result<Self, AuthError> {
+    pub fn new(
+        config: OAuthConfig,
+        state_store: Arc<dyn OAuthStateStore>,
+    ) -> Result<Self, AuthError> {
         let http_client = Client::builder()
             .user_agent("agentic-repos-oauth")
             .build()
@@ -148,12 +228,21 @@ impl OAuthService {
         Ok(Self {
             config,
             http_client,
+            state_store,
         })
     }
 
+    /// Convenience constructor with the default in-memory state store (10 min TTL).
+    pub fn with_default_state_store(config: OAuthConfig) -> Result<Self, AuthError> {
+        let store = Arc::new(InMemoryOAuthStateStore::new(Duration::minutes(10)));
+        Self::new(config, store)
+    }
+
+    /// Generate an authorization URL with a CSRF state token that is persisted for later
+    /// verification in [`Self::exchange_code_with_state`].
     pub fn get_authorization_url(
         &self,
-        _state: Option<String>,
+        redirect_url: Option<String>,
     ) -> Result<AuthorizationRequest, AuthError> {
         let client = self.build_oauth_client()?;
 
@@ -165,7 +254,41 @@ impl OAuthService {
 
         let (url, csrf_token) = builder.url();
 
-        Ok(AuthorizationRequest { url, csrf_token })
+        Ok(AuthorizationRequest {
+            url,
+            csrf_token,
+            redirect_url,
+        })
+    }
+
+    /// Persist the CSRF state so it can be verified on callback.
+    pub async fn store_csrf_state(&self, csrf_token: &CsrfToken, redirect_url: Option<String>) {
+        let entry = OAuthStateEntry {
+            provider: self.config.provider.clone(),
+            redirect_url,
+            created_at: Utc::now(),
+        };
+        self.state_store.set(csrf_token.secret(), entry).await;
+    }
+
+    /// Exchange an authorization code **after** validating the CSRF state parameter.
+    /// The state is consumed (single-use) on successful verification.
+    pub async fn exchange_code_with_state(
+        &self,
+        code: &str,
+        state: &str,
+    ) -> Result<OAuthToken, AuthError> {
+        if state.is_empty() {
+            return Err(AuthError::CsrfStateMissing);
+        }
+
+        let _entry = self
+            .state_store
+            .verify_and_consume(state)
+            .await
+            .ok_or(AuthError::CsrfStateMismatch)?;
+
+        self.exchange_code(code).await
     }
 
     pub async fn exchange_code(&self, code: &str) -> Result<OAuthToken, AuthError> {
@@ -486,6 +609,186 @@ mod tests {
             "userinfo_url": "https://auth.example.com/userinfo"
         });
         let config: OAuthConfig = serde_json::from_value(json).unwrap();
-        assert_eq!(config.authorize_url, Some("https://auth.example.com/authorize".to_string()));
+        assert_eq!(
+            config.authorize_url,
+            Some("https://auth.example.com/authorize".to_string())
+        );
+    }
+
+    // ----- CSRF State Store tests -----
+
+    #[tokio::test]
+    async fn test_csrf_state_store_set_and_verify() {
+        let store = InMemoryOAuthStateStore::new(Duration::minutes(10));
+
+        let entry = OAuthStateEntry {
+            provider: OAuthProvider::GitHub,
+            redirect_url: Some("https://app.example.com/dashboard".to_string()),
+            created_at: Utc::now(),
+        };
+
+        store.set("test-state-token", entry.clone()).await;
+
+        let retrieved = store.verify_and_consume("test-state-token").await;
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.provider, OAuthProvider::GitHub);
+        assert_eq!(
+            retrieved.redirect_url,
+            Some("https://app.example.com/dashboard".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_csrf_state_store_single_use() {
+        let store = InMemoryOAuthStateStore::new(Duration::minutes(10));
+
+        let entry = OAuthStateEntry {
+            provider: OAuthProvider::GitHub,
+            redirect_url: None,
+            created_at: Utc::now(),
+        };
+
+        store.set("single-use-token", entry).await;
+
+        // First consume should succeed
+        let first = store.verify_and_consume("single-use-token").await;
+        assert!(first.is_some());
+
+        // Second consume should fail (token was consumed)
+        let second = store.verify_and_consume("single-use-token").await;
+        assert!(second.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_csrf_state_store_expired() {
+        let store = InMemoryOAuthStateStore::new(Duration::seconds(1));
+
+        let entry = OAuthStateEntry {
+            provider: OAuthProvider::Google,
+            redirect_url: None,
+            created_at: Utc::now() - Duration::seconds(5), // Created 5s ago, TTL is 1s
+        };
+
+        store.set("expired-token", entry).await;
+
+        let retrieved = store.verify_and_consume("expired-token").await;
+        assert!(
+            retrieved.is_none(),
+            "Expired state should not be verifiable"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_csrf_state_store_unknown_token() {
+        let store = InMemoryOAuthStateStore::new(Duration::minutes(10));
+
+        let retrieved = store.verify_and_consume("nonexistent-token").await;
+        assert!(retrieved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_csrf_state_store_cleanup() {
+        let store = InMemoryOAuthStateStore::new(Duration::seconds(1));
+
+        let expired_entry = OAuthStateEntry {
+            provider: OAuthProvider::GitHub,
+            redirect_url: None,
+            created_at: Utc::now() - Duration::seconds(5),
+        };
+        let valid_entry = OAuthStateEntry {
+            provider: OAuthProvider::Google,
+            redirect_url: None,
+            created_at: Utc::now(),
+        };
+
+        store.set("expired", expired_entry).await;
+        store.set("valid", valid_entry).await;
+
+        store.cleanup_expired().await;
+
+        // Expired should be gone
+        assert!(store.verify_and_consume("expired").await.is_none());
+        // Valid should still be there
+        assert!(store.verify_and_consume("valid").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_exchange_code_with_state_missing_state() {
+        let config = OAuthConfig {
+            provider: OAuthProvider::GitHub,
+            client_id: "id".to_string(),
+            client_secret: "secret".to_string(),
+            redirect_uri: "http://localhost/callback".to_string(),
+            scopes: vec![],
+            authorize_url: None,
+            token_url: None,
+            userinfo_url: None,
+            issuer_url: None,
+        };
+        let service = OAuthService::with_default_state_store(config).unwrap();
+
+        let result = service.exchange_code_with_state("some-code", "").await;
+        assert!(matches!(result, Err(AuthError::CsrfStateMissing)));
+    }
+
+    #[tokio::test]
+    async fn test_exchange_code_with_state_mismatch() {
+        let config = OAuthConfig {
+            provider: OAuthProvider::GitHub,
+            client_id: "id".to_string(),
+            client_secret: "secret".to_string(),
+            redirect_uri: "http://localhost/callback".to_string(),
+            scopes: vec![],
+            authorize_url: None,
+            token_url: None,
+            userinfo_url: None,
+            issuer_url: None,
+        };
+        let service = OAuthService::with_default_state_store(config).unwrap();
+
+        let result = service
+            .exchange_code_with_state("some-code", "bogus-state")
+            .await;
+        assert!(matches!(result, Err(AuthError::CsrfStateMismatch)));
+    }
+
+    #[tokio::test]
+    async fn test_authorization_url_stores_csrf_state() {
+        let config = OAuthConfig {
+            provider: OAuthProvider::GitHub,
+            client_id: "id".to_string(),
+            client_secret: "secret".to_string(),
+            redirect_uri: "http://localhost/callback".to_string(),
+            scopes: vec!["user:email".to_string()],
+            authorize_url: None,
+            token_url: None,
+            userinfo_url: None,
+            issuer_url: None,
+        };
+        let service = OAuthService::with_default_state_store(config).unwrap();
+
+        let auth_req = service
+            .get_authorization_url(Some("https://app.example.com/dash".to_string()))
+            .unwrap();
+
+        // The URL should contain a state parameter
+        assert!(auth_req.url.query().unwrap().contains("state="));
+
+        // Store the CSRF state
+        service
+            .store_csrf_state(&auth_req.csrf_token, auth_req.redirect_url.clone())
+            .await;
+
+        // Now the state should be verifiable
+        let state_param = auth_req.csrf_token.secret();
+        let result = service.state_store.verify_and_consume(state_param).await;
+        assert!(result.is_some());
+        let entry = result.unwrap();
+        assert_eq!(entry.provider, OAuthProvider::GitHub);
+        assert_eq!(
+            entry.redirect_url,
+            Some("https://app.example.com/dash".to_string())
+        );
     }
 }

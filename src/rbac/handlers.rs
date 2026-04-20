@@ -450,7 +450,10 @@ mod tests {
         let resp = RoleResponse::from(role);
         assert_eq!(resp.name, "viewer");
         assert!(!resp.is_system_role);
-        assert!(resp.permissions.iter().any(|p| *p == Permission::RepositoryRead));
+        assert!(resp
+            .permissions
+            .iter()
+            .any(|p| *p == Permission::RepositoryRead));
     }
 
     #[test]

@@ -127,8 +127,8 @@ impl SchemaValidator {
     /// Supports drafts 4, 6, 7, 2019-09, 2020-12.
     /// Returns an error if the schema itself is invalid.
     pub fn compile(schema: &serde_json::Value) -> Result<Self, String> {
-        let compiled = jsonschema::validator_for(schema)
-            .map_err(|e| format!("invalid JSON Schema: {}", e))?;
+        let compiled =
+            jsonschema::validator_for(schema).map_err(|e| format!("invalid JSON Schema: {}", e))?;
         Ok(Self {
             inner: Arc::new(compiled),
             schema_json: schema.clone(),
@@ -220,7 +220,10 @@ impl SchemaCache {
     /// Load system schemas from a system repo path.
     ///
     /// Called once on node startup or when system repo changes.
-    pub fn load_system_schemas(&mut self, system_repo_path: &std::path::Path) -> Result<(), String> {
+    pub fn load_system_schemas(
+        &mut self,
+        system_repo_path: &std::path::Path,
+    ) -> Result<(), String> {
         let schemas = crate::adp::storage::AdpStore::list_schemas(system_repo_path)
             .map_err(|e| format!("failed to list system schemas: {}", e))?;
 
@@ -251,7 +254,9 @@ impl SchemaCache {
         refname: &str,
     ) -> Result<Option<CachedSchema>, String> {
         // Collect all available schemas: system + custom (filtered to this repo)
-        let mut all_schemas: Vec<RefSchema> = self.system_schemas.iter()
+        let mut all_schemas: Vec<RefSchema> = self
+            .system_schemas
+            .iter()
             .map(|s| s.schema.clone())
             .collect();
 
@@ -308,7 +313,8 @@ impl SchemaCache {
             self.custom_schemas.pop(&key);
         }
         // Check system schemas
-        self.system_schemas.iter()
+        self.system_schemas
+            .iter()
             .find(|s| s.schema.id == schema_id)
             .cloned()
     }
@@ -422,7 +428,11 @@ mod tests {
         assert!(!errors.is_empty());
         // Error should mention 'status' field
         let msg = errors.first().map(|e| e.message.as_str()).unwrap_or("");
-        assert!(msg.contains("status") || msg.contains("required"), "error message: {}", msg);
+        assert!(
+            msg.contains("status") || msg.contains("required"),
+            "error message: {}",
+            msg
+        );
     }
 
     #[test]
@@ -460,6 +470,10 @@ mod tests {
         });
         let result = SchemaValidator::compile(&broken);
         // This should fail - minimum requires a number, not a string
-        assert!(result.is_err(), "Expected error for invalid schema but got: {:?}", result);
+        assert!(
+            result.is_err(),
+            "Expected error for invalid schema but got: {:?}",
+            result
+        );
     }
 }

@@ -51,4 +51,7 @@ mod lfs_security_tests;
 #[cfg(test)]
 mod access_control_tests;
 
+#[cfg(test)]
+mod perf_tests;
+
 pub use error::Result;

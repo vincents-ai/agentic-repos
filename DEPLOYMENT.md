@@ -68,7 +68,8 @@ curl -X POST http://localhost:8090/api/v1/repositories/admin \
   -d '{"name": "my-project"}'
 
 # Clone over SSH
-echo "admin:ssh-ed25519 AAAA... user@host" >> authorized_keys
+# Register admin key (stored in git refs)
+./result/bin/agentic-repos init --admin-key "ssh-ed25519 AAAA... user@host" --admin-username admin
 git clone ssh://admin@localhost:2222/repos/my-project.git
 ```
 
@@ -147,10 +148,13 @@ agentic-repos init \
 Copy the example config and modify:
 
 ```bash
-cp config-example.yaml config.yaml
-```
+# Option 1: Seed from YAML bootstrap file
+./result/bin/agentic-repos init --config config.yaml
 
-See [`config-example.yaml`](config-example.yaml) for the full annotated reference, or [Configuration Reference](docs/configuration.md) for detailed documentation.
+# Option 2: Use defaults (config stored in git refs)
+./result/bin/agentic-repos init
+
+See [`config-example.yaml`](config-example.yaml) for the full annotated bootstrap reference, or [Configuration Reference](docs/configuration.md) for detailed documentation.
 
 ### Required Settings
 
@@ -159,9 +163,10 @@ lfs:
   jwt_secret: "<strong-random-string>"  # NO default — must set for LFS
 ```
 
-### Minimal Production Config
+### Minimal Production Bootstrap
 
 ```yaml
+# config.yaml — ONE-TIME SEED for init, NOT read at runtime
 server:
   ssh:
     port: 2222
@@ -171,7 +176,7 @@ server:
     port: 8090
 
 auth:
-  authorized_keys_path: "/data/authorized_keys"
+# No authorized_keys_path — SSH keys stored in git refs
 
 storage:
   type: "local"
@@ -225,6 +230,7 @@ cp result/bin/agentic-repos /usr/local/bin/
 
 # Create config
 mkdir -p /etc/agentic-repos
+# Create bootstrap config (optional)
 cp config-example.yaml /etc/agentic-repos/config.yaml
 
 # Create data directories
@@ -246,7 +252,8 @@ Wants=network-online.target
 Type=simple
 User=agentic-repos
 Group=agentic-repos
-ExecStart=/usr/local/bin/agentic-repos --config /etc/agentic-repos/config.yaml
+ExecStart=/usr/local/bin/agentic-repos
+# Config read from git refs. Use AGENTIC_REPOS_STORAGE_ROOT env var for custom path.
 Restart=always
 RestartSec=5
 WorkingDirectory=/data/git
@@ -349,7 +356,8 @@ docker run -d \
   -p 2222:2222 \
   -p 8090:8090 \
   -v /data/git:/app/data \
-  -v /path/to/config.yaml:/app/config/config.yaml:ro \
+  -v /data/git:/app/data \
+  # No config file mount — config is in git refs
   -e RUST_LOG=info \
   agentic-repos
 ```
@@ -378,8 +386,8 @@ kubectl port-forward -n agentic-repos svc/agentic-repos 8090:8090
 # Via init (recommended)
 agentic-repos init --admin-key "ssh-ed25519 AAAA... admin@host" --admin-username admin
 
-# Or manually append to authorized_keys
-echo "admin:ssh-ed25519 AAAA... admin@host" >> /data/authorized_keys
+# Via init (recommended)
+agentic-repos init --admin-key "ssh-ed25519 AAAA... admin@host" --admin-username admin
 ```
 
 ### 2. Configure RBAC roles
@@ -449,7 +457,7 @@ systemctl start agentic-repos
 |---------|-------|
 | Build fails: missing deps | Use `nix build` for reproducible builds |
 | SSH host key changes on restart | Set `server.ssh.host_key_path` to a persistent file |
-| SSH auth failure | Verify authorized_keys format: `username:ssh-key-type key comment` |
+| SSH auth failure | Register key via `agentic-repos init --admin-key` |
 | LFS 401 errors | Set `lfs.jwt_secret` in config — required, no default |
 | LFS upload fails (>body size) | Increase `client_max_body_size` in reverse proxy |
 | Web UI not loading | Enable `features.web_ui: true` in config |

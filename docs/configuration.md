@@ -1,203 +1,98 @@
 # Configuration Reference
 
-Complete reference for all agentic-repos configuration options.
-
-The primary configuration file is `config.yaml` (YAML format). A fully annotated example is at [`config-example.yaml`](../config-example.yaml).
+Configuration for agentic-repos is stored in **git refs** in the system repository (`_adp/system`). This is the canonical config store for audit compliance — all changes are tracked in git history.
 
 ## Configuration Sources
 
 Priority (highest to lowest):
 
-1. **Environment variables** — override specific settings (e.g., `BACKUP_ENCRYPTION_KEY`)
-2. **Config file** — `config.yaml` or path specified via `--config` flag
+1. **Git refs** — `refs/adp/config/*` in `_adp/system` — **canonical, always used at runtime**
+2. **YAML bootstrap seed** — `config.yaml` passed to `agentic-repos init` — **one-time seed only, never read at runtime**
 3. **Defaults** — hardcoded sensible defaults
 
-## Server Configuration
+> **Compliance**: The server reads from git refs exclusively at runtime.
+> YAML files are only accepted during `agentic-repos init` to seed initial values.
 
-### `server.ssh`
+## Managing Configuration
 
-SSH server settings for Git operations.
+### During initialization
 
-```yaml
-server:
-  ssh:
-    port: 2222                    # SSH listen port
-    host_key_path: "./ssh_host_key"  # Ed25519 host key (generated if missing)
-    max_connections: 100          # Maximum concurrent SSH sessions
-    connection_timeout_secs: 30   # Idle connection timeout
+```bash
+# Seed config from YAML during init
+agentic-repos init --config config.yaml
+
+# Or use defaults (stored in git refs)
+agentic-repos init
 ```
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `port` | integer | 2222 | SSH server listen port |
-| `host_key_path` | string | `./ssh_host_key` | Path to SSH host key file. If missing, a key is generated on startup. **Set this to a persistent path in production.** |
-| `max_connections` | integer | 100 | Maximum concurrent SSH connections |
-| `connection_timeout_secs` | integer | 30 | Seconds before idle connections are closed |
+See [`config-example.yaml`](../config-example.yaml) for the full annotated bootstrap reference.
 
-### `server.http`
+### After initialization
 
-HTTP server settings for the REST API and web UI.
+```bash
+# View current config
+agentic-repos config get server.ssh.port
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `port` | integer | 8090 | HTTP listen port |
+# Update a config value (writes to git refs)
+agentic-repos config set server.ssh.port 2223
 
-## Authentication
-
-### `auth`
-
-```yaml
-auth:
-  authorized_keys_path: "./authorized_keys"
+# List all config
+agentic-repos config list
 ```
 
+All changes are written to git refs and appear in the system repo's history.
+
+## Configuration Sections
+
+### Server
+
+#### SSH Server (`refs/adp/config/server`)
+
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `authorized_keys_path` | string | `./authorized_keys` | Path to SSH authorized_keys file. Format: `username:ssh-key-type key comment` |
+| `ssh_port` | integer | 2222 | SSH server listen port |
+| `ssh_host_key_path` | string | `./ssh_host_key` | Path to SSH host key file. If missing, generated on startup. **Set to persistent path in production.** |
+| `ssh_max_connections` | integer | 100 | Maximum concurrent SSH connections |
+| `ssh_connection_timeout_secs` | integer | 30 | Idle connection timeout |
 
-## RBAC
+#### HTTP Server (`refs/adp/config/server`)
 
-### `rbac`
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `http_port` | integer | 8090 | HTTP listen port |
+| `http_host` | string | `127.0.0.1` | HTTP bind address |
 
-```yaml
-rbac:
-  enabled: true
-  storage_type: "memory"
-  admin_user:
-    username: "admin"
-    email: "admin@localhost"
-    ssh_key: ""
+### Storage (`refs/adp/config/server`)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `storage_backend` | string | `"local"` | Storage backend: `"local"` (filesystem) or `"s3"` |
+| `storage_path` | string | `./repositories` | Base directory for local storage |
+
+### SSH Key Management
+
+SSH keys are stored in git refs, NOT in a flat file:
+
+- User keys: `refs/adp/users/{username}/ssh_keys` (JSON array of public key strings)
+- Key-to-user mapping: `refs/adp/keys/{fingerprint}` → `{"username": "..."}`
+- User identity: `refs/adp/users/{username}/identity`
+
+Register keys during init:
+```bash
+agentic-repos init --admin-key "ssh-ed25519 AAAA... admin@host" --admin-username admin
 ```
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `enabled` | boolean | false | Enable RBAC authorization. Requires `features.rbac: true` |
-| `storage_type` | string | `"memory"` | Storage backend: `"memory"` (restart loses data) or `"database"` (PostgreSQL) |
-| `admin_user.username` | string | — | Initial admin username (created on first startup) |
-| `admin_user.email` | string | — | Admin email address |
-| `admin_user.ssh_key` | string | — | Admin SSH public key |
-
-## Storage
-
-### `storage`
-
-```yaml
-storage:
-  type: "local"
-  local:
-    path: "./repositories"
-  # s3:
-  #   bucket: "my-git-repositories"
-  #   region: "us-east-1"
-  #   endpoint: "https://s3.amazonaws.com"
+Or via API:
+```bash
+curl -X POST http://localhost:8090/api/v1/rbac/users \
+  -d '{"username": "alice", "ssh_key": "ssh-ed25519 AAAA... alice@host"}'
 ```
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `type` | string | `"local"` | Storage backend: `"local"` (filesystem) or `"s3"` (S3-compatible) |
-| `local.path` | string | `./repositories` | Base directory for repository storage |
-| `s3.bucket` | string | — | S3 bucket name |
-| `s3.region` | string | — | S3 region |
-| `s3.endpoint` | string | — | Custom S3-compatible endpoint (for Garage, MinIO, etc.) |
+### Feature Flags (`refs/adp/config/features`)
 
-## Rate Limiting
+Feature flags control which subsystems are active. Set during init via `--config` or via `agentic-repos config set`.
 
-### `rate_limit`
-
-```yaml
-rate_limit:
-  enabled: true
-  proxy_headers:
-    - "X-Forwarded-For"
-    - "X-Real-IP"
-    - "CF-Connecting-IP"
-  global_limits:
-    max_requests_per_second: 100
-    max_connections_per_ip: 10
-    burst_size: 20
-  tiers:
-    free:
-      requests_per_minute: 60
-      requests_per_hour: 1000
-      burst_size: 10
-      concurrent_connections: 5
-    pro:
-      requests_per_minute: 300
-      requests_per_hour: 10000
-      burst_size: 50
-      concurrent_connections: 20
-    enterprise:
-      requests_per_minute: 1000
-      requests_per_hour: 100000
-      burst_size: 200
-      concurrent_connections: 100
-```
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `enabled` | boolean | true | Enable rate limiting middleware |
-| `proxy_headers` | string[] | `[X-Forwarded-For, X-Real-IP, CF-Connecting-IP]` | Headers to check for client IP (when behind reverse proxy) |
-| `global_limits.max_requests_per_second` | integer | 100 | Global requests per second across all clients |
-| `global_limits.max_connections_per_ip` | integer | 10 | Maximum concurrent connections per IP |
-| `global_limits.burst_size` | integer | 20 | Token bucket burst size |
-| `tiers.<name>.requests_per_minute` | integer | varies | Per-minute request limit for this tier |
-| `tiers.<name>.requests_per_hour` | integer | varies | Per-hour request limit for this tier |
-| `tiers.<name>.burst_size` | integer | varies | Token bucket burst size for this tier |
-| `tiers.<name>.concurrent_connections` | integer | varies | Max concurrent connections for this tier |
-
-## Logging
-
-### `logging`
-
-```yaml
-logging:
-  level: "info"
-  json: false
-  timestamp: true
-  ansi: true
-```
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `level` | string | `"info"` | Log level: `trace`, `debug`, `info`, `warn`, `error` |
-| `json` | boolean | false | Output structured JSON logs |
-| `timestamp` | boolean | true | Include timestamps in log output |
-| `ansi` | boolean | true | Enable ANSI colors in terminal output |
-
-Can also be controlled via `RUST_LOG` environment variable (takes precedence).
-
-## Git LFS
-
-### `lfs`
-
-```yaml
-lfs:
-  enabled: true
-  max_object_size: 5368709120
-  token_expiration_secs: 3600
-  jwt_secret: "CHANGE_THIS_SECRET"
-  base_url: "http://localhost:8090"
-  storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
-  locking_enabled: false
-  lock_expiration_secs: 86400
-```
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `enabled` | boolean | false | Enable Git LFS support. Requires `features.git_lfs: true` |
-| `max_object_size` | integer | 5368709120 (5GB) | Maximum LFS object size in bytes |
-| `token_expiration_secs` | integer | 3600 (1 hour) | LFS JWT token lifetime |
-| `jwt_secret` | string | **required** | Secret for signing LFS JWT tokens. **No default — must be set in production.** |
-| `base_url` | string | `http://localhost:8090` | Base URL for LFS HTTP endpoints (must be reachable by clients) |
-| `storage_path_pattern` | string | (see example) | Path template for LFS object storage |
-| `locking_enabled` | boolean | false | Enable LFS file locking. Requires `features.lfs_locks: true` |
-| `lock_expiration_secs` | integer | 86400 (24 hours) | Lock expiration time |
-
-## Feature Flags
-
-### `features`
-
-Feature flags control which subsystems are active. All default to `false`.
+All feature flags default to `false`. Key flags:
 
 ```yaml
 features:
@@ -205,83 +100,71 @@ features:
   git_lfs: false             # Git LFS support
   lfs_locks: false           # LFS file locking (requires git_lfs)
   rbac: false                # Role-based access control
-  web_ui: false              # Embedded web UI
-
-  # Authentication
-  ldap_auth: false           # LDAP/Active Directory
-  saml_auth: false           # SAML SSO
-  oauth_auth: false          # OAuth2/OIDC
-
-  # Audit & Governance
-  audit_logging: false       # Comprehensive audit logging
-  audit_tracking: false      # Tamper-proof access tracking
-  repo_templates: false      # Repository templates with policies
-  webhooks: false            # Outbound webhooks
+  web_ui: false              # Embedded web UI (adp-web-ui binary)
 
   # Performance & Scale
-  multi_region: false        # Multi-region replication
-  horizontal_scaling: false  # Horizontal scaling support
   redis_cache: false         # Redis caching layer
-  load_balancing: false      # Intelligent load balancing
-  monitoring: false          # Prometheus/Grafana monitoring
+  multi_region: false        # Multi-region replication
+  horizontal_scaling: false  # Horizontal scaling
 
   # Security & Compliance
   security_scanning: false   # Repository vulnerability scanning
-  soc2_compliance: false     # SOC2 compliance reports
   gdpr_compliance: false     # GDPR data protection
   hipaa_compliance: false    # HIPAA healthcare compliance
-  backup_recovery: false     # Automated backup & disaster recovery
+  backup_recovery: false     # Automated backup & recovery
 
-  # CI/CD Integration
+  # CI/CD
   github_actions: false      # GitHub Actions integration
   gitlab_ci: false           # GitLab CI integration
-  jenkins: false             # Jenkins pipeline integration
+  jenkins: false             # Jenkins integration
 
-  # Advanced
-  graphql_api: false         # GraphQL API
-  advanced_webhooks: false   # Advanced webhook filtering
-  analytics: false           # Repository analytics dashboard
+  # Monitoring
+  monitoring: false          # Prometheus/Grafana monitoring
+  webhooks: false            # Outbound webhooks
+  analytics: false           # Repository analytics
+```
+
+### LFS Configuration (`refs/adp/config/lfs`)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | boolean | false | Enable Git LFS. Requires `features.git_lfs` |
+| `max_object_size` | integer | 5368709120 (5GB) | Maximum LFS object size in bytes |
+| `token_expiration_secs` | integer | 3600 | LFS JWT token lifetime |
+| `jwt_secret` | string | **required** | Secret for LFS JWT tokens. **No default — must be set.** |
+| `base_url` | string | `http://localhost:8090` | Base URL for LFS HTTP endpoints |
+| `locking_enabled` | boolean | false | Enable LFS file locking |
+
+### Rate Limiting (`refs/adp/config/rate_limit`)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | boolean | true | Enable rate limiting |
+| `proxy_headers` | string[] | X-Forwarded-For, X-Real-IP, CF-Connecting-IP | Headers for client IP |
+| `global_limits.max_requests_per_second` | integer | 100 | Global requests per second |
+| `global_limits.max_connections_per_ip` | integer | 10 | Max concurrent connections per IP |
+
+### Logging
+
+Controlled via `RUST_LOG` environment variable, not git refs:
+
+```bash
+RUST_LOG=info                # Default
+RUST_LOG=debug               # Verbose
+RUST_LOG=agentic_repos::api=trace  # Per-module
 ```
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `RUST_LOG` | No | Log level override. Values: `trace`, `debug`, `info`, `warn`, `error`. Can target modules: `agentic_repos::api=debug,info` |
-| `BACKUP_ENCRYPTION_KEY` | No* | 32-byte hex key for AES-256-GCM backup encryption. Required if using encrypted backups. |
-| `SESSION_ENCRYPTION_KEY` | No* | 32-byte hex key for AES-256-GCM session data encryption. Required if using Redis sessions. |
-| `LFS_JWT_SECRET` | No | Override for `lfs.jwt_secret` config value. Takes precedence. |
-
-\* Required when the corresponding feature is enabled.
+| Variable | Purpose |
+|----------|---------|
+| `RUST_LOG` | Log level (trace/debug/info/warn/error). Per-module targeting supported. |
+| `AGENTIC_REPOS_STORAGE_ROOT` | Storage root path (if not default `./repositories`) |
+| `BACKUP_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM backup encryption |
+| `SESSION_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM session encryption |
 
 ## Redis Configuration
 
-When `features.redis_cache: true`, Redis is used for:
-- Session storage
-- Permission caching (with TTL)
-- Distributed locks (horizontal scaling)
-- Rate limiting state
+When `features.redis_cache: true`, Redis is used for sessions, permission caching, distributed locks, and rate limiting. Connection via `REDIS_URL` env var (default: `redis://127.0.0.1:6379`).
 
-Connection is configured via `REDIS_URL` environment variable or defaults to `redis://127.0.0.1:6379`.
-
-See [`docs/REDIS_CONFIGURATION.md`](REDIS_CONFIGURATION.md) for detailed Redis setup.
-
-## Skylet Plugin Configuration
-
-When running as a Skylet v2 plugin (`libagentic_repos.so`), configuration is passed through the Skylet runtime:
-
-```yaml
-plugins:
-  - name: git-operations
-    path: ./target/release/libagentic_repos.so
-    config:
-      storage.default_backend: "local"
-      log.level: "info"
-```
-
-### Load Order
-
-When using the garage-s3 storage plugin, load order matters:
-
-1. `garage-s3` (priority 10) — starts embedded Garage, registers S3 service
-2. `agentic-repos` (priority 5) — discovers garage-s3 via `global_registry()`
+See [`docs/REDIS_CONFIGURATION.md`](REDIS_CONFIGURATION.md) for detailed setup.

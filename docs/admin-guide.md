@@ -17,15 +17,9 @@ Operations guide for managing agentic-repos in production — user management, R
 
 ### Creating Users
 
-Users are identified by their SSH public key. The authorized_keys file maps keys to usernames:
+Users are identified by their SSH public key stored in git refs (`refs/adp/users/{username}/ssh_keys` in the system repo). Keys are managed via the `agentic-repos init` command or the RBAC API.
 
-```
-# Format: username:key-type key comment
-alice:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... alice@laptop
-bob:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABg... bob@workstation
-```
-
-#### Via init command
+#### Via init command (recommended)
 
 ```bash
 agentic-repos init --admin-key "ssh-ed25519 AAAA... admin@host" --admin-username admin
@@ -34,7 +28,7 @@ agentic-repos init --admin-key "ssh-ed25519 AAAA... admin@host" --admin-username
 #### Via API
 
 ```bash
-# Create user (requires RBAC admin)
+# Create user with SSH key (requires RBAC admin)
 curl -X POST http://localhost:8090/api/v1/rbac/users \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
@@ -45,24 +39,13 @@ curl -X POST http://localhost:8090/api/v1/rbac/users \
   }'
 ```
 
+The API writes the key to `refs/adp/users/alice/ssh_keys` in the system repo.
+
 #### Via authorized_keys file
-
-```bash
-echo "alice:ssh-ed25519 AAAA... alice@laptop" >> /data/authorized_keys
-```
-
-Changes to authorized_keys are picked up automatically.
 
 ### Key Rotation
 
-Users can have multiple SSH keys registered. To rotate:
-
-```bash
-# Add new key
-echo "alice:ssh-ed25519 NEW_KEY... alice@new-laptop" >> /data/authorized_keys
-
-# Remove old key (edit authorized_keys, remove the old line)
-```
+Users can have multiple SSH keys registered. To rotate via API:
 
 ### Removing Users
 
@@ -71,8 +54,10 @@ echo "alice:ssh-ed25519 NEW_KEY... alice@new-laptop" >> /data/authorized_keys
 curl -X DELETE http://localhost:8090/api/v1/rbac/users/alice \
   -H "Authorization: Bearer $TOKEN"
 
-# Or remove from authorized_keys
-# Delete the line containing the user's key
+# Or via API
+curl -X DELETE http://localhost:8090/api/v1/rbac/users/alice \
+  -H "Authorization: Bearer $TOKEN"
+# This removes the user's refs from the system repo
 ```
 
 ## RBAC Configuration
@@ -80,7 +65,7 @@ curl -X DELETE http://localhost:8090/api/v1/rbac/users/alice \
 ### Enabling RBAC
 
 ```yaml
-# config.yaml
+# Bootstrap config for init (NOT runtime config)
 features:
   rbac: true
 rbac:
@@ -477,7 +462,7 @@ rm /data/ssh/ssh_host_ed25519_key.old
 # 1. Generate new secret
 NEW_SECRET=$(openssl rand -hex 32)
 
-# 2. Update config.yaml lfs.jwt_secret
+# 2. Update in git refs (config command or direct ref write)
 # 3. Restart server
 systemctl restart agentic-repos
 

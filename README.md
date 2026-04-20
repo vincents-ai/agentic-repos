@@ -10,7 +10,7 @@ Multi-tenant Git server with SSH access, HTTP API, Git LFS, RBAC, webhooks, and 
 
 - **Git hosting** — create, clone, push, pull over SSH (port 2222) and HTTP
 - **Git LFS** — full LFS server with quotas, bandwidth throttling, file locking, and storage backends (local + S3)
-- **SSH authentication** — public key auth with authorized keys file, configurable host keys
+- **SSH authentication** — public key auth stored in git refs, configurable host keys
 - **HTTP REST API** — 150+ endpoints for repositories, users, RBAC, backups, webhooks, compliance, CI/CD, and more
 - **RBAC** — role-based access control with granular permissions per resource type
 - **Web UI** — embedded Svelte 5 frontend, compiled into the binary at build time (no external static files)
@@ -88,14 +88,15 @@ nix develop --command cargo build --release
 ./result/bin/agentic-repos
 
 # Or with a config file
-./result/bin/agentic-repos --config config.yaml
+./result/bin/agentic-repos
+# Server reads config from git refs in system repo
 ```
 
 ### First Repository
 
 ```bash
-# Add your SSH key to authorized_keys
-echo "admin:ssh-ed25519 AAAA... user@host" >> authorized_keys
+# Register your SSH key during init
+./result/bin/agentic-repos init --admin-key "ssh-ed25519 AAAA... user@host" --admin-username admin
 
 # Clone over SSH
 git clone ssh://admin@localhost:2222/repos/my-project.git
@@ -126,7 +127,9 @@ git add .gitattributes && git commit -m "track LFS" && git push
 
 ## Configuration
 
-Copy `config-example.yaml` to `config.yaml` and modify. Key sections:
+Configuration is stored in git refs in the system repository (`_adp/system`).
+Use `agentic-repos init --config config.yaml` to seed configuration from a YAML file,
+or configure via `agentic-repos config set`. Key sections:
 
 ```yaml
 server:
@@ -158,7 +161,7 @@ features:
   backup_recovery: true
 ```
 
-Full reference: [`config-example.yaml`](config-example.yaml) | [`docs/configuration.md`](docs/configuration.md)
+Full reference: [`config-example.yaml`](config-example.yaml) (bootstrap seed) | [`docs/configuration.md`](docs/configuration.md)
 
 ## API
 
@@ -225,6 +228,7 @@ kubectl apply -f k8s/
 ```bash
 # After building
 cp result/bin/agentic-repos /usr/local/bin/
+# Create config seed (optional — defaults work for most setups)
 cp config-example.yaml /etc/agentic-repos/config.yaml
 
 # Create systemd unit
@@ -234,7 +238,8 @@ Description=agentic-repos Git Server
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/agentic-repos --config /etc/agentic-repos/config.yaml
+ExecStart=/usr/local/bin/agentic-repos
+# Config is read from git refs. Use --storage to set data directory.
 Restart=always
 User=agentic-repos
 
@@ -271,7 +276,7 @@ Full deployment guide: [`DEPLOYMENT.md`](DEPLOYMENT.md)
 
 ### Reference
 - [Quick Reference Card](QUICK_REFERENCE.md) — common commands and endpoints
-- [Config Example](config-example.yaml) — fully documented configuration file
+- [Config Example](config-example.yaml) — bootstrap seed for `agentic-repos init`
 - [Monitoring Setup](monitoring/README.md) — Prometheus + Grafana
 - [Kubernetes](k8s/README.md) — K8s manifests
 

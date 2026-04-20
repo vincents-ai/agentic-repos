@@ -26,7 +26,7 @@ This document describes the security architecture and controls in agentic-repos.
 
 Git operations over SSH (port 2222) use public key authentication:
 
-- Keys stored in `authorized_keys` file (format: `username:ssh-key-type key comment`)
+- Keys stored in git refs (`refs/adp/users/{username}/ssh_keys` in system repo)
 - SSH host key persisted to disk (configurable via `server.ssh.host_key_path`)
 - Ed25519 keys recommended; RSA keys accepted
 - Key size limits enforced (max 8KB per key)

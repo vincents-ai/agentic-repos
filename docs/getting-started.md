@@ -17,14 +17,15 @@ This guide walks you through creating repositories, pushing code, using Git LFS,
 ssh-keygen -t ed25519 -C "you@example.com"
 ```
 
-### 2. Send your public key to the administrator
+### 2. Have the administrator register your key
 
 ```bash
 cat ~/.ssh/id_ed25519.pub
 # Copy the output and send it to your admin
 ```
 
-Your admin will register it in the server's authorized_keys file.
+Your admin will register it via `agentic-repos init --admin-key` or the RBAC API.
+The key is stored in the system repo at `refs/adp/users/{username}/ssh_keys`.
 
 ### 3. Test the connection
 

@@ -1,223 +1,325 @@
-# Security Advisory
+# agentic-repos Security Model
 
-## Critical Security Vulnerabilities Found
+This document describes the security architecture and controls in agentic-repos.
 
-### 🚨 CRITICAL: SSH Authentication Bypass
+## Table of Contents
 
-**File**: `src/git/ssh.rs:107`  
-**Severity**: CRITICAL  
-**CVE**: Pending  
+1. [Authentication](#authentication)
+2. [Authorization (RBAC)](#authorization-rbac)
+3. [Transport Security](#transport-security)
+4. [Secrets Infrastructure](#secrets-infrastructure)
+5. [Data Protection](#data-protection)
+6. [Input Validation & Injection Prevention](#input-validation--injection-prevention)
+7. [Rate Limiting](#rate-limiting)
+8. [Audit Logging](#audit-logging)
+9. [Security Headers](#security-headers)
+10. [Backup Security](#backup-security)
+11. [Webhook Security](#webhook-security)
+12. [LFS Security](#lfs-security)
+13. [Cluster Security](#cluster-security)
+14. [Compliance](#compliance)
+15. [Security Configuration Checklist](#security-configuration-checklist)
 
-**Issue**: The SSH authentication handler accepts ANY SSH public key without validation:
+## Authentication
 
-```rust
-async fn auth_publickey(
-    &mut self,
-    _user: &str,
-    _public_key: &PublicKey,
-) -> std::result::Result<russh::server::Auth, Self::Error> {
-    debug!("Public key authentication for user: {}", _user);
-    Ok(russh::server::Auth::Accept)  // ← ACCEPTS ANY KEY
-}
+### SSH Public Key Authentication
+
+Git operations over SSH (port 2222) use public key authentication:
+
+- Keys stored in `authorized_keys` file (format: `username:ssh-key-type key comment`)
+- SSH host key persisted to disk (configurable via `server.ssh.host_key_path`)
+- Ed25519 keys recommended; RSA keys accepted
+- Key size limits enforced (max 8KB per key)
+
+### HTTP Authentication
+
+The HTTP API (port 8090) supports multiple authentication methods:
+
+| Method | Endpoints | Mechanism |
+|--------|-----------|-----------|
+| OAuth2 session | Most API endpoints | Session cookie with `Secure` + `SameSite=Strict` flags |
+| LFS JWT | LFS batch/upload/download | JWT with operation-specific claims (`download` or `upload`) |
+| None | `/health`, `/info`, `/metrics` | Public endpoints |
+
+#### OAuth2 Session Security
+
+- Session cookies: `Secure` flag (HTTPS only), `SameSite=Strict` (CSRF protection)
+- Session IDs validated against a strict format (rejects separators, control chars, path traversal)
+- Session data encrypted at rest with AES-256-GCM via `SESSION_ENCRYPTION_KEY`
+- X-ADP-User header: ignored by handlers — user identity comes ONLY from the validated session
+
+#### LFS JWT Authentication
+
+- JWT secret: `Option<String>` with no default — must be explicitly configured
+- Tokens contain operation-specific claims (`download` or `upload`) — upload tokens cannot download and vice versa
+- Token expiration configurable via `lfs.token_expiration_secs`
+
+## Authorization (RBAC)
+
+Role-Based Access Control gates all API operations:
+
+### Permission Model
+
+Permissions are scoped per resource type:
+
+| Permission | Scope | Required For |
+|-----------|-------|-------------|
+| `SystemAdmin` | System-wide | Cluster status, ADP config, system settings |
+| `SettingsManage` | Settings | Backups, security scanning, SDLC, analytics |
+| `RepositoryRead` | Repositories | List/view repos, branches, commits |
+| `RepositoryCreate` | Repositories | Create new repositories |
+| `RepositoryWrite` | Repositories | Push, update repo settings |
+| `RepositoryAdmin` | Repositories | Delete repos, manage secrets |
+| `ComplianceManage` | Compliance | GDPR, DORA, NIS2, retention policies |
+| `ReplicationManage` | Replication | Configure and manage replication |
+
+### How RBAC is Applied
+
+Auth middleware is applied at the scope level in the production route configurator:
+
+```
+/api/v1/backups      → SettingsManage
+/api/v1/cluster      → SystemAdmin
+/api/v1/adp          → SystemAdmin
+/api/v1/security     → SettingsManage
+/api/v1/sdlc         → SettingsManage
+/api/v1/analytics    → SettingsManage
+/api/v1/compliance   → ComplianceManage
 ```
 
-**Impact**: 
-- Complete authentication bypass
-- Any user with any SSH key can access the Git server
-- No authorization controls whatsoever
-- Full repository access for any attacker with SSH key generation capability
+Individual route handlers also check operation-specific permissions (e.g., repository owners get elevated access to their own repos).
 
-**Risk Assessment**: 
-- **Confidentiality**: HIGH - Unauthorized access to all repositories
-- **Integrity**: HIGH - Unauthorized push/commit access to all repositories  
-- **Availability**: MEDIUM - Potential for malicious repository operations
+### Disabling RBAC
 
-**Immediate Mitigation**:
-- Do NOT deploy to production with current SSH implementation
-- Disable SSH module until proper authentication is implemented
-- Use alternative Git access methods (if available)
+RBAC is gated by the `features.rbac` feature flag. When disabled, all operations are permitted without authorization checks. **Do not disable RBAC in production.**
 
-### ⚠️ HIGH: Command Injection Vulnerability
+## Transport Security
 
-**File**: `src/git/ssh.rs:127-146`  
-**Severity**: HIGH  
+### SSH
 
-**Issue**: SSH command execution accepts raw input without validation:
+- Host key: Ed25519, persisted to configurable path
+- Algorithm: russh (pure Rust SSH implementation — no libssh2 FFI)
+- Connection limits: configurable `max_connections` and `connection_timeout_secs`
 
-```rust
-async fn exec_request(
-    &mut self,
-    channel: ChannelId,
-    data: &[u8],
-    session: &mut Session,
-) -> std::result::Result<(), Self::Error> {
-    let command = String::from_utf8_lossy(data);  // ← Raw command input
-    debug!("Executing command: {}", command);
-    
-    match command.trim() {
-        cmd if cmd.starts_with("git-upload-pack") => {
-            // Direct string matching without validation
-        }
-        // ...
-    }
-}
+### HTTP
+
+- TLS: Offloaded to reverse proxy (Nginx, Caddy, or cloud load balancer)
+- Security headers: applied globally via actix DefaultHeaders middleware
+
+### Recommended TLS Configuration
+
+```nginx
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+ssl_prefer_server_ciphers off;
 ```
 
-**Impact**:
-- Potential command injection through Git command parameters
-- Malicious repository names could be crafted to inject commands
-- Server-side command execution risks
+## Secrets Infrastructure
 
-**Risk Assessment**:
-- **Confidentiality**: MEDIUM - File system access potential
-- **Integrity**: HIGH - Potential system modification
-- **Availability**: HIGH - Potential denial of service
+Per ADR-024, secrets use a two-layer AGE key wrapping scheme:
 
-### ⚠️ MEDIUM: Insecure Host Key Management
+| Layer | Key | Location |
+|-------|-----|----------|
+| Root wrapping key | AGE private key | `/etc/adp/wrapping-key.age` — NOT in git |
+| Per-repo keypair | AGE keypair, private encrypted with root | `refs/adp/secrets/keys/{repo-id}/private` in system repo |
+| Secret data | SOPS-encrypted JSON | `refs/secrets/*` in user repos |
 
-**File**: `src/git/ssh.rs:33-34`  
-**Severity**: MEDIUM  
+### Egress Control
 
-**Issue**: SSH host keys generated randomly on every startup:
+- Plaintext secrets **never** leave the server via API, UI, or git protocol
+- Only outbound webhooks can access plaintext, via explicit per-key allowlist (`secret_keys: []` — no wildcards, default empty)
+- `refs/secrets/*` is a private namespace stripped from the wire protocol
 
-```rust
-let keys = vec![PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
-    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?];
+### AGE Key Zeroization
+
+AGE private keys are zeroized on Drop using `volatile_write` to prevent compiler optimization from eliminating the memory clear.
+
+## Data Protection
+
+### Encryption at Rest
+
+| Data | Algorithm | Key Source |
+|------|-----------|------------|
+| Session data | AES-256-GCM | `SESSION_ENCRYPTION_KEY` env var |
+| Backup data | AES-256-GCM | `BACKUP_ENCRYPTION_KEY` env var |
+| Secrets | AGE (X25519 + ChaCha20-Poly1305) | Per-repo keypair |
+| S3 credentials | AES-256 via S3 SDK | AWS credentials chain |
+| S3 secret keys | Zeroized on Drop | `volatile_write` |
+
+### Cryptographic Design
+
+- AES-256-GCM: random nonce per encryption (via `Aes256Gcm::generate_nonce(&mut OsRng)`)
+- Auth tag supersedes plaintext hash — no plaintext hash stored (would leak information)
+- `EncryptedData` struct does not include `plaintext_hash` field
+
+## Input Validation & Injection Prevention
+
+### Path Traversal Defense
+
+All user-supplied path components are validated with `validate_path_component()`:
+
+- Rejects empty strings, path separators (`/`, `\`), `..`, hidden files (`.`), null bytes
+- Defense-in-depth: `starts_with()` check ensures resolved paths remain within the expected root
+- Applied to: repository names, owner names, LFS OIDs, backup paths, namespace components, ref names
+
+### Owner Name Validation
+
+Whitelist approach — only alphanumeric, hyphen, and underscore characters. Rejects `/`, `\`, `.`, null bytes, and leading `-_`.
+
+### Command Injection Prevention
+
+SSH command execution validates against an allowlist of git commands (`git-upload-pack`, `git-receive-pack`). Raw input is never passed to a shell.
+
+### ReDoS Protection
+
+Three layers on all user-supplied regex patterns:
+1. Length limit (max 256 characters)
+2. Heuristic nested quantifier detection
+3. Compile-time timeout
+
+### Error Message Sanitization
+
+`ApiError::internal_error` logs the full error server-side via `tracing::warn!` but returns a generic message to the client. Prevents CWE-209 (information exposure through error messages).
+
+### SAML Assertion Verification
+
+SAML SSO verifies signature presence on assertions (interim — full XML-DSig verification planned).
+
+## Rate Limiting
+
+Token-bucket rate limiter with tier-based configuration:
+
+```yaml
+rate_limit:
+  enabled: true
+  tiers:
+    free:
+      requests_per_minute: 60
+      burst_size: 10
+    pro:
+      requests_per_minute: 300
+      burst_size: 50
+    enterprise:
+      requests_per_minute: 1000
+      burst_size: 200
 ```
 
-**Impact**:
-- No persistent server identity
-- Man-in-the-middle attack vulnerability
-- Client SSH fingerprint verification fails
-- No host key continuity across restarts
+- Applied globally via actix middleware
+- Proxy header support: `X-Forwarded-For`, `X-Real-IP`, `CF-Connecting-IP`
+- LFS throttle: separate bandwidth throttling for uploads/downloads
 
-### ⚠️ MEDIUM: Missing Rate Limiting
+## Audit Logging
 
-**Issue**: SSH connections have no rate limiting or connection controls
+### Audit Trail Storage
 
-**Impact**:
-- Denial of service vulnerability
-- Brute force attack potential
-- Resource exhaustion
+Default: file-based JSONL (`FileBasedAuditStorage`) — append-only with `sync_all()` for crash durability.
 
-## Required Security Fixes
+### Audit Events
 
-### 1. Implement Authorized Keys Authentication
+- Authentication attempts (success and failure)
+- Repository mutations (create, delete, push)
+- RBAC changes (role assignments, permission changes)
+- Secret access
+- Backup operations
+- Security scan results
+- Replication events
+- Compliance reports
 
-```rust
-// Example secure implementation
-async fn auth_publickey(
-    &mut self,
-    user: &str,
-    public_key: &PublicKey,
-) -> std::result::Result<russh::server::Auth, Self::Error> {
-    if self.validate_authorized_key(user, public_key).await {
-        Ok(russh::server::Auth::Accept)
-    } else {
-        warn!("SSH authentication failed for user: {}", user);
-        Ok(russh::server::Auth::Reject)
-    }
-}
-```
+### Anonymization
 
-### 2. Add Command Input Validation
+Personally identifiable information in audit logs is cryptographically anonymized using SHA-256 (truncated to 8–12 hex chars) — irreversible and consistent.
 
-```rust
-// Example secure command validation
-fn validate_git_command(command: &str) -> Result<GitCommand, SecurityError> {
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    
-    match parts.get(0) {
-        Some("git-upload-pack") => {
-            let repo = validate_repository_name(parts.get(1)?)?;
-            Ok(GitCommand::Upload(repo))
-        }
-        Some("git-receive-pack") => {
-            let repo = validate_repository_name(parts.get(1)?)?;
-            Ok(GitCommand::Receive(repo))
-        }
-        _ => Err(SecurityError::InvalidCommand),
-    }
-}
-```
+## Security Headers
 
-### 3. Implement Persistent Host Keys
+Applied globally via actix `DefaultHeaders` middleware:
 
-```rust
-// Load persistent host key or generate and save new one
-let host_key = match load_host_key(&config.host_key_path) {
-    Ok(key) => key,
-    Err(_) => {
-        let new_key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519)?;
-        save_host_key(&config.host_key_path, &new_key)?;
-        new_key
-    }
-};
-```
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Content-Type-Options` | `nosniff` | Prevent MIME type sniffing |
+| `X-Frame-Options` | `DENY` | Prevent clickjacking |
+| `X-XSS-Protection` | `1; mode=block` | XSS filtering |
+| `Strict-Transport-Security` | `max-age=31536000` | Force HTTPS |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limit referrer leakage |
+| `Content-Security-Policy` | `default-src 'self'` | Restrict resource loading |
 
-### 4. Add Rate Limiting and Connection Controls
+## Backup Security
 
-```rust
-// Example rate limiting implementation
-struct ConnectionLimiter {
-    connections: Arc<Mutex<HashMap<IpAddr, ConnectionCount>>>,
-    max_per_ip: usize,
-    time_window: Duration,
-}
-```
+- **Encryption**: AES-256-GCM at rest via `BACKUP_ENCRYPTION_KEY` (random nonce per backup)
+- **Concurrency**: tokio::sync::Semaphore limits concurrent backups (`MAX_CONCURRENT_BACKUPS=4`)
+- **Tenant scoping**: restore operations reject cross-tenant backup files
+- **Path sanitization**: `sanitize_component()` + `safe_join()` prevent path traversal in backup paths
+- **Sensitive paths**: backup storage paths use `skip_serializing` to prevent API exposure
+- **Magic header**: `"ADPENC"` prefix for backwards-compatible encryption detection
 
-## Security Testing
+## Webhook Security
 
-Current VM test framework validates functionality but does NOT test security:
+- **SSRF protection**: DNS resolution at registration time, HTTPS-only URLs, private IP filtering, redirect policy `none`
+- **HMAC signatures**: GitHub/Jenkins use HMAC-SHA256 with timing-safe comparison
+- **GitLab tokens**: constant-time XOR-based comparison (not direct byte equality)
+- **Wildcard restrictions**: webhook URLs cannot use wildcards
+- **Payload limits**: 1MB max, 16-level JSON depth limit
 
-- ✅ VM tests validate SSH connectivity  
-- ❌ VM tests do NOT validate authentication rejection
-- ❌ VM tests do NOT test authorization controls
-- ❌ VM tests do NOT test command injection resistance
+## LFS Security
 
-**Required Security Tests**:
-1. Authentication rejection tests
-2. Invalid key rejection tests  
-3. Command injection attack tests
-4. Rate limiting tests
-5. Host key persistence tests
+- **JWT**: operation-specific claims (`upload` vs `download`), no default secret
+- **OID validation**: strict format check (64-char hex SHA-256)
+- **Path traversal**: validated OID used for storage path construction
+- **Quota enforcement**: per-repo and per-tenant storage quotas
+- **Throttle**: bandwidth throttling for uploads and downloads
+- **Lock re-entrancy**: `Mutex<HashSet>` prevents double-lock on same key
 
-## Development Guidelines
+## Cluster Security
 
-### Before Production Deployment
+- **Instance authentication**: HMAC-SHA256 shared secret via `InstanceInfo.auth_tag`
+- **Fencing tokens**: monotonically increasing `leadership_term` epoch prevents stale leaders
+- **Distributed locks**: Redis `SET NX EX` + Lua compare-and-delete/expire scripts
+- **Lock re-entrancy**: `std::sync::Mutex<HashSet>` for short-held operations in async context
+- **Error sanitization**: `sanitize_error()` wraps internal errors before sending to other cluster members
 
-1. ✅ Implement authorized keys validation
-2. ✅ Add command input sanitization  
-3. ✅ Implement persistent host keys
-4. ✅ Add rate limiting and connection controls
-5. ✅ Add comprehensive security testing
-6. ✅ Security audit by external party
-7. ✅ Penetration testing
+## Compliance
 
-### Secure Development Practices
+| Framework | Features |
+|-----------|----------|
+| **GDPR** | Data export (Art. 20), right to deletion (Art. 17), retention policies, PII encryption |
+| **HIPAA** | Audit logging, encryption at rest, access controls, compliance tagging |
+| **DORA** | ICT risk framework, incident management, digital operational resilience |
+| **NIS2** | Incident notification, risk management, supply chain security |
+| **SOC2** | Audit trail, access control, encryption, monitoring |
 
-- **Never deploy** with `Auth::Accept` for any key
-- **Always validate** user input in SSH commands
-- **Use persistent** host keys for server identity
-- **Implement logging** for all authentication attempts
-- **Add monitoring** for suspicious activity patterns
+### Compliance Tagging
 
-## Responsible Disclosure
+Git refs can be tagged with compliance metadata (GDPR, HIPAA, SOC2, ISO27001, PCI-DSS). Tags are enforced at the repository level and auditable.
 
-If you discover additional security vulnerabilities in this project:
+## Security Configuration Checklist
 
-1. Do NOT create public issues on GitHub
-2. Email security issues to: [SECURITY_EMAIL_PLACEHOLDER]
+### Before Production
+
+- [ ] Set strong `lfs.jwt_secret` (32+ random bytes, no default)
+- [ ] Generate persistent SSH host key (`ssh-keygen -t ed25519`)
+- [ ] Enable RBAC (`features.rbac: true`, `rbac.enabled: true`)
+- [ ] Set `SESSION_ENCRYPTION_KEY` for session encryption
+- [ ] Set `BACKUP_ENCRYPTION_KEY` for encrypted backups
+- [ ] Configure TLS termination (Nginx, Caddy, or cloud LB)
+- [ ] Enable rate limiting (`rate_limit.enabled: true`)
+- [ ] Restrict `/metrics` endpoint to internal networks
+- [ ] Review feature flags — disable unused features
+- [ ] Configure audit logging destination
+
+### Hardening
+
+- [ ] Run as non-root user (systemd `User=agentic-repos`)
+- [ ] Use systemd security directives (`NoNewPrivileges`, `ProtectSystem`, `PrivateTmp`)
+- [ ] Limit file descriptors (`LimitNOFILE=65536`)
+- [ ] Configure reverse proxy with `client_max_body_size` for LFS
+- [ ] Set up log aggregation for security events
+- [ ] Schedule regular backups with encryption
+- [ ] Monitor Prometheus metrics for anomalies
+
+## Reporting Security Issues
+
+If you discover a security vulnerability:
+
+1. Do NOT create public GitHub issues
+2. Email security issues to the project maintainers
 3. Provide detailed reproduction steps
 4. Allow 90 days for fix development before public disclosure
-
-## Security Contact
-
-For security-related questions or concerns:
-- Email: [SECURITY_EMAIL_PLACEHOLDER]
-- PGP Key: [PGP_KEY_PLACEHOLDER]
-
----
-
-**Last Updated**: 2026-01-21  
-**Next Review**: 2026-02-21

@@ -14,10 +14,10 @@ mod ssh_keys;
 mod webhook_receiver;
 
 use harness::E2eHarness;
-use seaweedfs::SeaweedFs;
-use ssh_keys::{SshTestKeys, git_ssh};
 use reqwest::StatusCode;
+use seaweedfs::SeaweedFs;
 use serial_test::serial;
+use ssh_keys::{git_ssh, SshTestKeys};
 
 /// Create a harness or skip if infrastructure is unavailable.
 macro_rules! harness_or_skip {
@@ -145,9 +145,7 @@ async fn e2e_create_and_get_repository() {
 async fn e2e_not_found_route() {
     harness_or_skip!(harness);
 
-    let resp = harness
-        .get("/api/v1/this-route-does-not-exist")
-        .await;
+    let resp = harness.get("/api/v1/this-route-does-not-exist").await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -271,7 +269,8 @@ async fn e2e_s3_create_bucket_and_list() {
         .expect("list_objects_v2 on new bucket should succeed");
 
     assert_eq!(
-        resp.key_count().unwrap_or(0), 0,
+        resp.key_count().unwrap_or(0),
+        0,
         "new bucket should be empty"
     );
 }
@@ -425,7 +424,8 @@ async fn e2e_ssh_clone_empty_repo() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Create a repo via HTTP first
@@ -459,9 +459,18 @@ async fn e2e_ssh_clone_empty_repo() {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         tokio::task::spawn_blocking(move || {
-            git_ssh(&keys, harness.ssh_port, &known_hosts, &["clone", &clone_url, "."], clone_dir.path())
+            git_ssh(
+                &keys,
+                harness.ssh_port,
+                &known_hosts,
+                &["clone", &clone_url, "."],
+                clone_dir.path(),
+            )
         }),
-    ).await.expect("git clone timed out after 30s").expect("spawn_blocking panicked");
+    )
+    .await
+    .expect("git clone timed out after 30s")
+    .expect("spawn_blocking panicked");
     assert!(
         output.status.success(),
         "git clone over SSH should succeed: {}",
@@ -478,13 +487,17 @@ async fn e2e_ssh_rejected_without_key() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Generate a DIFFERENT keypair not in authorized_keys
     let keys = match SshTestKeys::generate("git") {
         Ok(k) => k,
-        Err(e) => { eprintln!("SKIP SSH: {}", e); return; }
+        Err(e) => {
+            eprintln!("SKIP SSH: {}", e);
+            return;
+        }
     };
 
     let clone_dir = tempfile::TempDir::new().unwrap();
@@ -493,7 +506,13 @@ async fn e2e_ssh_rejected_without_key() {
         harness.ssh_port
     );
 
-    let output = git_ssh(&keys, harness.ssh_port, &known_hosts, &["clone", &clone_url, "."], clone_dir.path());
+    let output = git_ssh(
+        &keys,
+        harness.ssh_port,
+        &known_hosts,
+        &["clone", &clone_url, "."],
+        clone_dir.path(),
+    );
     assert!(
         !output.status.success(),
         "git clone with unauthorised key should fail: {}",
@@ -512,7 +531,8 @@ async fn e2e_ssh_per_repo_access_control() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Create a repo via HTTP
@@ -540,7 +560,10 @@ async fn e2e_ssh_per_repo_access_control() {
             rules: vec![PathRule {
                 user: "admin".to_string(),
                 paths: vec!["refs/**".to_string()],
-                permissions: vec![agentic_repos::adp::access::Permission::Pull, agentic_repos::adp::access::Permission::Push],
+                permissions: vec![
+                    agentic_repos::adp::access::Permission::Pull,
+                    agentic_repos::adp::access::Permission::Push,
+                ],
             }],
         };
         if let Err(e) = AdpStore::write_access_config(&repo_path, &access) {
@@ -551,13 +574,19 @@ async fn e2e_ssh_per_repo_access_control() {
     // Register admin user's SSH key in system repo
     let admin_keys = match SshTestKeys::generate("admin") {
         Ok(k) => k,
-        Err(e) => { eprintln!("SKIP: admin key generation failed: {}", e); return; }
+        Err(e) => {
+            eprintln!("SKIP: admin key generation failed: {}", e);
+            return;
+        }
     };
 
     // Register restricted user's SSH key in system repo
     let restricted_keys = match SshTestKeys::generate("restricted") {
         Ok(k) => k,
-        Err(e) => { eprintln!("SKIP: restricted key generation failed: {}", e); return; }
+        Err(e) => {
+            eprintln!("SKIP: restricted key generation failed: {}", e);
+            return;
+        }
     };
 
     // Write both users' keys to system repo identity refs
@@ -566,19 +595,47 @@ async fn e2e_ssh_per_repo_access_control() {
         &system_repo,
         "admin",
         "fingerprint-admin-fake", // placeholder — real fingerprint computed from key
-        &std::fs::read_to_string(admin_keys.authorized_keys_path.parent().unwrap().join("id_ed25519.pub")).unwrap_or_default(),
+        &std::fs::read_to_string(
+            admin_keys
+                .authorized_keys_path
+                .parent()
+                .unwrap()
+                .join("id_ed25519.pub"),
+        )
+        .unwrap_or_default(),
     );
     let _ = AdpStore::register_user_key(
         &system_repo,
         "restricted",
         "fingerprint-restricted-fake",
-        &std::fs::read_to_string(restricted_keys.authorized_keys_path.parent().unwrap().join("id_ed25519.pub")).unwrap_or_default(),
+        &std::fs::read_to_string(
+            restricted_keys
+                .authorized_keys_path
+                .parent()
+                .unwrap()
+                .join("id_ed25519.pub"),
+        )
+        .unwrap_or_default(),
     );
 
     // Also add both keys to the server's authorized_keys file
     let ak_path = harness.ssh_keys_dir.join("authorized_keys");
-    let admin_pub = std::fs::read_to_string(admin_keys.authorized_keys_path.parent().unwrap().join("id_ed25519.pub")).unwrap_or_default();
-    let restricted_pub = std::fs::read_to_string(restricted_keys.authorized_keys_path.parent().unwrap().join("id_ed25519.pub")).unwrap_or_default();
+    let admin_pub = std::fs::read_to_string(
+        admin_keys
+            .authorized_keys_path
+            .parent()
+            .unwrap()
+            .join("id_ed25519.pub"),
+    )
+    .unwrap_or_default();
+    let restricted_pub = std::fs::read_to_string(
+        restricted_keys
+            .authorized_keys_path
+            .parent()
+            .unwrap()
+            .join("id_ed25519.pub"),
+    )
+    .unwrap_or_default();
     let mut ak_content = std::fs::read_to_string(&ak_path).unwrap_or_default();
     ak_content.push_str(&format!("admin:{}\n", admin_pub.trim()));
     ak_content.push_str(&format!("restricted:{}\n", restricted_pub.trim()));
@@ -597,19 +654,33 @@ async fn e2e_ssh_per_repo_access_control() {
     let read_back = AdpStore::read_access_config(&repo_path).unwrap();
     assert!(read_back.is_some(), "access config should exist in repo");
     let cfg = read_back.unwrap();
-    assert!(cfg.owners.contains(&"admin".to_string()), "admin should be owner");
-    assert!(!cfg.owners.contains(&"restricted".to_string()), "restricted should NOT be owner");
+    assert!(
+        cfg.owners.contains(&"admin".to_string()),
+        "admin should be owner"
+    );
+    assert!(
+        !cfg.owners.contains(&"restricted".to_string()),
+        "restricted should NOT be owner"
+    );
     assert_eq!(cfg.rules.len(), 1, "should have one access rule");
     assert_eq!(cfg.rules[0].user, "admin");
-    assert!(cfg.rules[0].permissions.contains(&agentic_repos::adp::access::Permission::Pull));
-    assert!(cfg.rules[0].permissions.contains(&agentic_repos::adp::access::Permission::Push));
+    assert!(cfg.rules[0]
+        .permissions
+        .contains(&agentic_repos::adp::access::Permission::Pull));
+    assert!(cfg.rules[0]
+        .permissions
+        .contains(&agentic_repos::adp::access::Permission::Push));
 
     // Verify both users have identity refs in system repo
     let admin_identity = AdpStore::read_ref_blob(&system_repo, "refs/adp/users/admin/identity");
     assert!(admin_identity.is_ok(), "admin identity should exist");
 
-    let restricted_identity = AdpStore::read_ref_blob(&system_repo, "refs/adp/users/restricted/identity");
-    assert!(restricted_identity.is_ok(), "restricted identity should exist");
+    let restricted_identity =
+        AdpStore::read_ref_blob(&system_repo, "refs/adp/users/restricted/identity");
+    assert!(
+        restricted_identity.is_ok(),
+        "restricted identity should exist"
+    );
 
     // Test: default repo (no access config) should allow clone for any authenticated user
     let default_repo_resp = harness
@@ -622,7 +693,10 @@ async fn e2e_ssh_per_repo_access_control() {
         let open_repo_path = harness.storage_root.join("default/open-repo.git");
         // No access config = open to all authenticated users
         let open_access = AdpStore::read_access_config(&open_repo_path).unwrap();
-        assert!(open_access.is_none(), "open repo should have no access config (allows all)");
+        assert!(
+            open_access.is_none(),
+            "open repo should have no access config (allows all)"
+        );
     }
 }
 
@@ -644,7 +718,7 @@ async fn e2e_lfs_batch_upload_download() {
 
     // Compute SHA256 of test content
     let test_content = b"Hello LFS E2E!";
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let oid = hex::encode(Sha256::digest(test_content));
     let size = test_content.len();
 
@@ -679,7 +753,11 @@ async fn e2e_lfs_batch_upload_download() {
     );
 
     let downloaded = download_resp.bytes().await.expect("read download body");
-    assert_eq!(&downloaded[..], test_content, "downloaded content should match original");
+    assert_eq!(
+        &downloaded[..],
+        test_content,
+        "downloaded content should match original"
+    );
 
     // Also test the batch API — verify it reports the object as existing
     let batch_resp = harness
@@ -728,14 +806,24 @@ async fn e2e_api_identity_and_binary_name() {
 
     // 3. The binary exists as target/debug/agentic-repos
     let binary_path = std::path::PathBuf::from("target/debug/agentic-repos");
-    assert!(binary_path.exists(), "Binary should be at {:?}", binary_path);
+    assert!(
+        binary_path.exists(),
+        "Binary should be at {:?}",
+        binary_path
+    );
 
     // 4. Health endpoint returns structured JSON (not bare text)
     let health = harness.get("/api/v1/health").await;
     assert_eq!(health.status(), StatusCode::OK);
     let health_body: serde_json::Value = health.json().await.unwrap();
-    assert!(health_body.is_object(), "Health response should be JSON object");
-    assert!(health_body["status"].is_string(), "Health should have status field");
+    assert!(
+        health_body.is_object(),
+        "Health response should be JSON object"
+    );
+    assert!(
+        health_body["status"].is_string(),
+        "Health should have status field"
+    );
 
     // 5. Metrics endpoint returns Prometheus-format text (structured)
     let metrics = harness.get("/metrics").await;
@@ -755,16 +843,18 @@ async fn e2e_webhook_routes_exist() {
     harness_or_skip!(harness);
 
     // POST /api/v1/webhooks — should return 403 (auth required) not 404 (route missing)
-    let create_resp = harness.post_json(
-        "/api/v1/webhooks",
-        &serde_json::json!({
-            "url": "http://127.0.0.1:9999/webhook",
-            "secret": "test-webhook-secret",
-            "secret_keys": [],
-            "events": ["push", "branch_create"],
-            "tenant_id": "default"
-        }),
-    ).await;
+    let create_resp = harness
+        .post_json(
+            "/api/v1/webhooks",
+            &serde_json::json!({
+                "url": "http://127.0.0.1:9999/webhook",
+                "secret": "test-webhook-secret",
+                "secret_keys": [],
+                "events": ["push", "branch_create"],
+                "tenant_id": "default"
+            }),
+        )
+        .await;
 
     let status = create_resp.status();
     assert_eq!(
@@ -784,7 +874,9 @@ async fn e2e_webhook_routes_exist() {
     );
 
     // GET /api/v1/webhooks/{id} — should return 403
-    let get_resp = harness.get("/api/v1/webhooks/00000000-0000-0000-0000-000000000000").await;
+    let get_resp = harness
+        .get("/api/v1/webhooks/00000000-0000-0000-0000-000000000000")
+        .await;
     assert_eq!(
         get_resp.status(),
         StatusCode::FORBIDDEN,
@@ -793,7 +885,9 @@ async fn e2e_webhook_routes_exist() {
     );
 
     // DELETE /api/v1/webhooks/{id} — should return 403
-    let delete_resp = harness.delete("/api/v1/webhooks/00000000-0000-0000-0000-000000000000").await;
+    let delete_resp = harness
+        .delete("/api/v1/webhooks/00000000-0000-0000-0000-000000000000")
+        .await;
     assert_eq!(
         delete_resp.status(),
         StatusCode::FORBIDDEN,
@@ -848,26 +942,43 @@ async fn e2e_webhook_secret_keys_allowlist_specific_key() {
     use std::collections::HashSet;
 
     let mut wh = agentic_repos::webhooks::models::Webhook::new(
-        "http://127.0.0.1:9999/hook".
-        to_string(),
+        "http://127.0.0.1:9999/hook".to_string(),
         Some("secret".to_string()),
         HashSet::from([agentic_repos::webhooks::models::WebhookEvent::Push]),
         "tenant-1".to_string(),
     );
 
     // Empty allowlist = no access
-    assert!(!wh.can_access_secret("ANY_KEY"), "empty allowlist should deny all");
+    assert!(
+        !wh.can_access_secret("ANY_KEY"),
+        "empty allowlist should deny all"
+    );
 
     // Specific key allowlist
     wh.secret_keys = vec!["DB_PASSWORD".to_string(), "API_KEY".to_string()];
-    assert!(wh.can_access_secret("DB_PASSWORD"), "allowed key should be accessible");
-    assert!(wh.can_access_secret("API_KEY"), "allowed key should be accessible");
-    assert!(!wh.can_access_secret("OTHER_KEY"), "non-allowed key should be denied");
+    assert!(
+        wh.can_access_secret("DB_PASSWORD"),
+        "allowed key should be accessible"
+    );
+    assert!(
+        wh.can_access_secret("API_KEY"),
+        "allowed key should be accessible"
+    );
+    assert!(
+        !wh.can_access_secret("OTHER_KEY"),
+        "non-allowed key should be denied"
+    );
 
     // Wildcard allowlist
     wh.secret_keys = vec!["*".to_string()];
-    assert!(wh.can_access_secret("anything"), "wildcard should allow all");
-    assert!(wh.can_access_secret("everything"), "wildcard should allow all");
+    assert!(
+        wh.can_access_secret("anything"),
+        "wildcard should allow all"
+    );
+    assert!(
+        wh.can_access_secret("everything"),
+        "wildcard should allow all"
+    );
 }
 
 // ── API Auth Enforcement (Task cc4346bf) ────────────────────────────────
@@ -893,7 +1004,9 @@ async fn e2e_api_auth_required_for_protected_routes() {
         assert!(
             status == StatusCode::FORBIDDEN || status == StatusCode::UNAUTHORIZED,
             "{} {} should require auth (got {})",
-            method, path, status
+            method,
+            path,
+            status
         );
     }
 }
@@ -1001,8 +1114,7 @@ async fn e2e_rbac_access_config_write_and_read() {
         ],
     };
 
-    AdpStore::write_access_config(&repo_path, &access)
-        .expect("should write access config");
+    AdpStore::write_access_config(&repo_path, &access).expect("should write access config");
 
     // Read back and verify
     let read_back = AdpStore::read_access_config(&repo_path)
@@ -1014,13 +1126,21 @@ async fn e2e_rbac_access_config_write_and_read() {
     assert_eq!(read_back.rules.len(), 2);
 
     // Verify deployer has push permission
-    let deployer_rule = read_back.rules.iter().find(|r| r.user == "deployer").expect("deployer rule");
+    let deployer_rule = read_back
+        .rules
+        .iter()
+        .find(|r| r.user == "deployer")
+        .expect("deployer rule");
     assert!(deployer_rule.permissions.contains(&Permission::Push));
     assert!(deployer_rule.permissions.contains(&Permission::Pull));
     assert!(deployer_rule.paths.contains(&"refs/heads/main".to_string()));
 
     // Verify viewer only has pull
-    let viewer_rule = read_back.rules.iter().find(|r| r.user == "viewer").expect("viewer rule");
+    let viewer_rule = read_back
+        .rules
+        .iter()
+        .find(|r| r.user == "viewer")
+        .expect("viewer rule");
     assert!(viewer_rule.permissions.contains(&Permission::Pull));
     assert!(!viewer_rule.permissions.contains(&Permission::Push));
 }
@@ -1059,15 +1179,16 @@ async fn e2e_rbac_unauthorized_push_rejected_via_access_config() {
             permissions: vec![Permission::Pull, Permission::Push],
         }],
     };
-    AdpStore::write_access_config(&repo_path, &access)
-        .expect("should write access config");
+    AdpStore::write_access_config(&repo_path, &access).expect("should write access config");
 
     // Verify config is in place
     let cfg = AdpStore::read_access_config(&repo_path)
         .expect("read should succeed")
         .expect("config should exist");
-    assert!(!cfg.owners.contains(&"git".to_string()),
-        "git user should NOT be in owners — only allowed-user is");
+    assert!(
+        !cfg.owners.contains(&"git".to_string()),
+        "git user should NOT be in owners — only allowed-user is"
+    );
     assert_eq!(cfg.rules.len(), 1);
     assert_eq!(cfg.rules[0].user, "allowed-user");
 }
@@ -1100,10 +1221,14 @@ async fn e2e_schema_validation_rejects_invalid_entity() {
         // missing "status"
     });
     let result = validator.validate(&invalid);
-    assert!(result.is_err(), "should reject entity missing required field");
+    assert!(
+        result.is_err(),
+        "should reject entity missing required field"
+    );
     let errors = result.unwrap_err();
     assert!(!errors.is_empty(), "should have at least one error");
-    let error_messages: String = errors.iter()
+    let error_messages: String = errors
+        .iter()
         .map(|e| e.message.as_str())
         .collect::<Vec<&str>>()
         .join(", ");
@@ -1148,14 +1273,20 @@ async fn e2e_schema_validation_accepts_valid_entity() {
         "status": "todo",
         "description": "A test task"
     });
-    assert!(validator.validate(&valid).is_ok(), "valid entity should pass");
+    assert!(
+        validator.validate(&valid).is_ok(),
+        "valid entity should pass"
+    );
 
     // Valid with optional field omitted
     let valid_minimal = serde_json::json!({
         "title": "Minimal task",
         "status": "in_progress"
     });
-    assert!(validator.validate(&valid_minimal).is_ok(), "minimal valid entity should pass");
+    assert!(
+        validator.validate(&valid_minimal).is_ok(),
+        "minimal valid entity should pass"
+    );
 }
 
 #[tokio::test]
@@ -1212,8 +1343,14 @@ async fn e2e_secret_egress_empty_allowlist_blocks_all() {
     );
 
     // Default webhook has empty secret_keys
-    assert!(wh.secret_keys.is_empty(), "new webhook should have empty secret_keys");
-    assert!(!wh.can_access_secret("ANY_SECRET"), "empty allowlist should block all");
+    assert!(
+        wh.secret_keys.is_empty(),
+        "new webhook should have empty secret_keys"
+    );
+    assert!(
+        !wh.can_access_secret("ANY_SECRET"),
+        "empty allowlist should block all"
+    );
 }
 
 #[tokio::test]
@@ -1231,11 +1368,20 @@ async fn e2e_secret_egress_explicit_allowlist() {
     wh.secret_keys = vec!["DB_PASSWORD".to_string()];
 
     // Can access the allowed key
-    assert!(wh.can_access_secret("DB_PASSWORD"), "allowed key should be accessible");
+    assert!(
+        wh.can_access_secret("DB_PASSWORD"),
+        "allowed key should be accessible"
+    );
 
     // Cannot access other keys
-    assert!(!wh.can_access_secret("API_KEY"), "non-allowed key should be denied");
-    assert!(!wh.can_access_secret("AWS_SECRET"), "non-allowed key should be denied");
+    assert!(
+        !wh.can_access_secret("API_KEY"),
+        "non-allowed key should be denied"
+    );
+    assert!(
+        !wh.can_access_secret("AWS_SECRET"),
+        "non-allowed key should be denied"
+    );
 }
 
 #[tokio::test]
@@ -1252,9 +1398,18 @@ async fn e2e_secret_egress_wildcard_allows_all() {
 
     wh.secret_keys = vec!["*".to_string()];
 
-    assert!(wh.can_access_secret("anything"), "wildcard should allow all");
-    assert!(wh.can_access_secret("DB_PASSWORD"), "wildcard should allow all");
-    assert!(wh.can_access_secret("top-secret-key"), "wildcard should allow all");
+    assert!(
+        wh.can_access_secret("anything"),
+        "wildcard should allow all"
+    );
+    assert!(
+        wh.can_access_secret("DB_PASSWORD"),
+        "wildcard should allow all"
+    );
+    assert!(
+        wh.can_access_secret("top-secret-key"),
+        "wildcard should allow all"
+    );
 }
 
 #[tokio::test]
@@ -1308,8 +1463,8 @@ async fn e2e_secret_crud_via_ref_storage() {
         .expect("db-creds should exist");
     assert_eq!(db_creds["password"], "hunter2");
 
-    let api_key = AdpStore::read_ref_blob(&repo_path, "refs/secrets/api-key")
-        .expect("api-key should exist");
+    let api_key =
+        AdpStore::read_ref_blob(&repo_path, "refs/secrets/api-key").expect("api-key should exist");
     assert_eq!(api_key["key"], "sk-12345abcdef");
 }
 
@@ -1319,7 +1474,8 @@ async fn e2e_secret_crud_via_ref_storage() {
 #[serial]
 async fn e2e_webhook_receiver_captures_delivery() {
     // Start a local webhook receiver
-    let receiver = webhook_receiver::WebhookReceiver::start().await
+    let receiver = webhook_receiver::WebhookReceiver::start()
+        .await
         .expect("webhook receiver should start");
 
     // Send a test delivery directly to the receiver
@@ -1338,7 +1494,10 @@ async fn e2e_webhook_receiver_captures_delivery() {
         .send()
         .await
         .expect("POST to receiver");
-    assert!(resp.status().is_success(), "receiver should accept delivery");
+    assert!(
+        resp.status().is_success(),
+        "receiver should accept delivery"
+    );
 
     // Wait for the delivery to be captured
     let deliveries = receiver
@@ -1350,8 +1509,8 @@ async fn e2e_webhook_receiver_captures_delivery() {
     assert_eq!(deliveries[0].method, "POST");
     assert_eq!(deliveries[0].path, "/webhook");
 
-    let body: serde_json::Value = serde_json::from_slice(&deliveries[0].body)
-        .expect("body should be valid JSON");
+    let body: serde_json::Value =
+        serde_json::from_slice(&deliveries[0].body).expect("body should be valid JSON");
     assert_eq!(body["event"], "push");
     assert_eq!(body["data"]["ref"], "refs/heads/main");
 }
@@ -1359,7 +1518,8 @@ async fn e2e_webhook_receiver_captures_delivery() {
 #[tokio::test]
 #[serial]
 async fn e2e_webhook_receiver_multiple_events() {
-    let receiver = webhook_receiver::WebhookReceiver::start().await
+    let receiver = webhook_receiver::WebhookReceiver::start()
+        .await
         .expect("webhook receiver should start");
 
     let client = reqwest::Client::new();
@@ -1387,24 +1547,34 @@ async fn e2e_webhook_receiver_multiple_events() {
     // Verify each delivery has a unique index
     for (i, d) in deliveries.iter().enumerate() {
         let body: serde_json::Value = serde_json::from_slice(&d.body).unwrap();
-        assert_eq!(body["index"], i as i64, "delivery order should be preserved");
+        assert_eq!(
+            body["index"], i as i64,
+            "delivery order should be preserved"
+        );
     }
 }
 
 #[tokio::test]
 #[serial]
 async fn e2e_webhook_receiver_clear_and_reuse() {
-    let receiver = webhook_receiver::WebhookReceiver::start().await
+    let receiver = webhook_receiver::WebhookReceiver::start()
+        .await
         .expect("webhook receiver should start");
 
     let client = reqwest::Client::new();
 
     // First batch
-    client.post(&receiver.url)
+    client
+        .post(&receiver.url)
         .json(&serde_json::json!({"batch": 1}))
-        .send().await.expect("POST");
+        .send()
+        .await
+        .expect("POST");
 
-    receiver.wait_for_deliveries(1, std::time::Duration::from_secs(5)).await.unwrap();
+    receiver
+        .wait_for_deliveries(1, std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
     assert_eq!(receiver.delivery_count(), 1);
 
     // Clear
@@ -1412,11 +1582,17 @@ async fn e2e_webhook_receiver_clear_and_reuse() {
     assert_eq!(receiver.delivery_count(), 0);
 
     // Second batch
-    client.post(&receiver.url)
+    client
+        .post(&receiver.url)
         .json(&serde_json::json!({"batch": 2}))
-        .send().await.expect("POST");
+        .send()
+        .await
+        .expect("POST");
 
-    receiver.wait_for_deliveries(1, std::time::Duration::from_secs(5)).await.unwrap();
+    receiver
+        .wait_for_deliveries(1, std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
     assert_eq!(receiver.delivery_count(), 1);
 }
 
@@ -1444,15 +1620,19 @@ async fn e2e_schema_change_adds_required_field_invalidates_previous() {
         "title": "My task",
         "priority": "high"
     });
-    assert!(validator_v1.validate(&entity).is_ok(),
-        "entity should be valid under v1 schema");
+    assert!(
+        validator_v1.validate(&entity).is_ok(),
+        "entity should be valid under v1 schema"
+    );
 
     // Entity valid under v1 — has title, no priority
     let entity_minimal = serde_json::json!({
         "title": "Minimal task"
     });
-    assert!(validator_v1.validate(&entity_minimal).is_ok(),
-        "minimal entity should be valid under v1");
+    assert!(
+        validator_v1.validate(&entity_minimal).is_ok(),
+        "minimal entity should be valid under v1"
+    );
 
     // Step 2: Schema evolves to v2 — now "priority" is also required
     let schema_v2 = serde_json::json!({
@@ -1468,15 +1648,24 @@ async fn e2e_schema_change_adds_required_field_invalidates_previous() {
 
     // Previously-valid entity now fails under v2 (missing priority)
     let result = validator_v2.validate(&entity_minimal);
-    assert!(result.is_err(),
-        "minimal entity should be INVALID under v2 — missing required 'priority'");
+    assert!(
+        result.is_err(),
+        "minimal entity should be INVALID under v2 — missing required 'priority'"
+    );
     let errors = result.unwrap_err();
-    assert!(errors.iter().any(|e| e.message.contains("priority") || e.message.contains("required")),
-        "error should mention 'priority' or 'required': {:?}", errors);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("priority") || e.message.contains("required")),
+        "error should mention 'priority' or 'required': {:?}",
+        errors
+    );
 
     // Full entity still passes under v2
-    assert!(validator_v2.validate(&entity).is_ok(),
-        "full entity should still be valid under v2");
+    assert!(
+        validator_v2.validate(&entity).is_ok(),
+        "full entity should still be valid under v2"
+    );
 
     // Step 3: Test SchemaCache invalidation — update schema, old cache entry stale
     let mut cache = SchemaCache::new();
@@ -1507,8 +1696,10 @@ async fn e2e_schema_evolution_tightens_enum_validation() {
     let validator_v1 = SchemaValidator::compile(&schema_v1).unwrap();
 
     let entity = serde_json::json!({"title": "Task", "status": "pending-review"});
-    assert!(validator_v1.validate(&entity).is_ok(),
-        "any status string should be valid under v1");
+    assert!(
+        validator_v1.validate(&entity).is_ok(),
+        "any status string should be valid under v1"
+    );
 
     // v2: status is restricted enum
     let schema_v2 = serde_json::json!({
@@ -1526,8 +1717,10 @@ async fn e2e_schema_evolution_tightens_enum_validation() {
 
     // Previously-valid "pending-review" now rejected
     let result = validator_v2.validate(&entity);
-    assert!(result.is_err(),
-        "'pending-review' should be rejected by tighter enum");
+    assert!(
+        result.is_err(),
+        "'pending-review' should be rejected by tighter enum"
+    );
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
 
@@ -1547,7 +1740,8 @@ async fn e2e_git_ssh_clone_push_and_verify() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Create a repo via HTTP
@@ -1557,8 +1751,11 @@ async fn e2e_git_ssh_clone_push_and_verify() {
             &serde_json::json!({"name": "git-ops-test"}),
         )
         .await;
-    assert!(resp.status().is_success(),
-        "repo creation should succeed: {}", resp.status());
+    assert!(
+        resp.status().is_success(),
+        "repo creation should succeed: {}",
+        resp.status()
+    );
 
     // Clone via SSH using pre-generated key
     let private_key = harness.ssh_keys_dir.join("id_ed25519");
@@ -1588,11 +1785,19 @@ async fn e2e_git_ssh_clone_push_and_verify() {
             };
             let known_hosts = known_hosts.clone();
             move || {
-                git_ssh(&keys, harness.ssh_port, &known_hosts,
-                    &["clone", &clone_url, "."], &clone_path)
+                git_ssh(
+                    &keys,
+                    harness.ssh_port,
+                    &known_hosts,
+                    &["clone", &clone_url, "."],
+                    &clone_path,
+                )
             }
         }),
-    ).await.expect("clone timed out").expect("spawn panicked");
+    )
+    .await
+    .expect("clone timed out")
+    .expect("spawn panicked");
 
     assert!(
         clone_output.status.success(),
@@ -1613,7 +1818,8 @@ async fn e2e_git_ssh_clone_nonexistent_repo_fails() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     let private_key = harness.ssh_keys_dir.join("id_ed25519");
@@ -1630,8 +1836,13 @@ async fn e2e_git_ssh_clone_nonexistent_repo_fails() {
         harness.ssh_port
     );
 
-    let output = git_ssh(&keys, harness.ssh_port, &known_hosts,
-        &["clone", &clone_url, "."], clone_dir.path());
+    let output = git_ssh(
+        &keys,
+        harness.ssh_port,
+        &known_hosts,
+        &["clone", &clone_url, "."],
+        clone_dir.path(),
+    );
 
     assert!(
         !output.status.success(),
@@ -1648,7 +1859,8 @@ async fn e2e_git_ssh_push_and_verify_content() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Create repo
@@ -1675,10 +1887,18 @@ async fn e2e_git_ssh_push_and_verify_content() {
         harness.ssh_port
     );
 
-    let clone_output = git_ssh(&keys, harness.ssh_port, &known_hosts,
-        &["clone", &clone_url, "."], clone_dir.path());
+    let clone_output = git_ssh(
+        &keys,
+        harness.ssh_port,
+        &known_hosts,
+        &["clone", &clone_url, "."],
+        clone_dir.path(),
+    );
     if !clone_output.status.success() {
-        eprintln!("SKIP: clone failed: {}", String::from_utf8_lossy(&clone_output.stderr));
+        eprintln!(
+            "SKIP: clone failed: {}",
+            String::from_utf8_lossy(&clone_output.stderr)
+        );
         return;
     }
 
@@ -1692,19 +1912,31 @@ async fn e2e_git_ssh_push_and_verify_content() {
         .current_dir(clone_dir.path())
         .output()
         .expect("git add");
-    assert!(add_output.status.success(),
+    assert!(
+        add_output.status.success(),
         "git add should succeed: {}",
-        String::from_utf8_lossy(&add_output.stderr));
+        String::from_utf8_lossy(&add_output.stderr)
+    );
 
     // git commit
     let commit_output = std::process::Command::new("git")
-        .args(["-c", "user.name=E2E Test", "-c", "user.email=e2e@test", "commit", "-m", "Add hello.txt"])
+        .args([
+            "-c",
+            "user.name=E2E Test",
+            "-c",
+            "user.email=e2e@test",
+            "commit",
+            "-m",
+            "Add hello.txt",
+        ])
         .current_dir(clone_dir.path())
         .output()
         .expect("git commit");
-    assert!(commit_output.status.success(),
+    assert!(
+        commit_output.status.success(),
         "git commit should succeed: {}",
-        String::from_utf8_lossy(&commit_output.stderr));
+        String::from_utf8_lossy(&commit_output.stderr)
+    );
 
     // git push
     let push_output = tokio::time::timeout(
@@ -1719,11 +1951,19 @@ async fn e2e_git_ssh_push_and_verify_content() {
             let known_hosts = known_hosts.clone();
             let clone_dir_path = clone_dir.path().to_path_buf();
             move || {
-                git_ssh(&keys, harness.ssh_port, &known_hosts,
-                    &["push", "origin", "main"], &clone_dir_path)
+                git_ssh(
+                    &keys,
+                    harness.ssh_port,
+                    &known_hosts,
+                    &["push", "origin", "main"],
+                    &clone_dir_path,
+                )
             }
         }),
-    ).await.expect("push timed out").expect("spawn panicked");
+    )
+    .await
+    .expect("push timed out")
+    .expect("spawn panicked");
 
     // Push might fail if the server doesn't support push over SSH yet,
     // or if the repo has no branch tracking set up. That's OK — the important
@@ -1745,21 +1985,36 @@ async fn e2e_git_ssh_push_and_verify_content() {
                 let known_hosts = known_hosts.clone();
                 let verify_url = clone_url.clone();
                 move || {
-                    git_ssh(&keys, harness.ssh_port, &known_hosts,
-                        &["clone", &verify_url, "."], &verify_path)
+                    git_ssh(
+                        &keys,
+                        harness.ssh_port,
+                        &known_hosts,
+                        &["clone", &verify_url, "."],
+                        &verify_path,
+                    )
                 }
             }),
-        ).await.expect("verify clone timed out").expect("spawn panicked");
+        )
+        .await
+        .expect("verify clone timed out")
+        .expect("spawn panicked");
 
-        assert!(verify_output.status.success(),
+        assert!(
+            verify_output.status.success(),
             "verification clone should succeed: {}",
-            String::from_utf8_lossy(&verify_output.stderr));
+            String::from_utf8_lossy(&verify_output.stderr)
+        );
 
         let verify_file = verify_dir.path().join("hello.txt");
-        assert!(verify_file.exists(), "pushed file should exist in fresh clone");
+        assert!(
+            verify_file.exists(),
+            "pushed file should exist in fresh clone"
+        );
         let content = std::fs::read_to_string(&verify_file).expect("read file");
-        assert_eq!(content, "Hello from E2E push test!\n",
-            "file content should match what was pushed");
+        assert_eq!(
+            content, "Hello from E2E push test!\n",
+            "file content should match what was pushed"
+        );
     } else {
         // Push failed — log but don't fail (SSH push may not be fully implemented)
         eprintln!(
@@ -1814,8 +2069,7 @@ async fn e2e_adp_schema_crud_via_api() {
         ui: None,
     };
 
-    AdpStore::write_schema(&repo_path, &schema)
-        .expect("should write schema");
+    AdpStore::write_schema(&repo_path, &schema).expect("should write schema");
 
     // Read back via AdpStore
     let read_back = AdpStore::read_schema(&repo_path, "test-entity")
@@ -1827,8 +2081,10 @@ async fn e2e_adp_schema_crud_via_api() {
 
     // List schemas — should include our test-entity
     let schemas = AdpStore::list_schemas(&repo_path).expect("list_schemas should succeed");
-    assert!(schemas.iter().any(|s| s.id == "test-entity"),
-        "test-entity should appear in schema list");
+    assert!(
+        schemas.iter().any(|s| s.id == "test-entity"),
+        "test-entity should appear in schema list"
+    );
 
     // Write an entity at a ref matching the schema pattern
     let entity_data = serde_json::json!({
@@ -1839,20 +2095,25 @@ async fn e2e_adp_schema_crud_via_api() {
         .expect("should write entity ref");
 
     // Read the entity back
-    let entity_read = AdpStore::read_ref_blob(&repo_path, "refs/test/abc-123")
-        .expect("should read entity ref");
+    let entity_read =
+        AdpStore::read_ref_blob(&repo_path, "refs/test/abc-123").expect("should read entity ref");
     assert_eq!(entity_read["title"], "My test entity");
     assert_eq!(entity_read["status"], "active");
 
     // List refs with prefix — should include our entity
     let refs = AdpStore::list_refs(&repo_path, "refs/test/").expect("list_refs should succeed");
-    assert!(refs.contains(&"refs/test/abc-123".to_string()),
-        "entity ref should appear in ref listing");
+    assert!(
+        refs.contains(&"refs/test/abc-123".to_string()),
+        "entity ref should appear in ref listing"
+    );
 
     // Resolve schema for the ref — should match test-entity
     let all_schemas = AdpStore::list_schemas(&repo_path).expect("list schemas");
     let resolved = agentic_repos::adp::glob::resolve_schema(&all_schemas, "refs/test/abc-123");
-    assert!(resolved.is_some(), "should resolve schema for refs/test/abc-123");
+    assert!(
+        resolved.is_some(),
+        "should resolve schema for refs/test/abc-123"
+    );
     assert_eq!(resolved.unwrap().id, "test-entity");
 }
 
@@ -1886,12 +2147,18 @@ async fn e2e_adp_entity_lifecycle_detection() {
     // Write an entity (simulating "created")
     let entity = serde_json::json!({"name": "test"});
     agentic_repos::adp::storage::AdpStore::write_ref_blob(
-        repo_path, "refs/entities/ent-1", &entity,
-    ).unwrap();
+        repo_path,
+        "refs/entities/ent-1",
+        &entity,
+    )
+    .unwrap();
 
     // Get the OID of the ref
     let gix_repo = gix::open(repo_path).unwrap();
-    let ref_obj = gix_repo.try_find_reference("refs/entities/ent-1").unwrap().unwrap();
+    let ref_obj = gix_repo
+        .try_find_reference("refs/entities/ent-1")
+        .unwrap()
+        .unwrap();
     let oid = ref_obj.try_id().unwrap().to_hex().to_string();
     drop(gix_repo);
 
@@ -1906,7 +2173,8 @@ async fn e2e_adp_entity_lifecycle_detection() {
         &[], // no old refs
         &[("refs/entities/ent-1".to_string(), Some(oid.clone()))],
         Some("test-user"),
-    ).unwrap();
+    )
+    .unwrap();
 
     assert_eq!(events.len(), 1, "should detect 1 entity creation");
     assert_eq!(events[0].event_type, EntityEventType::Created);
@@ -1947,7 +2215,10 @@ fn e2e_extract_entity_id_patterns() {
 
     // Complex ID with dashes and dots
     assert_eq!(
-        extract_entity_id("refs/engram/session/186883f0-acf6-452f-b545-299021644ed7", "refs/engram/session/*"),
+        extract_entity_id(
+            "refs/engram/session/186883f0-acf6-452f-b545-299021644ed7",
+            "refs/engram/session/*"
+        ),
         "186883f0-acf6-452f-b545-299021644ed7"
     );
 }
@@ -1961,12 +2232,21 @@ fn e2e_glob_pattern_matching() {
     assert!(!matches_pattern("refs/heads/main", "refs/heads/dev"));
 
     // Single segment wildcard
-    assert!(matches_pattern("refs/engram/task/abc", "refs/engram/task/*"));
-    assert!(!matches_pattern("refs/engram/task/a/b", "refs/engram/task/*"));
+    assert!(matches_pattern(
+        "refs/engram/task/abc",
+        "refs/engram/task/*"
+    ));
+    assert!(!matches_pattern(
+        "refs/engram/task/a/b",
+        "refs/engram/task/*"
+    ));
 
     // Multi-segment wildcard
     assert!(matches_pattern("refs/engram/task/abc", "refs/engram/**"));
-    assert!(matches_pattern("refs/engram/task/abc/def", "refs/engram/**"));
+    assert!(matches_pattern(
+        "refs/engram/task/abc/def",
+        "refs/engram/**"
+    ));
 
     // No match
     assert!(!matches_pattern("refs/heads/main", "refs/engram/**"));
@@ -1974,7 +2254,7 @@ fn e2e_glob_pattern_matching() {
 
 #[test]
 fn e2e_schema_resolution_specificity() {
-    use agentic_repos::adp::glob::{specificity_score, resolve_schema};
+    use agentic_repos::adp::glob::{resolve_schema, specificity_score};
     use agentic_repos::adp::schema::RefSchema;
 
     let now = chrono::Utc::now();
@@ -2008,9 +2288,12 @@ fn e2e_schema_resolution_specificity() {
     // Specific pattern should have higher score
     let generic_score = specificity_score("refs/engram/**");
     let specific_score = specificity_score("refs/engram/task/*");
-    assert!(specific_score > generic_score,
+    assert!(
+        specific_score > generic_score,
         "specific pattern should score higher: {} vs {}",
-        specific_score, generic_score);
+        specific_score,
+        generic_score
+    );
 
     // Resolution should pick the more specific schema
     let schemas = vec![generic, specific];
@@ -2033,7 +2316,8 @@ async fn e2e_ssh_connect_and_list_refs() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Create a repo
@@ -2065,14 +2349,24 @@ async fn e2e_ssh_connect_and_list_refs() {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         tokio::task::spawn_blocking(move || {
-            git_ssh(&keys, harness.ssh_port, &known_hosts_for_clone,
-                &["clone", &clone_url, "."], &clone_path)
+            git_ssh(
+                &keys,
+                harness.ssh_port,
+                &known_hosts_for_clone,
+                &["clone", &clone_url, "."],
+                &clone_path,
+            )
         }),
-    ).await.expect("timed out").expect("spawn panicked");
+    )
+    .await
+    .expect("timed out")
+    .expect("spawn panicked");
 
-    assert!(output.status.success(),
+    assert!(
+        output.status.success(),
         "git clone should succeed: {}",
-        String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // List refs via ls-remote
     let lsremote_keys = SshTestKeys {
@@ -2092,20 +2386,36 @@ async fn e2e_ssh_connect_and_list_refs() {
         tokio::task::spawn_blocking(move || {
             // Init a temp repo so we can ls-remote
             std::process::Command::new("git")
-                .args(["init"]).current_dir(&lsremote_path).output().unwrap();
-            git_ssh(&lsremote_keys, harness.ssh_port, &known_hosts,
-                &["ls-remote", &lsremote_url], &lsremote_path)
+                .args(["init"])
+                .current_dir(&lsremote_path)
+                .output()
+                .unwrap();
+            git_ssh(
+                &lsremote_keys,
+                harness.ssh_port,
+                &known_hosts,
+                &["ls-remote", &lsremote_url],
+                &lsremote_path,
+            )
         }),
-    ).await.expect("timed out").expect("spawn panicked");
+    )
+    .await
+    .expect("timed out")
+    .expect("spawn panicked");
 
-    assert!(lsremote_output.status.success(),
+    assert!(
+        lsremote_output.status.success(),
         "git ls-remote should succeed: {}",
-        String::from_utf8_lossy(&lsremote_output.stderr));
+        String::from_utf8_lossy(&lsremote_output.stderr)
+    );
 
     // ls-remote output should contain HEAD reference
     let lsremote_stdout = String::from_utf8_lossy(&lsremote_output.stdout);
-    assert!(lsremote_stdout.contains("HEAD") || lsremote_stdout.contains("refs/"),
-        "ls-remote should list refs: {}", lsremote_stdout);
+    assert!(
+        lsremote_stdout.contains("HEAD") || lsremote_stdout.contains("refs/"),
+        "ls-remote should list refs: {}",
+        lsremote_stdout
+    );
 }
 
 #[tokio::test]
@@ -2116,7 +2426,8 @@ async fn e2e_ssh_upload_pack_works() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Create repo
@@ -2147,15 +2458,25 @@ async fn e2e_ssh_upload_pack_works() {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         tokio::task::spawn_blocking(move || {
-            git_ssh(&keys, harness.ssh_port, &known_hosts,
-                &["clone", &clone_url, "."], &clone_path)
+            git_ssh(
+                &keys,
+                harness.ssh_port,
+                &known_hosts,
+                &["clone", &clone_url, "."],
+                &clone_path,
+            )
         }),
-    ).await.expect("timed out").expect("spawn panicked");
+    )
+    .await
+    .expect("timed out")
+    .expect("spawn panicked");
 
     // Clone = upload-pack. Success means upload-pack worked.
-    assert!(output.status.success(),
+    assert!(
+        output.status.success(),
         "git clone (upload-pack) should succeed: {}",
-        String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[tokio::test]
@@ -2166,7 +2487,8 @@ async fn e2e_ssh_receive_pack_push() {
     let kh_dir = tempfile::TempDir::new().unwrap();
     let known_hosts = kh_dir.path().join("known_hosts");
     if let Err(e) = ssh_keys::scan_host_key(harness.ssh_port, &known_hosts) {
-        eprintln!("SKIP SSH: host key scan failed: {}", e); return;
+        eprintln!("SKIP SSH: host key scan failed: {}", e);
+        return;
     }
 
     // Create repo
@@ -2197,13 +2519,24 @@ async fn e2e_ssh_receive_pack_push() {
     let clone_output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         tokio::task::spawn_blocking(move || {
-            git_ssh(&keys, harness.ssh_port, &known_hosts_clone,
-                &["clone", &clone_url, "."], &clone_path)
+            git_ssh(
+                &keys,
+                harness.ssh_port,
+                &known_hosts_clone,
+                &["clone", &clone_url, "."],
+                &clone_path,
+            )
         }),
-    ).await.expect("timed out").expect("spawn panicked");
+    )
+    .await
+    .expect("timed out")
+    .expect("spawn panicked");
 
     if !clone_output.status.success() {
-        eprintln!("SKIP: clone failed: {}", String::from_utf8_lossy(&clone_output.stderr));
+        eprintln!(
+            "SKIP: clone failed: {}",
+            String::from_utf8_lossy(&clone_output.stderr)
+        );
         return;
     }
 
@@ -2214,16 +2547,28 @@ async fn e2e_ssh_receive_pack_push() {
     let add_out = std::process::Command::new("git")
         .args(["add", "receive-pack.txt"])
         .current_dir(clone_dir.path())
-        .output().expect("git add");
+        .output()
+        .expect("git add");
     assert!(add_out.status.success(), "git add should succeed");
 
     let commit_out = std::process::Command::new("git")
-        .args(["-c", "user.name=E2E", "-c", "user.email=e2e@test", "commit", "-m", "test receive-pack"])
+        .args([
+            "-c",
+            "user.name=E2E",
+            "-c",
+            "user.email=e2e@test",
+            "commit",
+            "-m",
+            "test receive-pack",
+        ])
         .current_dir(clone_dir.path())
-        .output().expect("git commit");
-    assert!(commit_out.status.success(),
+        .output()
+        .expect("git commit");
+    assert!(
+        commit_out.status.success(),
         "git commit should succeed: {}",
-        String::from_utf8_lossy(&commit_out.stderr));
+        String::from_utf8_lossy(&commit_out.stderr)
+    );
 
     // Push (receive-pack)
     let push_keys = SshTestKeys {
@@ -2241,10 +2586,18 @@ async fn e2e_ssh_receive_pack_push() {
     let push_output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         tokio::task::spawn_blocking(move || {
-            git_ssh(&push_keys, harness.ssh_port, &known_hosts_for_push,
-                &["push", "-u", "origin", "main"], &push_path)
+            git_ssh(
+                &push_keys,
+                harness.ssh_port,
+                &known_hosts_for_push,
+                &["push", "-u", "origin", "main"],
+                &push_path,
+            )
         }),
-    ).await.expect("timed out").expect("spawn panicked");
+    )
+    .await
+    .expect("timed out")
+    .expect("spawn panicked");
 
     // Push outcome: success means receive-pack worked
     if push_output.status.success() {
@@ -2261,16 +2614,31 @@ async fn e2e_ssh_receive_pack_push() {
         let verify_output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             tokio::task::spawn_blocking(move || {
-                git_ssh(&verify_keys, harness.ssh_port, &known_hosts,
-                    &["clone", &verify_url, "."], &verify_path)
+                git_ssh(
+                    &verify_keys,
+                    harness.ssh_port,
+                    &known_hosts,
+                    &["clone", &verify_url, "."],
+                    &verify_path,
+                )
             }),
-        ).await.expect("timed out").expect("spawn panicked");
-        assert!(verify_output.status.success(), "verify clone should succeed");
-        assert!(verify_dir.path().join("receive-pack.txt").exists(),
-            "pushed file should exist in fresh clone");
+        )
+        .await
+        .expect("timed out")
+        .expect("spawn panicked");
+        assert!(
+            verify_output.status.success(),
+            "verify clone should succeed"
+        );
+        assert!(
+            verify_dir.path().join("receive-pack.txt").exists(),
+            "pushed file should exist in fresh clone"
+        );
     } else {
-        eprintln!("INFO: push (receive-pack) failed (may not be fully supported yet): {}",
-            String::from_utf8_lossy(&push_output.stderr));
+        eprintln!(
+            "INFO: push (receive-pack) failed (may not be fully supported yet): {}",
+            String::from_utf8_lossy(&push_output.stderr)
+        );
     }
 }
 
@@ -2288,15 +2656,20 @@ async fn e2e_ssh_auth_rejects_no_key() {
 
     // Use ssh directly — no key, BatchMode=yes so it fails immediately
     let output = std::process::Command::new("git")
-        .env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5")
+        .env(
+            "GIT_SSH_COMMAND",
+            "ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5",
+        )
         .args(["ls-remote", &clone_url])
         .current_dir(clone_dir.path())
         .output()
         .expect("git ls-remote");
 
-    assert!(!output.status.success(),
+    assert!(
+        !output.status.success(),
         "git ls-remote without key should fail: {}",
-        String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 // ── Secrets E2E: real backend, AGE encryption (Task 2df64a37) ────────────
@@ -2322,9 +2695,16 @@ async fn e2e_secrets_public_key_returns_age_key() {
     assert_eq!(resp.status(), 200, "public key endpoint should return 200");
 
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["public_key"].is_string(), "should return public_key string");
+    assert!(
+        body["public_key"].is_string(),
+        "should return public_key string"
+    );
     let pk = body["public_key"].as_str().unwrap();
-    assert!(pk.starts_with("age1"), "AGE public key should start with age1, got: {}", pk);
+    assert!(
+        pk.starts_with("age1"),
+        "AGE public key should start with age1, got: {}",
+        pk
+    );
     assert_eq!(body["algorithm"], "age-x25519");
 }
 
@@ -2374,7 +2754,10 @@ async fn e2e_secrets_crud_via_api() {
         .await;
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["total"], 1);
-    assert!(body["secrets"].as_array().unwrap().contains(&serde_json::Value::String("db-creds".to_string())));
+    assert!(body["secrets"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::Value::String("db-creds".to_string())));
 
     // 4. Get secret metadata — should NOT contain plaintext values
     let resp = harness
@@ -2386,7 +2769,10 @@ async fn e2e_secrets_crud_via_api() {
     assert!(meta["version"].is_number());
     assert!(meta["keys"].is_array());
     // The API should NOT return plaintext data in the metadata response
-    assert!(meta.get("data").is_none(), "get endpoint should not return plaintext data");
+    assert!(
+        meta.get("data").is_none(),
+        "get endpoint should not return plaintext data"
+    );
 
     // 5. Delete the secret
     let resp = harness
@@ -2414,8 +2800,8 @@ async fn e2e_secrets_age_encryption_roundtrip_via_api() {
     // 4. Verify the secret was stored (list, metadata)
     // 5. Delete
 
-    use age::{Encryptor, Recipient};
     use age::x25519::Recipient as X25519Recipient;
+    use age::{Encryptor, Recipient};
     use std::io::{Read, Write};
 
     // Create a repo
@@ -2441,7 +2827,8 @@ async fn e2e_secrets_age_encryption_roundtrip_via_api() {
     let plaintext = serde_json::json!({
         "api_key": "sk-abcdef123456",
         "region": "us-east-1"
-    }).to_string();
+    })
+    .to_string();
 
     let recipients: Vec<Box<dyn Recipient>> = vec![Box::new(recipient)];
     let encryptor = Encryptor::with_recipients(recipients.iter().map(|r| r.as_ref())).unwrap();
@@ -2452,7 +2839,10 @@ async fn e2e_secrets_age_encryption_roundtrip_via_api() {
 
     // Verify the encrypted output doesn't contain plaintext
     let encrypted_str = String::from_utf8_lossy(&encrypted);
-    assert!(!encrypted_str.contains("sk-abcdef123456"), "encrypted output should not contain plaintext");
+    assert!(
+        !encrypted_str.contains("sk-abcdef123456"),
+        "encrypted output should not contain plaintext"
+    );
 
     // 3. Create a secret via API (server-side AGE encryption)
     let secret_data = serde_json::json!({
@@ -2476,11 +2866,17 @@ async fn e2e_secrets_age_encryption_roundtrip_via_api() {
         assert!(stored.is_ok(), "secret ref should exist");
         let blob = stored.unwrap();
         // The stored blob has sops_data (encrypted) + meta (plaintext)
-        assert!(blob.get("sops_data").is_some(), "should have sops_data field");
+        assert!(
+            blob.get("sops_data").is_some(),
+            "should have sops_data field"
+        );
         assert!(blob.get("meta").is_some(), "should have meta field");
         // Plaintext should NOT appear in the stored blob
         let blob_str = serde_json::to_string(&blob).unwrap();
-        assert!(!blob_str.contains("sk-abcdef123456"), "plaintext should not appear in stored blob");
+        assert!(
+            !blob_str.contains("sk-abcdef123456"),
+            "plaintext should not appear in stored blob"
+        );
     }
 
     // 5. List and verify metadata
@@ -2488,7 +2884,11 @@ async fn e2e_secrets_age_encryption_roundtrip_via_api() {
         .get("/api/v1/secrets/default/secrets-age-test/secrets")
         .await;
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["secrets"].as_array().unwrap().iter().any(|s| s == "aws-creds"));
+    assert!(body["secrets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|s| s == "aws-creds"));
 
     // 6. Get metadata — no plaintext
     let resp = harness
@@ -2496,8 +2896,14 @@ async fn e2e_secrets_age_encryption_roundtrip_via_api() {
         .await;
     let meta: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(meta["name"], "aws-creds");
-    assert!(meta["keys"].as_array().unwrap().contains(&serde_json::Value::String("api_key".to_string())));
-    assert!(meta.get("data").is_none(), "metadata should not contain plaintext");
+    assert!(meta["keys"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::Value::String("api_key".to_string())));
+    assert!(
+        meta.get("data").is_none(),
+        "metadata should not contain plaintext"
+    );
 
     // 7. Clean up
     let resp = harness

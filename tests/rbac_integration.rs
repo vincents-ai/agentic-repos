@@ -26,9 +26,7 @@ macro_rules! test_app {
 async fn test_list_users_requires_auth() {
     let service = make_service();
     let app = test_app!(service);
-    let req = test::TestRequest::get()
-        .uri("/rbac/users")
-        .to_request();
+    let req = test::TestRequest::get().uri("/rbac/users").to_request();
     let resp = test::call_service(&app, req).await;
     let status = resp.status().as_u16();
     assert!(status == 401 || status == 403, "got {}", status);
@@ -51,9 +49,7 @@ async fn test_create_user_requires_auth() {
 async fn test_get_me_unauthenticated() {
     let service = make_service();
     let app = test_app!(service);
-    let req = test::TestRequest::get()
-        .uri("/rbac/users/me")
-        .to_request();
+    let req = test::TestRequest::get().uri("/rbac/users/me").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 401);
 }
@@ -62,9 +58,7 @@ async fn test_get_me_unauthenticated() {
 async fn test_list_roles_requires_auth() {
     let service = make_service();
     let app = test_app!(service);
-    let req = test::TestRequest::get()
-        .uri("/rbac/roles")
-        .to_request();
+    let req = test::TestRequest::get().uri("/rbac/roles").to_request();
     let resp = test::call_service(&app, req).await;
     let status = resp.status().as_u16();
     assert!(status == 401 || status == 403, "got {}", status);

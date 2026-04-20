@@ -63,10 +63,7 @@ impl WebhookReceiver {
         })
     }
 
-    async fn serve(
-        listener: TcpListener,
-        deliveries: Arc<Mutex<Vec<CapturedDelivery>>>,
-    ) {
+    async fn serve(listener: TcpListener, deliveries: Arc<Mutex<Vec<CapturedDelivery>>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         loop {
@@ -100,10 +97,7 @@ impl WebhookReceiver {
                         break; // End of headers
                     }
                     if let Some((key, value)) = line.split_once(':') {
-                        headers.insert(
-                            key.trim().to_lowercase(),
-                            value.trim().to_string(),
-                        );
+                        headers.insert(key.trim().to_lowercase(), value.trim().to_string());
                     }
                 }
 

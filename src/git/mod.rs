@@ -66,7 +66,6 @@ pub struct GitService {
 pub struct GitConfig {
     pub ssh_port: u16,
     pub host_key_path: std::path::PathBuf,
-    pub authorized_keys_path: std::path::PathBuf,
     pub max_connections: usize,
     pub connection_timeout_secs: u64,
     #[serde(default)]
@@ -82,7 +81,6 @@ impl Default for GitConfig {
         Self {
             ssh_port: 2222,
             host_key_path: std::path::PathBuf::from("host_key"),
-            authorized_keys_path: std::path::PathBuf::from("authorized_keys"),
             max_connections: 100,
             connection_timeout_secs: 30,
             rate_limit: RateLimitConfig::default(),

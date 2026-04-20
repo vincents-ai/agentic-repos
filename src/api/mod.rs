@@ -251,17 +251,6 @@ impl ApiServer {
                     ));
             }
 
-            // Wire Web UI if feature flag is enabled
-            if feature_flags.web_ui {
-                if let Ok(web_ui) =
-                    crate::web::WebUI::new(git_service.clone(), feature_flags.clone())
-                {
-                    app = app.configure(|cfg| {
-                        crate::web::WebUI::configure(cfg, Arc::new(web_ui));
-                    });
-                }
-            }
-
             // Apply external app configurator (e.g., adp-web-ui SPA fallback)
             if let Some(ref configurator) = app_configurator {
                 app = app.configure(|cfg| configurator(cfg));

@@ -40,10 +40,8 @@ impl SshServer {
     ) -> Self {
         let config = config.unwrap_or_default();
         let lfs_config = lfs_config.unwrap_or_default();
-        let mut auth_manager = AuthorizedKeysManager::new(config.clone());
-        if let Some(root) = git_service.get_storage_root() {
-            auth_manager = auth_manager.with_storage_root(root);
-        }
+        let root = git_service.get_storage_root().unwrap_or_else(|| std::path::PathBuf::from("./repositories"));
+        let auth_manager = AuthorizedKeysManager::new(root);
         let rate_limiter = RateLimiter::new(Some(config.rate_limit.clone()));
 
         Self {
@@ -145,10 +143,7 @@ impl SshServer {
                 warn!("SSH server will reject all authentication attempts");
             } else if !auth_manager.has_authorized_users() {
                 warn!("No authorized users configured - SSH server will reject all authentication attempts");
-                warn!(
-                    "Add users to the authorized keys file: {:?}",
-                    self.config.authorized_keys_path
-                );
+                warn!("No authorized users configured — register keys via 'agentic-repos init --admin-key'");
             } else {
                 info!(
                     "Loaded authorized keys for {} users",
@@ -938,7 +933,7 @@ impl SshHandler {
             }
         };
 
-        match crate::adp::storage::AdpStore::check_repo_access(repo_path, username, &permission) {
+        match crate::adp::storage::AdpStore::check_repo_access(repo_path, username, &permission, None) {
             Ok(true) => {
                 debug!(
                     "Access granted: user '{}' has {:?} on {:?}",
@@ -1029,7 +1024,7 @@ mod tests {
         let config = GitConfig {
             ssh_port: 0, // Use random port for testing
             host_key_path: temp_dir.path().join("test_host_key"),
-            authorized_keys_path: temp_dir.path().join("authorized_keys"),
+
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
@@ -1102,7 +1097,7 @@ mod tests {
         let config = GitConfig {
             ssh_port: 0,
             host_key_path: nested_path.clone(),
-            authorized_keys_path: temp_dir.path().join("authorized_keys"),
+
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),

@@ -522,13 +522,9 @@ pub unsafe extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> Plug
         let host_key_path =
             std::env::var("REPOS_HOST_KEY_PATH").unwrap_or_else(|_| "./host_key".to_string());
 
-        let authorized_keys_path = std::env::var("REPOS_AUTHORIZED_KEYS_PATH")
-            .unwrap_or_else(|_| "./authorized_keys".to_string());
-
         let git_config = GitConfig {
             ssh_port,
             host_key_path: std::path::PathBuf::from(host_key_path),
-            authorized_keys_path: std::path::PathBuf::from(authorized_keys_path),
             max_connections: 100,
             connection_timeout_secs: 30,
             rate_limit: Default::default(),

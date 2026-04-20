@@ -98,7 +98,28 @@ pub struct LfsThrottleConfig {
 }
 
 impl AppConfig {
+    /// Load config for the running server — reads from git refs ONLY.
+    ///
+    /// For compliance, the server never reads YAML at runtime.
+    /// Use `from_env_for_init()` during `agentic-repos init` to seed git refs from YAML.
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Try git-refs config from system repo (canonical config store)
+        if let Some(storage_root) = Self::detect_storage_root() {
+            if let Ok(config) = Self::from_git_refs(&storage_root) {
+                return Ok(config);
+            }
+        }
+
+        // No config found — use defaults (init command writes to git-refs)
+        tracing::warn!("No configuration found in git-refs. Using defaults. Run 'agentic-repos init' to bootstrap.");
+        Ok(Self::default())
+    }
+
+    /// Load config during init — accepts YAML as bootstrap seed.
+    ///
+    /// Priority: YAML file → git refs → defaults.
+    /// The init command writes the result to git refs for audit compliance.
+    pub fn from_env_for_init() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Check for config path from environment variable
         if let Ok(path) = std::env::var("AGENTIC_REPOS_CONFIG") {
             return Self::from_file(&path);
@@ -112,16 +133,8 @@ impl AppConfig {
             }
         }
 
-        // Try git-refs config from system repo (canonical config store)
-        if let Some(storage_root) = Self::detect_storage_root() {
-            if let Ok(config) = Self::from_git_refs(&storage_root) {
-                return Ok(config);
-            }
-        }
-
-        // No config found — use defaults (init command writes to git-refs)
-        tracing::warn!("No configuration found in git-refs or environment. Using defaults. Run 'agentic-repos init' to bootstrap.");
-        Ok(Self::default())
+        // Fall through to git-refs or defaults
+        Self::from_env()
     }
 
     /// Detect the storage root from environment or CLI flags.

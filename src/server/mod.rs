@@ -1,5 +1,5 @@
-use crate::adp::bootstrap_system_repo;
 use crate::adp::bootstrap::{bootstrap_engram_schemas, bootstrap_operational_schemas};
+use crate::adp::bootstrap_system_repo;
 use crate::api::ApiServer;
 use crate::config::AppConfig;
 use crate::features::FeatureFlags;
@@ -47,7 +47,6 @@ impl Server {
         let git_config = GitConfig {
             ssh_port: adp_cfg.ssh_port,
             host_key_path: adp_cfg.ssh_host_key_path,
-            authorized_keys_path: adp_cfg.ssh_authorized_keys_path,
             max_connections: adp_cfg.ssh_max_connections,
             connection_timeout_secs: adp_cfg.ssh_connection_timeout_secs,
             ..GitConfig::default()
@@ -107,7 +106,10 @@ impl Server {
         let feature_flags = self.feature_flags.clone();
 
         // Start SSH server in background
-        info!("Starting SSH server on port {}...", self.git_config.ssh_port);
+        info!(
+            "Starting SSH server on port {}...",
+            self.git_config.ssh_port
+        );
         let ssh_git_service = git_service.clone();
         let ssh_git_config = self.git_config.clone();
         spawn(async move {
@@ -123,7 +125,9 @@ impl Server {
         let api_server = ApiServer::new(git_service.clone(), feature_flags, lfs_config);
 
         // Run API server - this will block
-        api_server.run_with_configurator(config, self.app_configurator.clone()).await
+        api_server
+            .run_with_configurator(config, self.app_configurator.clone())
+            .await
     }
 }
 

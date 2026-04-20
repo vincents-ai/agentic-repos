@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_sanitize_replaces_dangerous_chars() {
         let key = CacheKey::tenant("prefix", "evil:tenant\n*\0");
-        assert_eq!(key.to_redis_key(), "prefix:tenant:evil_tenant__");
+        assert_eq!(key.to_redis_key(), "prefix:tenant:evil_tenant___");
     }
 
     #[test]

@@ -11,6 +11,7 @@ use crate::compliance::handlers::{configure_compliance_routes, ComplianceState};
 use crate::compliance::nis2::{InMemoryNis2Store, Nis2Service};
 use crate::features::FeatureFlags;
 use crate::git::GitService;
+use crate::rbac::middleware::require_permission;
 use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
 use crate::scaling::{ClusterManager, HealthChecker, ScalingConfig};
@@ -176,7 +177,9 @@ impl ApiServer {
                         .add(("Permissions-Policy", "camera=(), microphone=(), geolocation=()")),
                 )
                 .route("/metrics", web::get().to(metrics_endpoint))
-                .service(web::scope("/api/v1/compliance").configure(|cfg| {
+                .service(web::scope("/api/v1/compliance")
+                    .wrap(require_permission(crate::rbac::models::Permission::ComplianceManage))
+                    .configure(|cfg| {
                     configure_compliance_routes(cfg, compliance_state.clone());
                     crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(
                         cfg,

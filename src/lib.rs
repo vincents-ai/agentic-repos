@@ -54,4 +54,7 @@ mod access_control_tests;
 #[cfg(test)]
 mod perf_tests;
 
+#[cfg(test)]
+mod git_protocol_tests;
+
 pub use error::Result;

@@ -48,4 +48,7 @@ mod auth_integration_tests;
 #[cfg(test)]
 mod lfs_security_tests;
 
+#[cfg(test)]
+mod access_control_tests;
+
 pub use error::Result;

@@ -456,6 +456,8 @@ impl GitService {
     }
 
     /// Validate the owner/namespace component of a repository path.
+    /// Follows POSIX username conventions: lowercase alphanumeric, hyphens,
+    /// underscores; must start with a letter; max 32 characters.
     /// Prevents path traversal attacks (../../etc).
     fn validate_owner_name(&self, owner: &str) -> GitServiceResult<()> {
         if owner.is_empty() {
@@ -464,35 +466,33 @@ impl GitService {
             ));
         }
 
-        if owner.len() > 100 {
+        // Max 256 characters (modern systems allow longer than POSIX 32)
+        if owner.len() > 256 {
             return Err(GitServiceError::InvalidName(
-                "Owner name too long".to_string(),
+                "Owner name too long (max 32 characters)".to_string(),
             ));
         }
 
-        // Reject path traversal characters
-        if owner.contains('/')
-            || owner.contains('\\')
-            || owner.contains('.')
-            || owner.contains('\0')
-        {
+        // Must start with a lowercase letter
+        if !owner.chars().next().map(|c| c.is_ascii_lowercase()).unwrap_or(false) {
             return Err(GitServiceError::InvalidName(
-                "Owner name contains invalid characters".to_string(),
+                "Owner name must start with a lowercase letter".to_string(),
             ));
         }
 
+        // POSIX: lowercase letters, digits, hyphens, underscores, dollar sign
         if !owner
             .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
         {
             return Err(GitServiceError::InvalidName(
-                "Owner name contains invalid characters".to_string(),
+                "Owner name must contain only lowercase letters, digits, hyphens, and underscores".to_string(),
             ));
         }
 
-        if owner.starts_with('-') || owner.starts_with('_') {
+        if owner.ends_with('-') || owner.ends_with('_') {
             return Err(GitServiceError::InvalidName(
-                "Owner name cannot start with hyphen or underscore".to_string(),
+                "Owner name cannot end with hyphen or underscore".to_string(),
             ));
         }
 

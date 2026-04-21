@@ -67,11 +67,7 @@ impl Default for AccessConfig {
             version: "1".to_string(),
             owners: Vec::new(),
             admins: Vec::new(),
-            rules: vec![PathRule {
-                user: "*".to_string(),
-                paths: vec!["refs/heads/*".to_string()],
-                permissions: vec![Permission::Pull, Permission::Push],
-            }],
+            rules: Vec::new(), // Deny-all by default — explicit grants required
         }
     }
 }

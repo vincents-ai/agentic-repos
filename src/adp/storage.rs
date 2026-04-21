@@ -387,6 +387,20 @@ impl AdpStore {
         fingerprint_hex: &str,
         public_key_openssh: &str,
     ) -> Result<()> {
+        // Validate inputs — POSIX username rules
+        if username.is_empty() || username.len() > 256
+            || !username.chars().next().map(|c| c.is_ascii_lowercase()).unwrap_or(false)
+            || !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+        {
+            return Err(AdpStoreError::NotFound("Invalid username".to_string()));
+        }
+        if fingerprint_hex.is_empty() || fingerprint_hex.len() != 64 || !fingerprint_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(AdpStoreError::NotFound("Invalid fingerprint".to_string()));
+        }
+        if public_key_openssh.is_empty() || public_key_openssh.len() > 100000 {
+            return Err(AdpStoreError::NotFound("Invalid public key".to_string()));
+        }
+
         let identity_value = serde_json::json!({ "username": username });
 
         // Write key → username mapping
@@ -734,8 +748,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         init_bare_repo(dir.path());
 
-        let fingerprint_hex = "a1b2c3d4e5f6"
-            .repeat(5)
+        let fingerprint_hex = "a1b2c3d4e5f67890"
+            .repeat(4)
             .chars()
             .take(64)
             .collect::<String>();

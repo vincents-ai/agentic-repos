@@ -104,27 +104,39 @@ pub fn validate_push(
             Ok(Some(cached)) => cached,
             Ok(None) => continue, // No schema matches - untyped ref, skip
             Err(e) => {
-                // Schema resolution failed - log but don't fail the push
-                tracing::warn!(ref_name = %refname, error = %e, "schema resolution failed during push");
-                continue;
+                // Fail-closed: schema resolution errors block the push.
+                // This prevents a corrupted/malicious schema from bypassing validation.
+                tracing::error!(ref_name = %refname, error = %e, "schema resolution failed during push — blocking");
+                return Err(SchemaValidationHookError::BlobReadFailed {
+                    ref_name: refname.clone(),
+                    details: format!("Schema resolution failed: {}", e),
+                });
             }
         };
 
         // Read the blob from the new commit
         let data = match read_blob_data(repo_path, new_oid) {
             Ok(data) => data,
-            Err(_) => {
-                // Can't read blob - might be a git object, skip
-                continue;
+            Err(e) => {
+                // Fail-closed: can't read blob data — block the push
+                tracing::error!(ref_name = %refname, error = %e, "failed to read blob data during push — blocking");
+                return Err(SchemaValidationHookError::BlobReadFailed {
+                    ref_name: refname.clone(),
+                    details: format!("Failed to read blob: {}", e),
+                });
             }
         };
 
         // Parse as JSON
         let json: serde_json::Value = match serde_json::from_slice(&data) {
             Ok(v) => v,
-            Err(_) => {
-                // Not JSON - might be binary or text, skip
-                continue;
+            Err(e) => {
+                // Schema-validated refs must be valid JSON
+                tracing::error!(ref_name = %refname, error = %e, "invalid JSON in schema-validated ref — blocking");
+                return Err(SchemaValidationHookError::InvalidJson {
+                    ref_name: refname.clone(),
+                    details: format!("Invalid JSON: {}", e),
+                });
             }
         };
 

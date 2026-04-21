@@ -78,9 +78,37 @@ impl AdpStore {
         Self
     }
 
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Input validation
+    // ---------------------------------------------------------------------
+
+    /// Validate that a refname is safe to use with gix.
+    /// Rejects empty names, path traversal, null bytes, and names that don't
+    /// start with refs/.
+    fn validate_refname(refname: &str) -> Result<()> {
+        if refname.is_empty() {
+            return Err(AdpStoreError::NotFound("refname cannot be empty".to_string()));
+        }
+        if refname.contains('\0') {
+            return Err(AdpStoreError::NotFound("refname contains null byte".to_string()));
+        }
+        if refname.contains("..") {
+            return Err(AdpStoreError::NotFound("refname contains '..'".to_string()));
+        }
+        if !refname.starts_with("refs/") {
+            return Err(AdpStoreError::NotFound(
+                "refname must start with refs/".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Maximum blob size for ADP ref data (1 MB).
+    const MAX_BLOB_SIZE: usize = 1024 * 1024;
+
+    // ---------------------------------------------------------------------
     // Low-level blob helpers
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
 
     /// Read the JSON blob pointed to by `refname` in the repository at
     /// `repo_path`.
@@ -90,6 +118,7 @@ impl AdpStore {
     ///
     /// Returns the parsed `serde_json::Value`.
     pub fn read_ref_blob(repo_path: &Path, refname: &str) -> Result<Value> {
+        Self::validate_refname(refname)?;
         let gix_repo = gix::open(repo_path)?;
 
         let reference = gix_repo
@@ -144,8 +173,18 @@ impl AdpStore {
     /// The primary ref is always force-updated.  An immutable version sidecar
     /// is also created (see module docs).
     pub fn write_ref_blob(repo_path: &Path, refname: &str, value: &Value) -> Result<()> {
+        Self::validate_refname(refname)?;
         let gix_repo = gix::open(repo_path)?;
         let json_bytes = serde_json::to_vec_pretty(value)?;
+
+        // Enforce blob size limit
+        if json_bytes.len() > Self::MAX_BLOB_SIZE {
+            return Err(AdpStoreError::NotFound(format!(
+                "Blob too large: {} bytes (max {})",
+                json_bytes.len(),
+                Self::MAX_BLOB_SIZE
+            )));
+        };
 
         // Create blob
         let blob = gix::objs::Blob { data: json_bytes };

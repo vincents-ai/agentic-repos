@@ -38,7 +38,14 @@ impl OAuthMiddleware {
     }
 
     fn is_public_path(&self, path: &str) -> bool {
-        self.public_paths.iter().any(|p| path.starts_with(p))
+        self.public_paths.iter().any(|p| {
+            // Exact match or segment-boundary prefix match
+            // prevents /api/auth matching /api/auth-backdoor
+            if path == p {
+                return true;
+            }
+            path.starts_with(p) && path.as_bytes().get(p.len()) == Some(&b'/')
+        })
     }
 
     fn extract_session_id(&self, req: &ServiceRequest) -> Option<Uuid> {

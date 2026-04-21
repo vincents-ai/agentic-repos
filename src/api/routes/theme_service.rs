@@ -179,6 +179,11 @@ impl ThemeService {
         Self { storage_root }
     }
 
+    /// Get the storage root path.
+    pub fn storage_root(&self) -> &Path {
+        &self.storage_root
+    }
+
     /// Get the global theme from `_adp/system`.
     pub fn get_global_theme(&self) -> Result<Theme, ThemeError> {
         let system_repo = self.storage_root.join("_adp/system");

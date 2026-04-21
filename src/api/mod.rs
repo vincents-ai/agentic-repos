@@ -160,6 +160,10 @@ impl ApiServer {
         ));
         HttpServer::new(move || {
             let mut app = App::new()
+                // Global request body size limit — 10MB max to prevent DoS
+                .app_data(
+                    web::JsonConfig::default().limit(10 * 1024 * 1024)
+                )
                 .app_data(web::Data::new(git_service.clone()))
                 .app_data(web::Data::new(lfs_config.clone()))
                 .app_data(cluster_state.clone())

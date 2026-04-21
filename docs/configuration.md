@@ -54,6 +54,8 @@ All changes are written to git refs and appear in the system repo's history.
 | `ssh_host_key_path` | string | `./ssh_host_key` | Path to SSH host key file. If missing, generated on startup. **Set to persistent path in production.** |
 | `ssh_max_connections` | integer | 100 | Maximum concurrent SSH connections |
 | `ssh_connection_timeout_secs` | integer | 30 | Idle connection timeout |
+| `hostname` | string | `localhost` | Public-facing hostname used in SSH clone URLs |
+| `http_base_url` | string | `http://localhost:8080` | Public-facing HTTP base URL used in HTTP clone URLs |
 
 #### HTTP Server (`refs/adp/config/server`)
 

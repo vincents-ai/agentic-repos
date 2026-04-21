@@ -1,19 +1,97 @@
 # agentic-repos Administrator Guide
 
-Operations guide for managing agentic-repos in production — user management, RBAC, secrets, backups, replication, and compliance.
+Operations guide for managing agentic-repos in production — installation, user management, RBAC, secrets, backups, replication, and compliance.
 
 ## Table of Contents
 
-1. [User Management](#user-management)
-2. [RBAC Configuration](#rbac-configuration)
-3. [Secrets Management](#secrets-management)
-4. [Backup & Restore](#backup--restore)
-5. [Replication](#replication)
-6. [Compliance Configuration](#compliance-configuration)
-7. [Monitoring & Alerting](#monitoring--alerting)
-8. [Operational Runbooks](#operational-runbooks)
+1. [Installation & First Run](#installation--first-run)
+2. [User Management](#user-management)
+3. [RBAC Configuration](#rbac-configuration)
+4. [Secrets Management](#secrets-management)
+5. [Backup & Restore](#backup--restore)
+6. [Replication](#replication)
+7. [Compliance Configuration](#compliance-configuration)
+8. [Monitoring & Alerting](#monitoring--alerting)
+9. [Operational Runbooks](#operational-runbooks)
 
-## User Management
+## Installation & First Run
+
+### Prerequisites
+
+- **Nix** with flakes enabled (recommended) or **Rust 1.75+** with cargo
+- **OpenSSL** development headers (for non-Nix builds)
+- At least 2GB disk space for the binary and system repository
+
+### Building with Nix (recommended)
+
+```bash
+# Clone the repository
+ git clone https://github.com/vincents-ai/agentic-repos.git
+cd agentic-repos
+
+# Build the server binary
+nix build
+
+# The binary is at ./result/bin/agentic-repos
+```
+
+### Building with Cargo
+
+```bash
+cargo build --release
+# Binary at ./target/release/agentic-repos
+```
+
+### First-run bootstrap
+
+The `agentic-repos init` command bootstraps the system repository and writes
+initial configuration. **The YAML config file is only used during `init` as a
+seed** — after initialization, all configuration lives in git refs and is read
+at runtime via `from_env()` (not from YAML).
+
+```bash
+# Create a bootstrap config (see config-example.yaml)
+cat > config-bootstrap.yaml <<EOF
+server:
+  host: "0.0.0.0"
+  port: 8090
+  ssh_port: 2222
+storage:
+  root: "/var/lib/agentic-repos"
+EOF
+
+# Run init
+agentic-repos init --config config-bootstrap.yaml --admin-key "$(cat ~/.ssh/id_ed25519.pub)"
+
+# Start the server
+agentic-repos serve
+```
+
+### Configuration model
+
+| Phase | Source | Purpose |
+|-------|--------|---------|
+| Bootstrap | `config.yaml` + `agentic-repos init` | Seed initial values into git refs |
+| Runtime | Git refs (`refs/adp/config/*`) | Live configuration, read by `from_env()` |
+| Environment vars | `AGENTIC_REPOS_STORAGE_ROOT`, etc | Override paths, secrets |
+
+> **Do not edit the YAML file after init.** It is NOT read at runtime.
+> Use the API or direct ref writes to update configuration.
+
+### Username rules
+
+Usernames must follow Unix conventions:
+- Start with a lowercase letter
+- Contain only lowercase letters, digits, hyphens, and underscores
+- Maximum 256 characters
+- Examples: `alice`, `bob-dev`, `charlie_123`
+
+### Default access policy
+
+New repositories use **deny-by-default** access control. No users have push
+access unless explicitly granted by the repository owner or an admin.
+
+
 
 ### Creating Users
 

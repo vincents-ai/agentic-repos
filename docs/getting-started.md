@@ -2,6 +2,14 @@
 
 This guide walks you through creating repositories, pushing code, using Git LFS, and setting up webhooks on your agentic-repos server.
 
+> **Username rules**: Usernames must start with a lowercase letter and contain
+> only lowercase letters, digits, hyphens, and underscores. Maximum 256 characters.
+> Examples: `alice`, `bob-dev`, `charlie_123`.
+
+> **New repos are access-restricted by default**: After creating a repository,
+> the owner must grant explicit access to collaborators via the RBAC API or
+> web UI. No one gets push access unless explicitly permitted.
+
 ## Prerequisites
 
 - **Git** installed on your machine ([git-scm.com](https://git-scm.com))

@@ -44,11 +44,14 @@
 
 ## Metrics
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/metrics` | Prometheus metrics (LFS + SDLC gauges) |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/metrics` | Required | Prometheus metrics (LFS + SDLC gauges) |
 
 Response: `text/plain` Prometheus exposition format.
+
+> **Note**: The `/metrics` endpoint requires authentication. Include a valid
+> `Authorization: Bearer <token>` header.
 
 ---
 

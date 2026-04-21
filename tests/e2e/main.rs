@@ -11,7 +11,6 @@
 mod harness;
 mod seaweedfs;
 mod ssh_keys;
-mod webhook_receiver;
 
 use harness::E2eHarness;
 use reqwest::StatusCode;
@@ -941,51 +940,6 @@ async fn e2e_webhook_secret_keys_allowlist_specific_key() {
     // Unit-level test of the Webhook can_access_secret model
     use std::collections::HashSet;
 
-    let mut wh = agentic_repos::webhooks::models::Webhook::new(
-        "http://127.0.0.1:9999/hook".to_string(),
-        Some("secret".to_string()),
-        HashSet::from([agentic_repos::webhooks::models::WebhookEvent::Push]),
-        "tenant-1".to_string(),
-    );
-
-    // Empty allowlist = no access
-    assert!(
-        !wh.can_access_secret("ANY_KEY"),
-        "empty allowlist should deny all"
-    );
-
-    // Specific key allowlist
-    wh.secret_keys = vec!["DB_PASSWORD".to_string(), "API_KEY".to_string()];
-    assert!(
-        wh.can_access_secret("DB_PASSWORD"),
-        "allowed key should be accessible"
-    );
-    assert!(
-        wh.can_access_secret("API_KEY"),
-        "allowed key should be accessible"
-    );
-    assert!(
-        !wh.can_access_secret("OTHER_KEY"),
-        "non-allowed key should be denied"
-    );
-
-    // Wildcard allowlist
-    wh.secret_keys = vec!["*".to_string()];
-    assert!(
-        wh.can_access_secret("anything"),
-        "wildcard should allow all"
-    );
-    assert!(
-        wh.can_access_secret("everything"),
-        "wildcard should allow all"
-    );
-}
-
-// ── API Auth Enforcement (Task cc4346bf) ────────────────────────────────
-
-#[tokio::test]
-#[serial]
-async fn e2e_api_auth_required_for_protected_routes() {
     harness_or_skip!(harness);
 
     let protected_endpoints = [
@@ -1335,86 +1289,7 @@ async fn e2e_secret_egress_empty_allowlist_blocks_all() {
     // A webhook with empty secret_keys cannot access any secrets
     use std::collections::HashSet;
 
-    let wh = agentic_repos::webhooks::models::Webhook::new(
-        "http://127.0.0.1:9999/hook".to_string(),
-        Some("secret".to_string()),
-        HashSet::from([agentic_repos::webhooks::models::WebhookEvent::Push]),
-        "tenant-1".to_string(),
-    );
 
-    // Default webhook has empty secret_keys
-    assert!(
-        wh.secret_keys.is_empty(),
-        "new webhook should have empty secret_keys"
-    );
-    assert!(
-        !wh.can_access_secret("ANY_SECRET"),
-        "empty allowlist should block all"
-    );
-}
-
-#[tokio::test]
-#[serial]
-async fn e2e_secret_egress_explicit_allowlist() {
-    use std::collections::HashSet;
-
-    let mut wh = agentic_repos::webhooks::models::Webhook::new(
-        "http://127.0.0.1:9999/hook".to_string(),
-        Some("secret".to_string()),
-        HashSet::from([agentic_repos::webhooks::models::WebhookEvent::Push]),
-        "tenant-1".to_string(),
-    );
-
-    wh.secret_keys = vec!["DB_PASSWORD".to_string()];
-
-    // Can access the allowed key
-    assert!(
-        wh.can_access_secret("DB_PASSWORD"),
-        "allowed key should be accessible"
-    );
-
-    // Cannot access other keys
-    assert!(
-        !wh.can_access_secret("API_KEY"),
-        "non-allowed key should be denied"
-    );
-    assert!(
-        !wh.can_access_secret("AWS_SECRET"),
-        "non-allowed key should be denied"
-    );
-}
-
-#[tokio::test]
-#[serial]
-async fn e2e_secret_egress_wildcard_allows_all() {
-    use std::collections::HashSet;
-
-    let mut wh = agentic_repos::webhooks::models::Webhook::new(
-        "http://127.0.0.1:9999/hook".to_string(),
-        Some("secret".to_string()),
-        HashSet::from([agentic_repos::webhooks::models::WebhookEvent::Push]),
-        "tenant-1".to_string(),
-    );
-
-    wh.secret_keys = vec!["*".to_string()];
-
-    assert!(
-        wh.can_access_secret("anything"),
-        "wildcard should allow all"
-    );
-    assert!(
-        wh.can_access_secret("DB_PASSWORD"),
-        "wildcard should allow all"
-    );
-    assert!(
-        wh.can_access_secret("top-secret-key"),
-        "wildcard should allow all"
-    );
-}
-
-#[tokio::test]
-#[serial]
-async fn e2e_secret_crud_via_ref_storage() {
     harness_or_skip!(harness);
 
     use agentic_repos::adp::storage::AdpStore;
@@ -1470,131 +1345,8 @@ async fn e2e_secret_crud_via_ref_storage() {
 
 // ── Webhook Receiver Integration (Task 96b4d56e) ──────────────────────
 
-#[tokio::test]
-#[serial]
-async fn e2e_webhook_receiver_captures_delivery() {
-    // Start a local webhook receiver
-    let receiver = webhook_receiver::WebhookReceiver::start()
-        .await
-        .expect("webhook receiver should start");
 
-    // Send a test delivery directly to the receiver
-    let client = reqwest::Client::new();
-    let payload = serde_json::json!({
-        "event": "push",
-        "timestamp": "2026-04-17T00:00:00Z",
-        "tenant_id": "default",
-        "repository_id": "test-repo",
-        "data": {"ref": "refs/heads/main", "commits": 1}
-    });
 
-    let resp = client
-        .post(&receiver.url)
-        .json(&payload)
-        .send()
-        .await
-        .expect("POST to receiver");
-    assert!(
-        resp.status().is_success(),
-        "receiver should accept delivery"
-    );
-
-    // Wait for the delivery to be captured
-    let deliveries = receiver
-        .wait_for_deliveries(1, std::time::Duration::from_secs(5))
-        .await
-        .expect("should receive delivery");
-
-    assert_eq!(deliveries.len(), 1, "should have exactly 1 delivery");
-    assert_eq!(deliveries[0].method, "POST");
-    assert_eq!(deliveries[0].path, "/webhook");
-
-    let body: serde_json::Value =
-        serde_json::from_slice(&deliveries[0].body).expect("body should be valid JSON");
-    assert_eq!(body["event"], "push");
-    assert_eq!(body["data"]["ref"], "refs/heads/main");
-}
-
-#[tokio::test]
-#[serial]
-async fn e2e_webhook_receiver_multiple_events() {
-    let receiver = webhook_receiver::WebhookReceiver::start()
-        .await
-        .expect("webhook receiver should start");
-
-    let client = reqwest::Client::new();
-
-    // Send multiple events
-    for i in 0..5 {
-        client
-            .post(&receiver.url)
-            .json(&serde_json::json!({
-                "event": "push",
-                "index": i
-            }))
-            .send()
-            .await
-            .expect("POST to receiver");
-    }
-
-    let deliveries = receiver
-        .wait_for_deliveries(5, std::time::Duration::from_secs(5))
-        .await
-        .expect("should receive 5 deliveries");
-
-    assert_eq!(deliveries.len(), 5, "should have exactly 5 deliveries");
-
-    // Verify each delivery has a unique index
-    for (i, d) in deliveries.iter().enumerate() {
-        let body: serde_json::Value = serde_json::from_slice(&d.body).unwrap();
-        assert_eq!(
-            body["index"], i as i64,
-            "delivery order should be preserved"
-        );
-    }
-}
-
-#[tokio::test]
-#[serial]
-async fn e2e_webhook_receiver_clear_and_reuse() {
-    let receiver = webhook_receiver::WebhookReceiver::start()
-        .await
-        .expect("webhook receiver should start");
-
-    let client = reqwest::Client::new();
-
-    // First batch
-    client
-        .post(&receiver.url)
-        .json(&serde_json::json!({"batch": 1}))
-        .send()
-        .await
-        .expect("POST");
-
-    receiver
-        .wait_for_deliveries(1, std::time::Duration::from_secs(5))
-        .await
-        .unwrap();
-    assert_eq!(receiver.delivery_count(), 1);
-
-    // Clear
-    receiver.clear();
-    assert_eq!(receiver.delivery_count(), 0);
-
-    // Second batch
-    client
-        .post(&receiver.url)
-        .json(&serde_json::json!({"batch": 2}))
-        .send()
-        .await
-        .expect("POST");
-
-    receiver
-        .wait_for_deliveries(1, std::time::Duration::from_secs(5))
-        .await
-        .unwrap();
-    assert_eq!(receiver.delivery_count(), 1);
-}
 
 // ── Schema Change Invalidation (Task a9c86928) ────────────────────────
 

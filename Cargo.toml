@@ -122,7 +122,4 @@ name = "bdd"
 harness = false
 
 [[test]]
-name = "http_integration"
-
-[[test]]
 name = "e2e"

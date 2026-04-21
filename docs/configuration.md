@@ -102,7 +102,7 @@ features:
   git_lfs: false             # Git LFS support
   lfs_locks: false           # LFS file locking (requires git_lfs)
   rbac: false                # Role-based access control
-  web_ui: false              # Embedded web UI (adp-web-ui binary)
+  web_ui: false              # Embedded web UI (adp binary)
 
   # Performance & Scale
   redis_cache: false         # Redis caching layer

@@ -119,7 +119,7 @@ Items are prioritised from quarterly assessment findings:
 ### Q2 2026
 
 - [ ] SQLite/PostgreSQL stores — replace InMemoryStore implementations
-- [ ] adp-web-ui — Svelte 5 frontend, rust-embed integration
+- [ ] adp — Svelte 5 frontend, rust-embed integration
 - [ ] Prometheus metrics export — wire SDLC metrics to existing prometheus dependency
 - [ ] Integration test suite — test full SSH git protocol lifecycle
 

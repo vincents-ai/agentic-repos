@@ -3,10 +3,7 @@ use actix_web::web;
 
 pub mod adp;
 pub mod auth;
-pub mod cluster;
 pub mod repositories;
-pub mod secrets;
-pub mod secrets_service;
 pub mod theme_handlers;
 pub mod theme_service;
 

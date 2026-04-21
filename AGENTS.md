@@ -6,12 +6,21 @@
 
 ## Repo Role in ADP
 
-`agentic-repos` (package name: `agentic-repos`) is the Git server and API backend of the ADP platform. It has two deployment modes:
+`agentic-repos` (package name: `agentic-repos`) is the **open-core AGPL** Git server of the ADP platform. It contains core git server functionality:
 
-1. **Standalone binary** — full-featured multi-tenant Git server with HTTP API, SSH server, web UI host, monitoring, and LFS.
+- SSH server, git protocol (upload_pack, receive_pack)
+- HTTP API (repository CRUD, auth, LFS, theme)
+- RBAC infrastructure (Permission, RbacService, middleware)
+- Skylet v2 plugin (FFI)
+- ADP core (storage, access control, bootstrap, config, schema)
+- Cache infrastructure
+
+Enterprise modules (backup, compliance, replication, analytics, CI/CD, SDLC, security scanning, webhooks, scaling, secrets management) live in the `adp` crate which depends on `agentic-repos` as a library.
+
+It has two deployment modes:
+
+1. **Standalone binary** — core Git server with HTTP API, SSH server, monitoring, and LFS.
 2. **Skylet v2 plugin** — compiles as `libagentic_repos.so`, loaded by the Skylet runtime to provide Git operations via FFI.
-
-The `adp-web-ui` frontend is baked into this binary at compile time via `rust-embed`. Any new HTTP endpoint added here is part of the frontend contract.
 
 ---
 
@@ -167,15 +176,15 @@ The crate is a Skylet v2 plugin providing Git operations:
 
 ### Frontend Embedding
 
-`adp-web-ui` assets are embedded at compile time via `rust-embed`. The embedding target in `src/web/` must point to `embedded-ui/` (symlinked or copied from `adp-web-ui/dist/` during the build pipeline). Do not serve assets from the filesystem at runtime — the binary must be self-contained.
+`adp` assets are embedded at compile time via `rust-embed`. The embedding target in `src/web/` must point to `embedded-ui/` (symlinked or copied from `adp/dist/` during the build pipeline). Do not serve assets from the filesystem at runtime — the binary must be self-contained.
 
 ### HTTP API (port 8090)
 
-The REST API is the contract between this backend and the `adp-web-ui` frontend. Any change to an existing endpoint is a breaking change that requires:
+The REST API is the contract between this backend and the `adp` frontend. Any change to an existing endpoint is a breaking change that requires:
 
 1. An engram ADR documenting the change
 2. A corresponding update to `docs/`
-3. A coordinated update in `adp-web-ui`
+3. A coordinated update in `adp`
 
 ---
 

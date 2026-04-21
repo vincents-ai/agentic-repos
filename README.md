@@ -1,6 +1,6 @@
 # agentic-repos
 
-Multi-tenant Git server with SSH access, HTTP API, Git LFS, RBAC, webhooks, and horizontal scaling. Part of the **ADP (Agentic Development Platform)** — a vertically integrated platform for hosting and managing Git repositories, designed for both human and AI agent workflows.
+**Open-core AGPL Git server** — core of the ADP (Agentic Development Platform). Provides Git hosting, SSH, HTTP API, LFS, RBAC, and Skylet plugin interface. Enterprise features (backup, compliance, webhooks, scaling, etc.) live in the `adp` commercial crate which depends on this as a library.
 
 **License**: AGPL-3.0-or-later OR LicenseRef-Commercial (see [Licensing](#licensing))
 
@@ -11,33 +11,31 @@ Multi-tenant Git server with SSH access, HTTP API, Git LFS, RBAC, webhooks, and 
 - **Git hosting** — create, clone, push, pull over SSH (port 2222) and HTTP
 - **Git LFS** — full LFS server with quotas, bandwidth throttling, file locking, and storage backends (local + S3)
 - **SSH authentication** — public key auth stored in git refs, configurable host keys
-- **HTTP REST API** — 150+ endpoints for repositories, users, RBAC, backups, webhooks, compliance, CI/CD, and more
+- **HTTP REST API** — repository CRUD, auth, LFS, theme, RBAC, metrics
 - **RBAC** — role-based access control with granular permissions per resource type
-- **Web UI** — embedded Svelte 5 frontend, compiled into the binary at build time (no external static files)
-- **Webhooks** — outbound delivery with HMAC-SHA256 signature verification (GitHub, GitLab, Jenkins)
-- **Backup & restore** — encrypted backups (AES-256-GCM), concurrent backup limiter, tenant-scoped restore
-- **Security scanning** — repository vulnerability scanning with audit logging
-- **Compliance** — GDPR, HIPAA, DORA, NIS2 frameworks with retention policies and data export
-- **Horizontal scaling** — cluster management, leader election with fencing tokens, distributed locking
-- **Multi-region replication** — conflict resolution (last-write-wins), audit logging, RBAC-gated
-- **CI/CD integration** — webhook receivers for GitHub Actions, GitLab CI, Jenkins; build tracking
-- **Monitoring** — Prometheus metrics, Grafana dashboards, health checks
-- **Secrets infrastructure** — AGE-encrypted secrets with two-layer key wrapping (ADR-024)
+- **Skylet v2 plugin** — FFI interface for runtime plugin integration
+- **ADP infrastructure** — git-ref storage, access control, bootstrap, schema validation
+- **Enterprise extensions available** — backup, compliance, replication, analytics, CI/CD, SDLC, security scanning, webhooks, scaling, secrets (in `adp` crate)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                agentic-repos binary                      │
+│                     adp binary                          │
 │                                                         │
-│  ┌──────────────────┐    ┌────────────────────────────┐  │
-│  │  Rust backend    │    │  adp-web-ui (rust-embed)   │  │
-│  │  actix-web :8090 │◄───│  Svelte 5 + Tailwind v4    │  │
-│  │  russh     :2222 │    │  shadcn-svelte + Vite       │  │
-│  │  Git / LFS       │    └────────────────────────────┘  │
-│  └────────┬─────────┘                                    │
-│           │ REST API (:8090/api/...)                      │
-└───────────┼──────────────────────────────────────────────┘
+│  ┌──────────────────────┐  ┌─────────────────────────┐  │
+│  │  agentic-repos (lib) │  │  adp enterprise modules │  │
+│  │  Git server core     │  │  backup, compliance,    │  │
+│  │  actix-web :8090     │  │  replication, analytics,│  │
+│  │  russh     :2222     │  │  CI/CD, SDLC, security, │  │
+│  │  Git / LFS / RBAC    │  │  webhooks, scaling,     │  │
+│  │  Skylet plugin       │  │  secrets                │  │
+│  └──────────┬───────────┘  └────────────┬────────────┘  │
+│             │                           │               │
+│  ┌──────────┴───────────────────────────┴────────────┐  │
+│  │  Svelte 5 frontend (rust-embed)                   │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
             │
      ┌──────┴──────┐
      │  Optional   │
@@ -306,4 +304,4 @@ Dependencies with incompatible licences (GPL-only, SSPL, Commons Clause) must no
 | Project | Repository | Role |
 |---------|-----------|------|
 | **engram** | [vincents-ai/engram](https://github.com/vincents-ai/engram) | Distributed AI memory layer — persistent tasks, reasoning, knowledge |
-| **adp-web-ui** | [vincents-ai/adp-web-ui](https://github.com/vincents-ai/adp-web-ui) | Svelte 5 frontend — compiled into this binary |
+| **adp** | [vincents-ai/adp](https://github.com/vincents-ai/adp) | Commercial offering — enterprise modules + Svelte 5 frontend, extends agentic-repos |

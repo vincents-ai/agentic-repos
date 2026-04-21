@@ -388,7 +388,7 @@ Significant architectural decisions are recorded as ADRs (Architecture Decision 
 | ADR-020 | gix over git2 | Pure Rust gitoxide replaces C FFI libgit2 |
 | ADR-023 | gix migration plan | Parallel migration in engram + agentic-repos |
 | ADR-024 | Secrets infrastructure | SOPS + AGE two-layer key wrapping |
-| ADR-030 | AppConfigurator hook | Custom route injection for adp-web-ui |
+| ADR-030 | AppConfigurator hook | Custom route injection for adp |
 
 Search engram for the full decision context:
 

@@ -162,7 +162,7 @@ Quality gates support blocking and advisory enforcement with 5 comparison operat
 
 ### Short-Term (Q2 2026)
 4. **SQLite/PostgreSQL stores** — Replace InMemoryStore implementations with persistent backends
-5. **adp-web-ui** — Svelte 5 frontend, embedded via rust-embed
+5. **adp** — Svelte 5 frontend, embedded via rust-embed
 6. **Prometheus metrics export** — Wire SDLC metrics to existing prometheus dependency
 
 ### Medium-Term (Q3 2026)

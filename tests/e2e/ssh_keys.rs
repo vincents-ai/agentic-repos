@@ -104,7 +104,6 @@ pub fn configure_ssh_in_system_repo(
     cfg.http_host = "127.0.0.1".to_string();
     cfg.http_port = http_port;
     cfg.ssh_port = ssh_port;
-    cfg.ssh_authorized_keys_path = authorized_keys_path.to_path_buf();
     cfg.ssh_host_key_path = host_key_path.to_path_buf();
     cfg.feature_flags.insert("web_ui".to_string(), true);
     cfg.feature_flags.insert("rbac".to_string(), true);

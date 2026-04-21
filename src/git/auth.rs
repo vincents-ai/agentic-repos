@@ -123,28 +123,30 @@ impl AuthorizedKeysManager {
 
     /// Compare two SSH public keys for equality
     fn keys_match(&self, provided_key: &str, authorized_key: &str) -> bool {
-        debug!("Comparing keys:");
-        debug!("Provided: '{}'", provided_key);
-        debug!("Authorized: '{}'", authorized_key);
-
         let provided_parts: Vec<&str> = provided_key.split_whitespace().collect();
         let authorized_parts: Vec<&str> = authorized_key.split_whitespace().collect();
 
-        debug!("Provided parts: {:?}", provided_parts);
-        debug!("Authorized parts: {:?}", authorized_parts);
-
         if provided_parts.len() < 2 || authorized_parts.len() < 2 {
-            debug!("  Not enough parts");
             return false;
         }
 
-        let key_type_match = provided_parts[0] == authorized_parts[0];
-        let key_data_match = provided_parts[1] == authorized_parts[1];
-
-        debug!("Key type match: {}", key_type_match);
-        debug!("Key data match: {}", key_data_match);
+        // Constant-time comparison to prevent timing attacks
+        let key_type_match = Self::constant_time_eq(provided_parts[0].as_bytes(), authorized_parts[0].as_bytes());
+        let key_data_match = Self::constant_time_eq(provided_parts[1].as_bytes(), authorized_parts[1].as_bytes());
 
         key_type_match && key_data_match
+    }
+
+    /// Constant-time byte comparison to prevent timing side-channels.
+    fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut diff: u8 = 0;
+        for (x, y) in a.iter().zip(b.iter()) {
+            diff |= x ^ y;
+        }
+        diff == 0
     }
 
     /// Reload authorized keys from file

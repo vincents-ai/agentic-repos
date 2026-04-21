@@ -19,12 +19,21 @@ use crate::sdlc::{InMemorySdlcStore, SdlcService};
 use crate::server::AppConfigurator;
 use crate::webhooks::service::WebhookService;
 use crate::webhooks::storage::InMemoryWebhookStorage;
-use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
+use actix_web::{middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer};
 use routes::cluster::ClusterState;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-async fn metrics_endpoint(sdlc: Option<web::Data<Arc<SdlcService>>>) -> HttpResponse {
+async fn metrics_endpoint(
+    req: HttpRequest,
+    sdlc: Option<web::Data<Arc<SdlcService>>>,
+) -> HttpResponse {
+    // Require auth for metrics — prevent information disclosure
+    if crate::auth::middleware::get_current_session(&req).is_none() {
+        return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Authentication required"
+        }));
+    }
     // Export SDLC metrics to prometheus gauges before gathering
     if let Some(svc) = sdlc {
         if let Err(e) = crate::sdlc::export_sdlc_metrics(&svc) {

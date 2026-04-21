@@ -122,6 +122,17 @@ impl LdapService {
         if config.base_dn.is_empty() {
             return Err(LdapError::Configuration("base_dn must not be empty".into()));
         }
+        // Reject plaintext LDAP in non-test builds
+        if !cfg!(test) && config.tls_mode == LdapTlsMode::None {
+            return Err(LdapError::Configuration(
+                "Plaintext LDAP is not allowed in production. Use ldaps:// or STARTTLS.".into(),
+            ));
+        }
+        if !cfg!(test) && config.tls_insecure {
+            return Err(LdapError::Configuration(
+                "TLS certificate verification cannot be disabled in production.".into(),
+            ));
+        }
         Ok(Self { config })
     }
 

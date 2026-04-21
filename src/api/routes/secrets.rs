@@ -115,8 +115,9 @@ pub async fn get_public_key(
             algorithm: "age-x25519".to_string(),
         })),
         Err(e) => {
+            tracing::warn!("Secrets operation failed: {}", e);
             Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
+                .json(serde_json::json!({"error": "Internal error"})))
         }
     }
 }
@@ -138,8 +139,9 @@ pub async fn list_secrets(
             secrets,
         })),
         Err(e) => {
+            tracing::warn!("Secrets operation failed: {}", e);
             Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()})))
+                .json(serde_json::json!({"error": "Internal error"})))
         }
     }
 }
@@ -172,8 +174,11 @@ pub async fn get_secret(
             super::secrets_service::SecretError::NotFound(_) => Ok(HttpResponse::NotFound().json(
                 ApiError::not_found(&format!("Secret '{}' not found", secret_name)),
             )),
-            _ => Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()}))),
+            err => {
+                tracing::warn!("Secrets operation failed: {:?}", err);
+                Ok(HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"error": "Internal error"})))
+            },
         },
     }
 }
@@ -204,8 +209,11 @@ pub async fn create_secret(
             super::secrets_service::SecretError::InvalidName(msg) => {
                 Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)))
             }
-            _ => Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()}))),
+            err => {
+                tracing::warn!("Secrets operation failed: {:?}", err);
+                Ok(HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"error": "Internal error"})))
+            },
         },
     }
 }
@@ -238,8 +246,11 @@ pub async fn update_secret(
             super::secrets_service::SecretError::InvalidName(msg) => {
                 Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)))
             }
-            _ => Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()}))),
+            err => {
+                tracing::warn!("Secrets operation failed: {:?}", err);
+                Ok(HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"error": "Internal error"})))
+            },
         },
     }
 }
@@ -260,8 +271,11 @@ pub async fn delete_secret(
             super::secrets_service::SecretError::NotFound(_) => Ok(HttpResponse::NotFound().json(
                 ApiError::not_found(&format!("Secret '{}' not found", secret_name)),
             )),
-            _ => Ok(HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e.to_string()}))),
+            err => {
+                tracing::warn!("Secrets operation failed: {:?}", err);
+                Ok(HttpResponse::InternalServerError()
+                    .json(serde_json::json!({"error": "Internal error"})))
+            },
         },
     }
 }

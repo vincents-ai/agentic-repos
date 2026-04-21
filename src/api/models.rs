@@ -32,10 +32,35 @@ pub struct CreateRepositoryRequest {
     pub is_private: Option<bool>,
 }
 
+impl CreateRepositoryRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() || self.name.len() > 100 {
+            return Err("Repository name must be 1-100 characters".to_string());
+        }
+        if let Some(ref desc) = self.description {
+            if desc.len() > 1000 {
+                return Err("Description must be under 1000 characters".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateRepositoryRequest {
     pub description: Option<String>,
     pub is_private: Option<bool>,
+}
+
+impl UpdateRepositoryRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref desc) = self.description {
+            if desc.len() > 1000 {
+                return Err("Description must be under 1000 characters".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,10 +87,49 @@ pub struct CreateUserRequest {
     pub ssh_public_key: Option<String>,
 }
 
+impl CreateUserRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.username.is_empty() || self.username.len() > 100 {
+            return Err("Username must be 1-100 characters".to_string());
+        }
+        if self.email.is_empty() || self.email.len() > 254 {
+            return Err("Email must be 1-254 characters".to_string());
+        }
+        if !self.email.contains('@') {
+            return Err("Invalid email format".to_string());
+        }
+        if let Some(ref key) = self.ssh_public_key {
+            if key.len() > 100000 {
+                return Err("SSH key too large".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateUserRequest {
     pub email: Option<String>,
     pub ssh_public_key: Option<String>,
+}
+
+impl UpdateUserRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(ref email) = self.email {
+            if email.is_empty() || email.len() > 254 {
+                return Err("Email must be 1-254 characters".to_string());
+            }
+            if !email.contains('@') {
+                return Err("Invalid email format".to_string());
+            }
+        }
+        if let Some(ref key) = self.ssh_public_key {
+            if key.len() > 100000 {
+                return Err("SSH key too large".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

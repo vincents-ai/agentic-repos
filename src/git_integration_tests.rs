@@ -67,6 +67,8 @@ mod integration_tests {
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
         let storage_root = temp_dir.path().to_path_buf();
@@ -322,6 +324,8 @@ mod integration_tests {
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
         let storage_root = temp_dir.path().to_path_buf();

@@ -74,6 +74,16 @@ pub struct GitConfig {
     /// When set and the file exists, repos get AGE keypairs on creation.
     #[serde(default)]
     pub secrets_root_key_path: Option<std::path::PathBuf>,
+    /// Public-facing hostname for clone URLs (replaces hardcoded localhost).
+    #[serde(default = "default_hostname")]
+    pub hostname: String,
+    /// Public-facing HTTP base URL (e.g. "https://git.example.com").
+    #[serde(default)]
+    pub http_base_url: Option<String>,
+}
+
+fn default_hostname() -> String {
+    "localhost".to_string()
 }
 
 impl Default for GitConfig {
@@ -85,6 +95,8 @@ impl Default for GitConfig {
             connection_timeout_secs: 30,
             rate_limit: RateLimitConfig::default(),
             secrets_root_key_path: None,
+            hostname: default_hostname(),
+            http_base_url: None,
         }
     }
 }
@@ -156,9 +168,13 @@ impl GitService {
             is_private,
             clone_url_ssh: format!(
                 "ssh://git@{}:{}/{}/{}.git",
-                "localhost", self.config.ssh_port, owner, name
+                self.config.hostname, self.config.ssh_port, owner, name
             ),
-            clone_url_http: Some(format!("http://localhost:8080/{}/{}.git", owner, name)),
+            clone_url_http: Some(format!(
+                "{}/{}/{}.git",
+                self.config.http_base_url.as_deref().unwrap_or("http://localhost:8080"),
+                owner, name
+            )),
         };
 
         Ok(repo_info)
@@ -216,9 +232,13 @@ impl GitService {
             is_private: false,
             clone_url_ssh: format!(
                 "ssh://git@{}:{}/{}/{}.git",
-                "localhost", self.config.ssh_port, owner, name
+                self.config.hostname, self.config.ssh_port, owner, name
             ),
-            clone_url_http: Some(format!("http://localhost:8080/{}/{}.git", owner, name)),
+            clone_url_http: Some(format!(
+                "{}/{}/{}.git",
+                self.config.http_base_url.as_deref().unwrap_or("http://localhost:8080"),
+                owner, name
+            )),
         };
 
         Ok(repo_info)

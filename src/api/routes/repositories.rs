@@ -88,6 +88,11 @@ pub async fn create_repository(
     let owner = path.into_inner();
     let request = payload.into_inner();
 
+    // Validate input bounds
+    if let Err(msg) = request.validate() {
+        return Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)));
+    }
+
     if !is_valid_repository_name(&request.name) {
         let error = ApiError::bad_request("Invalid repository name");
         return Ok(HttpResponse::BadRequest().json(error));
@@ -171,10 +176,16 @@ pub async fn update_repository(
     git_service: web::Data<Arc<GitService>>,
     req: HttpRequest,
     path: web::Path<(String, String)>,
-    _payload: web::Json<UpdateRepositoryRequest>,
+    payload: web::Json<UpdateRepositoryRequest>,
 ) -> ActixResult<HttpResponse> {
     require_auth(&req)?;
     let (owner, repo) = path.into_inner();
+    let request = payload.into_inner();
+
+    // Validate input bounds
+    if let Err(msg) = request.validate() {
+        return Ok(HttpResponse::BadRequest().json(ApiError::bad_request(&msg)));
+    }
 
     match git_service.get_repository(&owner, &repo).await {
         Ok(repo_info) => {

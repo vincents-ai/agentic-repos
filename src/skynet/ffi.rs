@@ -529,6 +529,8 @@ pub unsafe extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> Plug
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
         let storage: Arc<dyn StorageBackend> = {

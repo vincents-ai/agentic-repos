@@ -37,6 +37,8 @@ mod integration_tests {
             connection_timeout_secs: 30,
             rate_limit: RateLimitConfig::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
         // Initialize system repo for git-refs key storage

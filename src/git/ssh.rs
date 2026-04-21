@@ -376,6 +376,11 @@ impl russh::server::Handler for SshHandler {
                 }
                 _ => {
                     error!("Rate limit check failed: {}", e);
+                    // Fail-closed: reject auth on rate limit errors
+                    return Ok(russh::server::Auth::Reject {
+                        proceed_with_methods: None,
+                        partial_success: false,
+                    });
                 }
             }
         }
@@ -534,6 +539,11 @@ impl russh::server::Handler for SshHandler {
                 }
                 _ => {
                     error!("Rate limit check failed: {}", e);
+                    // Fail-closed: reject on rate limit errors
+                    session.data(channel, bytes::Bytes::from(b"rate limit error\n".to_vec()))?;
+                    let _ = session.exit_status_request(channel, 1);
+                    session.close(channel)?;
+                    return Ok(());
                 }
             }
         }

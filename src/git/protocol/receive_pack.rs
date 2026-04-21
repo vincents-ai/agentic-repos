@@ -194,6 +194,7 @@ impl ReceivePackHandler {
     }
 
     async fn read_updates_impl<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<RefUpdate>> {
+        const MAX_REF_UPDATES: usize = 10000;
         let mut updates = Vec::new();
 
         loop {
@@ -230,6 +231,13 @@ impl ReceivePackHandler {
                         })?,
                     )
                 };
+
+                if updates.len() >= MAX_REF_UPDATES {
+                    return Err(GitError::ProtocolError(format!(
+                        "Too many ref updates (max {})",
+                        MAX_REF_UPDATES
+                    )));
+                }
 
                 updates.push(RefUpdate {
                     refname: refname.to_string(),

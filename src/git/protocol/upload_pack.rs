@@ -175,6 +175,8 @@ impl UploadPackHandler {
     async fn read_negotiation_impl<R: AsyncRead + Unpin>(
         reader: &mut R,
     ) -> Result<(Vec<gix::ObjectId>, Vec<gix::ObjectId>, HashSet<String>)> {
+        const MAX_WANTS: usize = 10000;
+        const MAX_HAVES: usize = 100000;
         let mut wants = Vec::new();
         let mut haves = Vec::new();
         let mut capabilities = HashSet::new();
@@ -206,7 +208,9 @@ impl UploadPackHandler {
                     match gix::ObjectId::from_hex(oid_str.as_bytes()) {
                         Ok(oid) => {
                             tracing::debug!("[UPLOAD-PACK] Client wants: {}", oid.to_hex());
-                            wants.push(oid);
+                            if wants.len() < MAX_WANTS {
+                                wants.push(oid);
+                            }
 
                             if capabilities.is_empty() && parts.len() > 2 {
                                 for cap in &parts[2..] {
@@ -227,7 +231,9 @@ impl UploadPackHandler {
                     match gix::ObjectId::from_hex(oid_str.as_bytes()) {
                         Ok(oid) => {
                             tracing::debug!("[UPLOAD-PACK] Client has: {}", oid.to_hex());
-                            haves.push(oid);
+                            if haves.len() < MAX_HAVES {
+                                haves.push(oid);
+                            }
                         }
                         Err(e) => {
                             tracing::debug!("[UPLOAD-PACK] Invalid have OID {}: {}", oid_str, e);

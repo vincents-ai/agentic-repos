@@ -494,7 +494,7 @@ fn openssh_key_data(openssh_str: &str) -> &str {
     if parts.len() >= 2 {
         // Return first two parts (key_type + base64 data)
         // We actually compare on the base64 data part (index 1)
-        parts.get(1).map(|s| *s).unwrap_or("")
+        parts.get(1).copied().unwrap_or("")
     } else {
         openssh_str.trim()
     }

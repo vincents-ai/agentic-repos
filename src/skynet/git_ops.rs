@@ -162,17 +162,19 @@ impl GitOperationService {
                 let hex = id.to_hex().to_string();
                 if let Ok(obj) = gix_repo.find_object(id) {
                     if let Ok(commit) = gix::objs::CommitRef::from_bytes(&obj.data) {
-                        let timestamp = commit.committer.time.seconds;
-                        branches.push(BranchInfo {
-                            name: branch_name,
-                            is_head,
-                            commit_sha: hex,
-                            commit_message: commit.message.to_string(),
-                            author: commit.author.name.to_string(),
-                            created_at: chrono::DateTime::from_timestamp(timestamp, 0)
-                                .unwrap_or(chrono::Utc::now())
-                                .to_rfc3339(),
-                        });
+                        if let (Ok(author_sig), Ok(committer_sig)) = (commit.author(), commit.committer()) {
+                            let timestamp = committer_sig.time().map(|t| t.seconds).unwrap_or(0);
+                            branches.push(BranchInfo {
+                                name: branch_name,
+                                is_head,
+                                commit_sha: hex,
+                                commit_message: commit.message.to_string(),
+                                author: author_sig.name.to_string(),
+                                created_at: chrono::DateTime::from_timestamp(timestamp, 0)
+                                    .unwrap_or(chrono::Utc::now())
+                                    .to_rfc3339(),
+                            });
+                        }
                     }
                 }
             }
@@ -249,7 +251,9 @@ impl GitOperationService {
             })
             .map_err(|e| git_err("Failed to create branch", e))?;
 
-        let author_name = commit.author.name.to_string();
+        let author_name = commit.author()
+            .map(|sig| sig.name.to_string())
+            .unwrap_or_default();
         let commit_msg = commit.message.to_string();
 
         Ok(BranchInfo {
@@ -373,12 +377,14 @@ impl GitOperationService {
                 }
             }
 
+            let author_sig = commit.author().ok();
+            let committer_sig = commit.committer().ok();
             commits.push(CommitInfo {
                 sha: current_id.to_hex().to_string(),
-                author: commit.author.name.to_string(),
-                email: commit.author.email.to_string(),
+                author: author_sig.as_ref().map(|s| s.name.to_string()).unwrap_or_default(),
+                email: author_sig.as_ref().map(|s| s.email.to_string()).unwrap_or_default(),
                 message: commit.message.to_string(),
-                timestamp: commit.committer.time.seconds,
+                timestamp: committer_sig.and_then(|s| s.time().ok()).map(|t| t.seconds).unwrap_or(0),
                 parent_shas,
             });
         }

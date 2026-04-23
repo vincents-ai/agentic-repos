@@ -143,22 +143,20 @@ pub fn detect_entity_changes(
 /// Returns: "abc123"
 pub fn extract_entity_id(refname: &str, namespace_pattern: &str) -> String {
     // Handle the simple case: pattern ends with /* or /**
-    if namespace_pattern.ends_with("/*") {
-        let prefix = &namespace_pattern[..namespace_pattern.len() - 2];
-        if let Some(rest) = refname.strip_prefix(prefix) {
-            let rest = rest.trim_start_matches('/');
-            return rest.to_string();
-        }
+    if let Some(rest) = namespace_pattern
+        .strip_suffix("/*")
+        .and_then(|prefix| refname.strip_prefix(prefix))
+    {
+        return rest.trim_start_matches('/').to_string();
     }
-    if namespace_pattern.ends_with("/**") {
-        let prefix = &namespace_pattern[..namespace_pattern.len() - 3];
-        if let Some(rest) = refname.strip_prefix(prefix) {
-            let rest = rest.trim_start_matches('/');
-            return rest.to_string();
-        }
+    if let Some(rest) = namespace_pattern
+        .strip_suffix("/**")
+        .and_then(|prefix| refname.strip_prefix(prefix))
+    {
+        return rest.trim_start_matches('/').to_string();
     }
     // Fallback: use the last path component
-    refname.split('/').last().unwrap_or(refname).to_string()
+    refname.split('/').next_back().unwrap_or(refname).to_string()
 }
 
 /// Read a blob and parse it as JSON.

@@ -30,6 +30,17 @@ impl From<LockManagerError> for LockError {
     }
 }
 
+/// Arguments for listing locks, grouped to keep parameter count reasonable.
+pub struct ListLocksArgs<'a> {
+    pub tenant: &'a str,
+    pub repo: &'a str,
+    pub path_filter: Option<&'a str>,
+    pub id_filter: Option<Uuid>,
+    pub refspec: Option<&'a str>,
+    pub limit: Option<u32>,
+    pub cursor: Option<&'a str>,
+}
+
 /// Lock storage backend. InMemoryLockStorage is the default.
 /// Future backends: git-refs, Redis for clustering.
 pub trait LockStorage: Send + Sync {
@@ -44,13 +55,7 @@ pub trait LockStorage: Send + Sync {
     ) -> Result<CreateLockResponse, LockManagerError>;
     fn list_locks(
         &self,
-        tenant: &str,
-        repo: &str,
-        path_filter: Option<&str>,
-        id_filter: Option<Uuid>,
-        refspec: Option<&str>,
-        limit: Option<u32>,
-        cursor: Option<&str>,
+        args: ListLocksArgs<'_>,
     ) -> Result<ListLocksResponse, LockManagerError>;
     fn delete_lock(
         &self,
@@ -169,37 +174,31 @@ impl LockStorage for InMemoryLockStorage {
 
     fn list_locks(
         &self,
-        tenant: &str,
-        repo: &str,
-        path_filter: Option<&str>,
-        id_filter: Option<Uuid>,
-        refspec: Option<&str>,
-        limit: Option<u32>,
-        cursor: Option<&str>,
+        args: ListLocksArgs<'_>,
     ) -> Result<ListLocksResponse, LockManagerError> {
         let locks = rlock(&self.locks)?;
-        let limit = limit.unwrap_or(100).min(1000) as usize;
+        let limit = args.limit.unwrap_or(100).min(1000) as usize;
         let now = Utc::now();
-        let cursor_id = cursor
+        let cursor_id = args.cursor
             .map(Uuid::parse_str)
             .transpose()
             .map_err(|_| LockManagerError::Forbidden("Invalid cursor".into()))?;
         let mut matching: Vec<&StoredLock> = locks
             .values()
             .filter(|l| {
-                l.tenant == tenant
-                    && l.repo == repo
+                l.tenant == args.tenant
+                    && l.repo == args.repo
                     && (l.expires_at.is_none() || l.expires_at.as_ref() > Some(&now))
-                    && path_filter.map_or(true, |p| l.path == p)
-                    && id_filter.map_or(true, |id| l.id == id)
-                    && refspec.map_or(true, |r| l.ref_name.as_deref() == Some(r))
-                    && cursor_id.map_or(true, |cid| l.id > cid)
+                    && args.path_filter.is_none_or(|p| l.path == p)
+                    && args.id_filter.is_none_or(|id| l.id == id)
+                    && args.refspec.is_none_or(|r| l.ref_name.as_deref() == Some(r))
+                    && cursor_id.is_none_or(|cid| l.id > cid)
             })
             .collect();
-        matching.sort_by_key(|l| l.id);
+        matching.sort_by_key(|l: &&StoredLock| l.id);
         let has_more = matching.len() > limit;
         matching.truncate(limit);
-        let lock_list: Vec<LfsLock> = matching.iter().map(|l| to_lock(*l)).collect();
+        let lock_list: Vec<LfsLock> = matching.iter().map(|l| to_lock(l)).collect();
         let next_cursor = if has_more {
             lock_list.last().map(|l| l.id.to_string())
         } else {
@@ -245,7 +244,15 @@ impl LockStorage for InMemoryLockStorage {
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<VerifyLocksResponse, LockManagerError> {
-        let result = self.list_locks(tenant, repo, None, None, refspec, limit, cursor)?;
+        let result = self.list_locks(ListLocksArgs {
+            tenant,
+            repo,
+            path_filter: None,
+            id_filter: None,
+            refspec,
+            limit,
+            cursor,
+        })?;
         let (ours, theirs): (Vec<LfsLock>, Vec<LfsLock>) = result
             .locks
             .into_iter()
@@ -289,7 +296,15 @@ mod tests {
             .unwrap();
         assert_eq!(r.lock.path, "a.txt");
         let list = m
-            .list_locks("t", "r", None, None, None, None, None)
+            .list_locks(ListLocksArgs {
+                tenant: "t",
+                repo: "r",
+                path_filter: None,
+                id_filter: None,
+                refspec: None,
+                limit: None,
+                cursor: None,
+            })
             .unwrap();
         assert_eq!(list.locks.len(), 1);
     }
@@ -354,7 +369,15 @@ mod tests {
         assert_eq!(v.theirs.len(), 1);
         m.delete_lock("t", "r", r1.lock.id, "alice", false).unwrap();
         let list = m
-            .list_locks("t", "r", None, None, None, None, None)
+            .list_locks(ListLocksArgs {
+                tenant: "t",
+                repo: "r",
+                path_filter: None,
+                id_filter: None,
+                refspec: None,
+                limit: None,
+                cursor: None,
+            })
             .unwrap();
         assert_eq!(list.locks.len(), 1);
     }

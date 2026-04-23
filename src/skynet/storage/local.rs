@@ -81,7 +81,7 @@ impl StorageBackend for LocalStorageBackend {
         repo_name: &str,
     ) -> crate::skynet::error::SkynetPluginResult<PathBuf> {
         self.safe_repo_path(tenant_id, repo_name)
-            .map_err(|e| crate::skynet::error::SkynetPluginError::InvalidRequest(e))
+            .map_err(crate::skynet::error::SkynetPluginError::InvalidRequest)
     }
 
     async fn upload_lfs_object(

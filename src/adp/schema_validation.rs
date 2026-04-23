@@ -186,7 +186,7 @@ fn read_blob_data(repo_path: &Path, oid: &str) -> Result<Vec<u8>, SchemaValidati
     if obj.kind != gix::objs::Kind::Blob {
         return Err(SchemaValidationHookError::BlobReadFailed {
             ref_name: oid.to_string(),
-            details: format!("not a blob"),
+            details: "not a blob".to_string(),
         });
     }
 

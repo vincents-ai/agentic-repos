@@ -331,6 +331,11 @@ impl SchemaCache {
     }
 
     /// Get the count of cached items (for metrics).
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get the count of cached items (for metrics).
     pub fn len(&self) -> usize {
         self.custom_schemas.len() + self.system_schemas.len()
     }

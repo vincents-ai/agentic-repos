@@ -2,7 +2,7 @@ use crate::adp::bootstrap::SYSTEM_REPO_PATH;
 use crate::adp::storage::AdpStore;
 use russh::keys::ssh_key::PublicKey;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
 
 const SSH_KEYS_REF_PREFIX: &str = "refs/adp/users";
@@ -30,7 +30,7 @@ impl AuthorizedKeysManager {
     /// Load SSH keys from git refs: refs/adp/users/{username}/ssh_keys
     async fn load_from_git_refs(
         &mut self,
-        storage_root: &PathBuf,
+        storage_root: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let system_repo = storage_root.join(SYSTEM_REPO_PATH);
 

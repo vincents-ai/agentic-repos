@@ -1,0 +1,22 @@
+[package]
+name = "adp-sse-registry"
+version = "0.1.0"
+edition = "2021"
+description = "SSE connection registry for agentic-loop + adp integration"
+license = "AGPL-3.0"
+
+[dependencies]
+adp-proto = { path = "../adp-proto" }
+actix-web = "4.4"
+tokio = { version = "1.35", features = ["sync", "time"] }
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+thiserror = "2.0"
+futures-util = "0.3"
+
+[dev-dependencies]
+actix-web = { version = "4.4", features = ["macros"] }
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }

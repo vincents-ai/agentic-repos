@@ -180,15 +180,15 @@ pub async fn list_locks(
 
     let id_filter = query.id.as_ref().and_then(|s| Uuid::parse_str(s).ok());
 
-    match handler.lock_manager.list_locks(
-        &tenant,
-        &repo,
-        query.path.as_deref(),
+    match handler.lock_manager.list_locks(crate::lfs::locks::ListLocksArgs {
+        tenant: &tenant,
+        repo: &repo,
+        path_filter: query.path.as_deref(),
         id_filter,
-        query.refspec.as_deref(),
-        query.limit,
-        query.cursor.as_deref(),
-    ) {
+        refspec: query.refspec.as_deref(),
+        limit: query.limit,
+        cursor: query.cursor.as_deref(),
+    }) {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => HttpResponse::InternalServerError().json(json!({
             "message": e.to_string()

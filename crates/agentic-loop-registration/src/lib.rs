@@ -14,5 +14,5 @@ mod registration;
 mod secret;
 
 pub use error::RegistrationError;
-pub use registration::{RegistrationManager, RegistrationStatus};
+pub use registration::{RegistrationConfig, RegistrationManager, RegistrationStatus};
 pub use secret::SecretGenerator;

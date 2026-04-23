@@ -1,0 +1,28 @@
+[package]
+name = "agentic-loop-adp"
+version = "0.1.0"
+edition = "2021"
+authors = ["vincents-ai"]
+license = "AGPL-3.0-or-later"
+description = "ADP integration for agentic-loop: SSE client, registration, and entity writer"
+
+[dependencies]
+# ADP integration crates (same workspace)
+adp-proto = { path = "../adp-proto" }
+agentic-loop-sse-client = { path = "../agentic-loop-sse-client" }
+agentic-loop-registration = { path = "../agentic-loop-registration" }
+agentic-loop-entity-writer = { path = "../agentic-loop-entity-writer" }
+adp-schema-registry = { path = "../adp-schema-registry" }
+
+# Workspace deps
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "sync", "time"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+thiserror = "2.0"
+tracing = "0.1"
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["test-util", "macros"] }

@@ -341,6 +341,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentic-loop-adp"
+version = "0.1.0"
+dependencies = [
+ "adp-proto",
+ "adp-schema-registry",
+ "agentic-loop-entity-writer",
+ "agentic-loop-registration",
+ "agentic-loop-sse-client",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "agentic-loop-entity-writer"
 version = "0.1.0"
 dependencies = [

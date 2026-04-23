@@ -14,6 +14,7 @@
 pub mod rbac;
 pub mod registration;
 pub mod sse;
+pub mod metrics;
 
 pub use rbac::{KeyPermissions, PathRestrictions, ServiceType};
 pub use registration::{InstanceCapabilities, RegistrationInfo, ServiceMetadata};

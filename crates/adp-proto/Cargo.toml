@@ -11,3 +11,9 @@ serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 hostname = "0.4"
+
+[dev-dependencies]
+adp-rbac-engine = { path = "../adp-rbac-engine" }
+adp-schema-registry = { path = "../adp-schema-registry" }
+agentic-loop-entity-writer = { path = "../agentic-loop-entity-writer" }
+agentic-loop-registration = { path = "../agentic-loop-registration" }

@@ -11,12 +11,12 @@
 //! The types `RefSchema` and `UiHints` live in `agentic_repos::adp::schema`.
 //! This crate provides the registry, validation, and caching layer on top.
 
-mod engine;
-mod error;
-mod types;
-mod validation;
+pub mod engine;
+pub mod error;
+pub mod types;
+pub mod validation;
 
 pub use engine::SchemaRegistry;
 pub use error::SchemaError;
-pub use types::{RefSchema, SchemaChange, UiHints};
+pub use types::{RefSchema, SchemaChange, SchemaChangeType, UiHints};
 pub use validation::ValidationResult;

@@ -18,10 +18,10 @@
 //! assert!(decision.is_allowed());
 //! ```
 
-mod checker;
-mod codeowners;
-mod engine;
-mod error;
+pub mod checker;
+pub mod codeowners;
+pub mod engine;
+pub mod error;
 
 pub use checker::{AccessDecision, PermissionCheck};
 pub use codeowners::{CodeownersEntry, CodeownersParser};

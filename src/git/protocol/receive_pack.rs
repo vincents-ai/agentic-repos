@@ -375,6 +375,37 @@ impl ReceivePackHandler {
             }
         }
 
+        // ── Service key namespace check ────────────────────────────────
+        // Service keys are restricted to their designated namespace.
+        // User keys have no namespace restriction (handled by access rules above).
+        if let Some(identity) = caller_identity {
+            if identity.is_service() {
+                if let Some(service_ns) = &identity.service_type {
+                    let allowed_prefix = format!("refs/secrets/{}/", service_ns);
+                    let denied = updates_owned
+                        .iter()
+                        .find(|u| !u.refname.starts_with(&allowed_prefix));
+
+                    if let Some(violation) = denied {
+                        tracing::warn!(
+                            "Rejecting push by service key '{}' — ref '{}' outside namespace '{}'",
+                            identity.username, violation.refname, allowed_prefix
+                        );
+                        return Ok(updates_owned
+                            .iter()
+                            .map(|u| RefUpdateResult::Rejected {
+                                refname: u.refname.clone(),
+                                reason: format!(
+                                    "Service key '{}' can only push to {}",
+                                    identity.username, allowed_prefix
+                                ),
+                            })
+                            .collect());
+                    }
+                }
+            }
+        }
+
         let results = tokio::task::spawn_blocking(move || -> Result<Vec<RefUpdateResult>> {
             let repo = gix::open(&repo_path_clone)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
@@ -658,6 +689,9 @@ mod tests {
             username: "admin".to_string(),
             is_owner: false,
             is_admin: true,
+            key_type: crate::adp::identity::KeyType::User,
+            key_fingerprint: None,
+            service_type: None,
         };
 
         // Push a commit to the repo so we have a valid object

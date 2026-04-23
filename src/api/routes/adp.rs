@@ -137,6 +137,9 @@ fn resolve_caller(repo_path: &std::path::Path, req: &HttpRequest) -> CallerIdent
                 username: String::new(),
                 is_owner: false,
                 is_admin: false,
+                key_type: crate::adp::identity::KeyType::User,
+                key_fingerprint: None,
+                service_type: None,
             }
         }
     };

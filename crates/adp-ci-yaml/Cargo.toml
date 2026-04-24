@@ -1,0 +1,17 @@
+[package]
+name = "adp-ci-yaml"
+version = "0.1.0"
+edition = "2021"
+description = "Parser for adp-ci.yaml workflow files"
+license = "AGPL-3.0"
+
+[dependencies]
+adp-ci-types = { path = "../adp-ci-types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+thiserror = "1.0"
+tracing = "0.1"
+uuid = { version = "1.6", features = ["v4"] }
+globset = "0.4"
+
+[dev-dependencies]

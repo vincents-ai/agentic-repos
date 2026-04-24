@@ -12,3 +12,9 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
 [dev-dependencies]
+adp-ci-runner = { path = "../adp-ci-runner" }
+adp-ci-router = { path = "../adp-ci-router" }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread"] }
+tempfile = "3.10"
+base64 = { version = "0.22", features = ["std"] }
+rusqlite = { version = "0.32", features = ["bundled"] }

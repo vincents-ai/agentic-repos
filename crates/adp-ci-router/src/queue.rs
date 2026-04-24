@@ -397,6 +397,16 @@ impl JobQueue {
         Ok(())
     }
 
+    /// Force-set the updated_at timestamp (for timeout testing).
+    pub fn force_set_job_updated_at(&self, job_id: &str, timestamp: &str) -> Result<(), RouterError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE ci_jobs SET updated_at = ?1 WHERE job_id = ?2",
+            params![timestamp, job_id],
+        )?;
+        Ok(())
+    }
+
     /// Get runner details.
     pub fn get_runner(&self, runner_id: &str) -> Result<Option<RunnerRow>, RouterError> {
         let conn = self.conn.lock().unwrap();

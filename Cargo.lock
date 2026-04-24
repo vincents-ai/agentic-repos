@@ -243,9 +243,15 @@ dependencies = [
 name = "adp-ci-types"
 version = "0.1.0"
 dependencies = [
+ "adp-ci-router",
+ "adp-ci-runner",
+ "base64 0.22.1",
  "chrono",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 

@@ -224,6 +224,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "adp-ci-runner"
+version = "0.1.0"
+dependencies = [
+ "adp-ci-types",
+ "base64 0.22.1",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "adp-ci-types"
 version = "0.1.0"
 dependencies = [

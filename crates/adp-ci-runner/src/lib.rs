@@ -25,12 +25,14 @@ mod executor;
 mod secrets;
 mod workspace;
 mod log_stream;
+mod ref_writer;
 
 pub use error::RunnerError;
 pub use executor::{JobExecutor, ExecutorConfig};
 pub use secrets::SecretMounter;
 pub use workspace::Workspace;
 pub use log_stream::LogStreamer;
+pub use ref_writer::{RefWriter, RefWriteError};
 
 /// Re-export key types from adp-ci-types.
 pub use adp_ci_types::{

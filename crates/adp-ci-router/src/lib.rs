@@ -25,11 +25,13 @@ mod error;
 mod queue;
 mod matcher;
 mod router;
+mod metrics;
 
 pub use error::RouterError;
 pub use queue::JobQueue;
 pub use matcher::select_runner;
 pub use router::CiRouter;
+pub use metrics::{CiMetricsSnapshot, snapshot_queue_metrics};
 
 /// Re-export key types from adp-ci-types for convenience.
 pub use adp_ci_types::{

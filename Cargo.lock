@@ -240,6 +240,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "adp-ci-runner-bin"
+version = "0.1.0"
+dependencies = [
+ "adp-ci-runner",
+ "adp-ci-types",
+ "chrono",
+ "clap",
+ "futures-util",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "adp-ci-types"
 version = "0.1.0"
 dependencies = [

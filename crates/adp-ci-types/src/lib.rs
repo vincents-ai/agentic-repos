@@ -17,7 +17,7 @@ mod artifact;
 mod secrets;
 
 pub use events::{CiEvent, RunnerEvent, LogStream};
-pub use job::{JobRequest, JobResult, JobStatus, JobType, JobPriority, JobTrigger, JobStep, ComplianceRequirements};
+pub use job::{JobRequest, JobResult, JobStatus, JobType, JobPriority, JobTrigger, JobStep, ComplianceRequirements, JobMetrics, StepResult};
 pub use runner::{RunnerCapabilities, RunnerStatus, RunnerType, ResourceLimits};
 pub use artifact::{ArtifactRef, ArtifactStorage};
 pub use secrets::SecretMount;

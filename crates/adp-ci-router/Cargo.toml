@@ -1,0 +1,22 @@
+[package]
+name = "adp-ci-router"
+version = "0.1.0"
+edition = "2021"
+description = "CI job router: SQLite queue, runner matching, assignment, timeout monitoring"
+license = "AGPL-3.0"
+
+[dependencies]
+adp-ci-types = { path = "../adp-ci-types" }
+adp-sse-registry = { path = "../adp-sse-registry" }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4"] }
+thiserror = "1.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread"] }

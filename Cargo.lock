@@ -275,19 +275,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adp-ci-yaml"
-version = "0.1.0"
-dependencies = [
- "adp-ci-types",
- "globset",
- "serde",
- "serde_yaml",
- "thiserror 1.0.69",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "adp-proto"
 version = "0.1.0"
 dependencies = [

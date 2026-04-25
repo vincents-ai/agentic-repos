@@ -16,6 +16,7 @@ uuid = { version = "1.6", features = ["v4"] }
 thiserror = "1.0"
 tempfile = "3.10"
 base64 = { version = "0.22", features = ["std"] }
+sha2 = "0.10"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread", "process", "io-util"] }

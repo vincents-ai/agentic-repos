@@ -9,8 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::session::{InMemorySessionStore, Session, SessionManager};
-use super::OAuthUser;
+use super::session::{InMemorySessionStore, Session, SessionManager, SessionUser};
 
 pub struct OAuthMiddleware {
     session_manager: Arc<SessionManager<InMemorySessionStore>>,
@@ -143,7 +142,7 @@ pub fn get_current_session(req: &actix_web::HttpRequest) -> Option<Session> {
     req.extensions().get::<Session>().cloned()
 }
 
-pub fn get_current_user(req: &actix_web::HttpRequest) -> Option<OAuthUser> {
+pub fn get_current_user(req: &actix_web::HttpRequest) -> Option<SessionUser> {
     get_current_session(req).map(|s| s.user)
 }
 

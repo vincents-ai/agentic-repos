@@ -156,9 +156,9 @@ impl JobExecutor {
             artifacts,
             metrics: JobMetrics {
                 duration_secs: duration.as_secs(),
-                cpu_usage_percent: 0.0, // TODO: collect from cgroups
-                memory_peak_bytes: 0,   // TODO: collect from cgroups
-                disk_usage_bytes: 0,    // TODO: collect from workspace
+                cpu_usage_percent: 0.0, // TODO: collect from cgroups (requires cgroup v2 mount)
+                memory_peak_bytes: 0,   // TODO: collect from cgroups (requires cgroup v2 mount)
+                disk_usage_bytes: workspace.disk_usage(),
             },
             step_results,
         }
@@ -174,15 +174,23 @@ impl JobExecutor {
     fn mount_secrets(
         &self,
         workspace: &Workspace,
-        _secret_refs: &[String],
+        secret_refs: &[String],
     ) -> HashMap<String, String> {
-        // TODO: Fetch secrets from adp via REST, decrypt with SOPS
-        // For now, return empty env map
         let mounter = SecretMounter::new(workspace.secrets_dir());
-        // In production, we'd fetch each secret ref and mount it:
-        // let secrets = fetch_secrets(secret_refs).await;
-        // mounter.mount_all(&secrets)
-        let _ = mounter;
+
+        // TODO (async): Fetch secrets from adp via REST, decrypt with SOPS.
+        // The blocker is that mount_secrets is synchronous but fetching is async.
+        // To fix properly, make execute_job's secret mounting async:
+        //   let secret_mounts = self.fetch_secrets(secret_refs).await;
+        //   mounter.mount_all(&secret_mounts)
+        //
+        // fetch_secrets would:
+        //   1. GET {adp_url}/api/v1/secrets/{ref} → encrypted blob
+        //   2. Decrypt with SOPS + AGE (using the runner's AGE private key)
+        //   3. Return Vec<SecretMount>
+        //
+        // For now, return empty env map. The mounter infrastructure is ready.
+        let _ = (mounter, secret_refs);
         HashMap::new()
     }
 
@@ -297,17 +305,30 @@ impl JobExecutor {
             let full_path = workspace.workspace_dir().join(path_str);
             if full_path.exists() {
                 if let Ok(metadata) = std::fs::metadata(&full_path) {
-                    // TODO: compute SHA-256
+                    let sha256 = self.compute_sha256(&full_path);
                     artifacts.push(adp_ci_types::ArtifactRef {
                         name: path_str.clone(),
                         path: full_path.to_string_lossy().to_string(),
                         size_bytes: metadata.len(),
-                        sha256: "todo".to_string(),
+                        sha256,
                     });
                 }
             }
         }
         artifacts
+    }
+
+    /// Compute SHA-256 hash of a file.
+    fn compute_sha256(&self, path: &std::path::Path) -> String {
+        use sha2::{Sha256, Digest};
+        match std::fs::read(path) {
+            Ok(data) => {
+                let mut hasher = Sha256::new();
+                hasher.update(&data);
+                format!("{:x}", hasher.finalize())
+            }
+            Err(_) => "error-computing-hash".to_string(),
+        }
     }
 
     fn failed_result(&self, request: &JobRequest, step: &str, error: &str) -> JobResult {

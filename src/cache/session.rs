@@ -153,16 +153,16 @@ impl SessionStore for RedisSessionStore {
             return;
         }
 
-        if let Some(tenant_id) = &session.tenant_id {
+        if let Some(tenant_id) = &session.user.tenant_id {
             let _ = self
-                .add_to_user_sessions(&session.user.provider_user_id, &session.id)
+                .add_to_user_sessions(&session.user.user_id, &session.id)
                 .await;
             let _ = self
                 .add_to_user_sessions(&format!("tenant:{}", tenant_id), &session.id)
                 .await;
         } else {
             let _ = self
-                .add_to_user_sessions(&session.user.provider_user_id, &session.id)
+                .add_to_user_sessions(&session.user.user_id, &session.id)
                 .await;
         }
 
@@ -188,9 +188,9 @@ impl SessionStore for RedisSessionStore {
 
         if let Some(session) = session {
             let _ = self
-                .remove_from_user_sessions(&session.user.provider_user_id, session_id)
+                .remove_from_user_sessions(&session.user.user_id, session_id)
                 .await;
-            if let Some(tenant_id) = &session.tenant_id {
+            if let Some(tenant_id) = &session.user.tenant_id {
                 let _ = self
                     .remove_from_user_sessions(&format!("tenant:{}", tenant_id), session_id)
                     .await;
@@ -295,17 +295,13 @@ impl RedisSessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::oauth::{OAuthProvider, OAuthUser};
+    use crate::auth::session::SessionUser;
 
-    fn _test_user() -> OAuthUser {
-        OAuthUser {
-            provider: OAuthProvider::GitHub,
-            provider_user_id: "user-123".to_string(),
-            email: Some("test@example.com".to_string()),
-            name: Some("Test User".to_string()),
-            username: Some("testuser".to_string()),
-            avatar_url: None,
-        }
+    fn _test_user() -> SessionUser {
+        SessionUser::new("github:user-123")
+            .with_username("testuser")
+            .with_email("test@example.com")
+            .with_display_name("Test User")
     }
 
     #[tokio::test]

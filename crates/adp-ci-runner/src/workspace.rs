@@ -129,6 +129,30 @@ impl Workspace {
         }
         Ok(())
     }
+
+    /// Total disk usage of the workspace in bytes.
+    ///
+    /// Walks the workspace directory and sums file sizes. Not exact
+    /// (doesn't count directory metadata) but good enough for metrics.
+    pub fn disk_usage(&self) -> u64 {
+        let mut total: u64 = 0;
+        Self::dir_size(&self.root, &mut total);
+        total
+    }
+
+    fn dir_size(dir: &Path, total: &mut u64) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        *total += meta.len();
+                    } else if meta.is_dir() {
+                        Self::dir_size(&entry.path(), total);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Drop for Workspace {

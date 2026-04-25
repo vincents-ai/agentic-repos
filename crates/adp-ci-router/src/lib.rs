@@ -29,6 +29,7 @@ mod metrics;
 
 pub use error::RouterError;
 pub use queue::JobQueue;
+pub use queue::JobRow;
 pub use matcher::select_runner;
 pub use router::CiRouter;
 pub use metrics::{CiMetricsSnapshot, snapshot_queue_metrics};

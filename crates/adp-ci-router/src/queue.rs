@@ -354,6 +354,47 @@ impl JobQueue {
         Ok(counts)
     }
 
+    /// List jobs, optionally filtered by status, with a limit.
+    pub fn list_jobs(
+        &self,
+        status: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<JobRow>, RouterError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT job_id, repo_id, job_type, status, priority, assigned_runner,
+                    created_at, updated_at, deadline_at, environment,
+                    trigger_branch, trigger_commit
+             FROM ci_jobs
+             WHERE (?1 IS NULL OR status = ?1)
+             ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
+        )?;
+        let rows: Vec<JobRow> = stmt
+            .query_map(params![status, limit, offset], |row| Ok(job_row_from(row)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Count total jobs matching a status filter.
+    pub fn count_jobs(&self, status: Option<&str>) -> Result<usize, RouterError> {
+        let conn = self.conn.lock().unwrap();
+        let count: usize = if let Some(s) = status {
+            conn.query_row(
+                "SELECT COUNT(*) FROM ci_jobs WHERE status = ?1",
+                params![s],
+                |row| row.get(0),
+            )?
+        } else {
+            conn.query_row(
+                "SELECT COUNT(*) FROM ci_jobs",
+                [],
+                |row| row.get(0),
+            )?
+        };
+        Ok(count)
+    }
+
     /// Find timed-out assigned jobs (assigned but not started within deadline).
     pub fn timed_out_jobs(&self, timeout_secs: u64) -> Result<Vec<String>, RouterError> {
         let conn = self.conn.lock().unwrap();
@@ -458,6 +499,40 @@ pub struct RunnerRow {
     pub labels_json: String,
     pub max_concurrent: u32,
     pub current_jobs: u32,
+}
+
+/// A job row from the queue database.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct JobRow {
+    pub job_id: String,
+    pub repo_id: String,
+    pub job_type: String,
+    pub status: String,
+    pub priority: i32,
+    pub assigned_runner: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deadline_at: Option<String>,
+    pub environment: Option<String>,
+    pub trigger_branch: Option<String>,
+    pub trigger_commit: Option<String>,
+}
+
+fn job_row_from(row: &rusqlite::Row<'_>) -> JobRow {
+    JobRow {
+        job_id: row.get(0).unwrap_or_default(),
+        repo_id: row.get(1).unwrap_or_default(),
+        job_type: row.get(2).unwrap_or_default(),
+        status: row.get(3).unwrap_or_default(),
+        priority: row.get(4).unwrap_or(1),
+        assigned_runner: row.get(5).unwrap_or(None),
+        created_at: row.get(6).unwrap_or_default(),
+        updated_at: row.get(7).unwrap_or_default(),
+        deadline_at: row.get(8).unwrap_or(None),
+        environment: row.get(9).unwrap_or(None),
+        trigger_branch: row.get(10).unwrap_or(None),
+        trigger_commit: row.get(11).unwrap_or(None),
+    }
 }
 
 #[cfg(test)]

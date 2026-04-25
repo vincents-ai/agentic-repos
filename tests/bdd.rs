@@ -113,9 +113,9 @@ fn execute_action(world: &mut PluginWorld, action: String) {
         id: format!("test-{}", action),
         method: action,
         params: Value::Null,
-        tenant_id: None,
-        user_id: None,
-        token: None,
+        tenant_id: Some("test-tenant".to_string()),
+        user_id: Some("test-user".to_string()),
+        token: Some("test-token".to_string()),
     };
     world.send_request(request);
 }
@@ -133,8 +133,8 @@ fn execute_action_with_args(world: &mut PluginWorld, action: String, #[step] ste
                 method: action.clone(),
                 params: Value::String(docstring.to_string()),
                 tenant_id: Some("test-tenant".to_string()),
-                user_id: None,
-                token: None,
+                user_id: Some("test-user".to_string()),
+                token: Some("test-token".to_string()),
             };
             world.send_request(request);
             return;
@@ -169,8 +169,8 @@ fn execute_action_with_args(world: &mut PluginWorld, action: String, #[step] ste
         method,
         params: actual_params,
         tenant_id,
-        user_id: None,
-        token: None,
+        user_id: Some("test-user".to_string()),
+        token: Some("test-token".to_string()),
     };
     world.send_request(request);
 }

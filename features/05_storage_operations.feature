@@ -14,7 +14,9 @@ Feature: Storage Operations
       {
         "id": "storage-1",
         "method": "storage.list_backends",
-        "params": {}
+        "params": {
+          "tenant_id": "test-tenant"
+        }
       }
       """
     Then the action should succeed
@@ -29,6 +31,7 @@ Feature: Storage Operations
         "id": "storage-2",
         "method": "storage.list_buckets",
         "params": {
+          "tenant_id": "test-tenant",
           "backend_name": "local"
         }
       }
@@ -44,6 +47,7 @@ Feature: Storage Operations
         "id": "storage-error-1",
         "method": "storage.list_buckets",
         "params": {
+          "tenant_id": "test-tenant",
           "backend_name": "nonexistent-backend"
         }
       }
@@ -59,6 +63,7 @@ Feature: Storage Operations
         "id": "storage-3",
         "method": "storage.create_bucket",
         "params": {
+          "tenant_id": "test-tenant",
           "backend_name": "local",
           "bucket_name": "test-bucket-123"
         }

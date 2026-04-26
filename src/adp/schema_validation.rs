@@ -198,5 +198,69 @@ fn read_blob_data(repo_path: &Path, oid: &str) -> Result<Vec<u8>, SchemaValidati
 
 #[cfg(test)]
 mod tests {
-    // Placeholder - integration tests cover this
+    use super::*;
+    use crate::adp::schema::SchemaValidationError;
+
+    fn validation_err(msg: &str) -> SchemaValidationError {
+        SchemaValidationError {
+            path: "$".to_string(),
+            message: msg.to_string(),
+            keyword: Some("required".to_string()),
+        }
+    }
+
+    #[test]
+    fn error_display_validation_failed() {
+        let err = SchemaValidationHookError::ValidationFailed {
+            ref_name: "refs/engram/task/abc".to_string(),
+            errors: vec![
+                validation_err("title missing"),
+                validation_err("id missing"),
+                validation_err("status missing"),
+                validation_err("priority missing"),
+            ],
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("schema validation failed for ref refs/engram/task/abc"));
+        assert!(msg.contains("4 errors"));
+        assert!(msg.contains("and 1 more"));
+    }
+
+    #[test]
+    fn error_display_validation_few_errors() {
+        let err = SchemaValidationHookError::ValidationFailed {
+            ref_name: "refs/test".to_string(),
+            errors: vec![validation_err("x missing")],
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("1 errors"));
+        assert!(!msg.contains("and"));
+    }
+
+    #[test]
+    fn error_display_invalid_schema() {
+        let err = SchemaValidationHookError::InvalidSchema {
+            schema_id: "engram-task".to_string(),
+            details: "missing fields".to_string(),
+        };
+        assert!(err.to_string().contains("invalid schema in refs/adp/schema/engram-task"));
+    }
+
+    #[test]
+    fn error_display_blob_read_failed() {
+        let err = SchemaValidationHookError::BlobReadFailed {
+            ref_name: "refs/test".to_string(),
+            details: "not found".to_string(),
+        };
+        assert!(err.to_string().contains("failed to read blob for ref refs/test"));
+    }
+
+    #[test]
+    fn error_display_invalid_json() {
+        let err = SchemaValidationHookError::InvalidJson {
+            ref_name: "refs/test".to_string(),
+            details: "unexpected token".to_string(),
+        };
+        assert!(err.to_string().contains("invalid JSON in ref refs/test"));
+    }
 }

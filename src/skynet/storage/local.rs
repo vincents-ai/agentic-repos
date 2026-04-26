@@ -101,3 +101,61 @@ impl StorageBackend for LocalStorageBackend {
         Ok(vec![])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn validate_path_component_accepts_valid() {
+        assert!(validate_path_component("my-tenant", "tenant_id").is_ok());
+        assert!(validate_path_component("repo_123", "repo_name").is_ok());
+    }
+
+    #[test]
+    fn validate_path_component_rejects_empty() {
+        assert!(validate_path_component("", "name").unwrap_err().contains("must not be empty"));
+    }
+
+    #[test]
+    fn validate_path_component_rejects_slashes() {
+        assert!(validate_path_component("a/b", "name").unwrap_err().contains("path separators"));
+        assert!(validate_path_component("a\\b", "name").unwrap_err().contains("path separators"));
+    }
+
+    #[test]
+    fn validate_path_component_rejects_traversal() {
+        assert!(validate_path_component("..", "name").unwrap_err().contains("traversal"));
+        assert!(validate_path_component("a..b", "name").unwrap_err().contains("traversal"));
+    }
+
+    #[test]
+    fn validate_path_component_rejects_dot_prefix() {
+        assert!(validate_path_component(".hidden", "name").unwrap_err().contains("invalid characters"));
+    }
+
+    #[test]
+    fn validate_path_component_rejects_null() {
+        assert!(validate_path_component("a\0b", "name").unwrap_err().contains("invalid characters"));
+    }
+
+    #[test]
+    fn safe_repo_path_constructs_correctly() {
+        let backend = LocalStorageBackend::new(PathBuf::from("/data"));
+        let path = backend.safe_repo_path("tenant1", "myrepo").unwrap();
+        assert_eq!(path, PathBuf::from("/data/tenant1/repos/myrepo.git"));
+    }
+
+    #[test]
+    fn safe_repo_path_rejects_traversal_tenant() {
+        let backend = LocalStorageBackend::new(PathBuf::from("/data"));
+        assert!(backend.safe_repo_path("..", "repo").is_err());
+    }
+
+    #[test]
+    fn safe_repo_path_rejects_traversal_repo() {
+        let backend = LocalStorageBackend::new(PathBuf::from("/data"));
+        assert!(backend.safe_repo_path("tenant", "..").is_err());
+    }
+}

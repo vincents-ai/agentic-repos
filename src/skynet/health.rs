@@ -52,3 +52,18 @@ impl Default for HealthChecker {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_instance() {
+        let _checker = HealthChecker::new();
+    }
+
+    #[test]
+    fn default_same_as_new() {
+        let _checker = HealthChecker::default();
+    }
+}

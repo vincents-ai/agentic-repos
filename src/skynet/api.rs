@@ -54,3 +54,35 @@ pub fn list_api_methods() -> Vec<ApiMethod> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_api_methods_returns_expected() {
+        let methods = list_api_methods();
+        let names: Vec<&str> = methods.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"repo.create"));
+        assert!(names.contains(&"repo.delete"));
+        assert!(names.contains(&"health.check"));
+        assert!(names.contains(&"metrics.get"));
+    }
+
+    #[test]
+    fn api_method_serialization() {
+        let methods = list_api_methods();
+        let json = serde_json::to_string(&methods).unwrap();
+        let parsed: Vec<ApiMethod> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.len(), methods.len());
+    }
+
+    #[test]
+    fn create_repo_has_required_name_param() {
+        let methods = list_api_methods();
+        let create = methods.iter().find(|m| m.name == "repo.create").unwrap();
+        assert_eq!(create.params.len(), 1);
+        assert!(create.params[0].required);
+        assert_eq!(create.params[0].name, "name");
+    }
+}

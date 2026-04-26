@@ -62,3 +62,56 @@ impl Default for MetricsCollector {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_is_empty() {
+        let m = MetricsCollector::new();
+        let metrics = m.get_metrics();
+        assert_eq!(metrics["requests"], json!({}));
+        assert_eq!(metrics["successes"], json!({}));
+        assert_eq!(metrics["errors"], json!({}));
+    }
+
+    #[test]
+    fn record_request_increments() {
+        let m = MetricsCollector::new();
+        m.record_request("GET");
+        m.record_request("GET");
+        m.record_request("POST");
+        let metrics = m.get_metrics();
+        assert_eq!(metrics["requests"]["GET"], 2);
+        assert_eq!(metrics["requests"]["POST"], 1);
+    }
+
+    #[test]
+    fn record_success_increments() {
+        let m = MetricsCollector::new();
+        m.record_success("GET");
+        m.record_success("GET");
+        let metrics = m.get_metrics();
+        assert_eq!(metrics["successes"]["GET"], 2);
+    }
+
+    #[test]
+    fn record_error_tracks_method_and_code() {
+        let m = MetricsCollector::new();
+        m.record_error("GET", "404");
+        m.record_error("GET", "500");
+        m.record_error("POST", "422");
+        let metrics = m.get_metrics();
+        assert_eq!(metrics["errors"]["GET:404"], 1);
+        assert_eq!(metrics["errors"]["GET:500"], 1);
+        assert_eq!(metrics["errors"]["POST:422"], 1);
+    }
+
+    #[test]
+    fn default_is_same_as_new() {
+        let m = MetricsCollector::default();
+        let metrics = m.get_metrics();
+        assert_eq!(metrics["requests"], json!({}));
+    }
+}

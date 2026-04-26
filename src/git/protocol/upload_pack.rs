@@ -56,12 +56,50 @@ impl UploadPackHandler {
         W: AsyncWrite + Unpin,
     {
         info!("Starting upload-pack protocol handler");
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            Self::handle_impl_inner(&repo_path, &mut reader, &mut writer, caller_identity),
+        ).await;
+
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                tracing::debug!("[UPLOAD-PACK] Handler timed out");
+                Ok(())
+            }
+        }
+    }
+
+    async fn handle_impl_inner<R, W>(
+        repo_path: &std::path::Path,
+        reader: &mut R,
+        writer: &mut W,
+        caller_identity: Option<CallerIdentity>,
+    ) -> Result<()>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
         tracing::debug!("[UPLOAD-PACK] Starting handler");
 
-        Self::advertise_refs_impl(&repo_path, &mut writer, caller_identity.as_ref()).await?;
+        Self::advertise_refs_impl(repo_path, writer, caller_identity.as_ref()).await?;
         tracing::debug!("[UPLOAD-PACK] Advertised refs");
 
-        let (wants, haves, capabilities) = Self::read_negotiation_impl(&mut reader).await?;
+        let negotiation_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            Self::read_negotiation_impl(reader),
+        ).await;
+
+        let (wants, haves, capabilities) = match negotiation_result {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                tracing::debug!("[UPLOAD-PACK] Negotiation timed out, treating as no wants");
+                (Vec::new(), Vec::new(), HashSet::new())
+            }
+        };
         tracing::debug!(
             "[UPLOAD-PACK] Read negotiation: {} wants, capabilities: {:?}",
             wants.len(),
@@ -74,7 +112,7 @@ impl UploadPackHandler {
             return Ok(());
         }
 
-        Self::send_packfile_impl(&repo_path, &mut writer, &wants, &haves, &capabilities).await?;
+        Self::send_packfile_impl(repo_path, writer, &wants, &haves, &capabilities).await?;
 
         info!("Upload-pack completed successfully");
         tracing::debug!("[UPLOAD-PACK] Completed successfully");
@@ -145,8 +183,8 @@ impl UploadPackHandler {
         let mut count = 0;
 
         if let Some(oid) = head_target {
-            let caps = format!(" {}", capabilities.join(" "));
-            let line = format!("{} HEAD{}\n", oid.to_hex(), caps);
+            let caps = capabilities.join("\0");
+            let line = format!("{} HEAD\0{}\n", oid.to_hex(), caps);
             write_data_packet(writer, line.as_bytes()).await?;
             count += 1;
         }
@@ -160,7 +198,7 @@ impl UploadPackHandler {
         if count == 0 {
             let line = format!(
                 "0000000000000000000000000000000000000000 capabilities^{}\n",
-                capabilities.join(" ")
+                capabilities.join("\0")
             );
             write_data_packet(writer, line.as_bytes()).await?;
         }
@@ -384,13 +422,12 @@ impl UploadPackHandler {
                 packet_data.extend_from_slice(chunk);
                 write_data_packet(writer, &packet_data).await?;
             }
+            write_flush_packet(writer).await?;
         } else {
-            for chunk in packfile_data.chunks(CHUNK_SIZE) {
-                write_data_packet(writer, chunk).await?;
-            }
+            // Without sideband, pack data is sent raw.
+            // Client reads raw bytes until EOF — no flush or pkt-line framing.
+            writer.write_all(&packfile_data).await?;
         }
-
-        write_flush_packet(writer).await?;
         writer.flush().await?;
 
         info!("Sent packfile: {} bytes", packfile_data.len());

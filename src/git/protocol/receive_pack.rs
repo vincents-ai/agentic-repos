@@ -154,12 +154,12 @@ impl ReceivePackHandler {
 
         if let Some(oid) = head_target {
             let caps = if first {
-                format!(" {}", capabilities.join(" "))
+                capabilities.join("\0")
             } else {
                 String::new()
             };
 
-            let line = format!("{} HEAD{}\n", oid.to_hex(), caps);
+            let line = format!("{} HEAD\0{}\n", oid.to_hex(), caps);
             write_data_packet(writer, line.as_bytes()).await?;
             first = false;
             count += 1;

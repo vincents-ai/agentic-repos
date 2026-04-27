@@ -40,10 +40,8 @@ impl SshServer {
     ) -> Self {
         let config = config.unwrap_or_default();
         let lfs_config = lfs_config.unwrap_or_default();
-        let mut auth_manager = AuthorizedKeysManager::new(config.clone());
-        if let Some(root) = git_service.get_storage_root() {
-            auth_manager = auth_manager.with_storage_root(root);
-        }
+        let root = git_service.get_storage_root().unwrap_or_else(|| std::path::PathBuf::from("./repositories"));
+        let auth_manager = AuthorizedKeysManager::new(root);
         let rate_limiter = RateLimiter::new(Some(config.rate_limit.clone()));
 
         Self {
@@ -145,10 +143,7 @@ impl SshServer {
                 warn!("SSH server will reject all authentication attempts");
             } else if !auth_manager.has_authorized_users() {
                 warn!("No authorized users configured - SSH server will reject all authentication attempts");
-                warn!(
-                    "Add users to the authorized keys file: {:?}",
-                    self.config.authorized_keys_path
-                );
+                warn!("No authorized users configured — register keys via 'agentic-repos init --admin-key'");
             } else {
                 info!(
                     "Loaded authorized keys for {} users",
@@ -381,25 +376,28 @@ impl russh::server::Handler for SshHandler {
                 }
                 _ => {
                     error!("Rate limit check failed: {}", e);
+                    // Fail-closed: reject auth on rate limit errors
+                    return Ok(russh::server::Auth::Reject {
+                        proceed_with_methods: None,
+                        partial_success: false,
+                    });
                 }
             }
         }
 
         let auth_manager = self.auth_manager.lock().await;
-        let fingerprint = public_key
-            .fingerprint(russh::keys::ssh_key::HashAlg::Sha256);
+        let fingerprint = public_key.fingerprint(russh::keys::ssh_key::HashAlg::Sha256);
         let key_fingerprint = fingerprint.to_string();
         let fingerprint_hex = hex::encode(fingerprint.as_bytes());
 
         // Phase 1: Resolve identity from key fingerprint → username
         // This uses the git-refs identity store (ADR-031)
-        let resolved_user: Option<String> = self
-            .git_service
-            .get_storage_root()
-            .and_then(|root| {
-                let system_repo = root.join(crate::adp::bootstrap::SYSTEM_REPO_PATH);
-                crate::adp::storage::AdpStore::resolve_key_identity(&system_repo, &fingerprint_hex).ok().flatten()
-            });
+        let resolved_user: Option<String> = self.git_service.get_storage_root().and_then(|root| {
+            let system_repo = root.join(crate::adp::bootstrap::SYSTEM_REPO_PATH);
+            crate::adp::storage::AdpStore::resolve_key_identity(&system_repo, &fingerprint_hex)
+                .ok()
+                .flatten()
+        });
 
         if let Some(ref username) = resolved_user {
             // Phase 2: Verify the key is still listed in user's ssh_keys
@@ -541,6 +539,11 @@ impl russh::server::Handler for SshHandler {
                 }
                 _ => {
                     error!("Rate limit check failed: {}", e);
+                    // Fail-closed: reject on rate limit errors
+                    session.data(channel, bytes::Bytes::from(b"rate limit error\n".to_vec()))?;
+                    let _ = session.exit_status_request(channel, 1);
+                    session.close(channel)?;
+                    return Ok(());
                 }
             }
         }
@@ -569,14 +572,19 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root()
+                        let storage_root = self
+                            .git_service
+                            .get_storage_root()
                             .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
 
                         // Per-repo access control (ADR-031)
-                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Pull) {
-                            let error_msg = format!("ERROR: Access denied for repository '{}'\n", repository);
-                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Pull)
+                        {
+                            let error_msg =
+                                format!("ERROR: Access denied for repository '{}'\n", repository);
+                            session
+                                .data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 1)?;
                             session.eof(channel)?;
                             return Ok(());
@@ -669,14 +677,21 @@ impl russh::server::Handler for SshHandler {
                         let repo_path = self
                             .git_service
                             .get_repository_full_path(&tenant, &repo_name);
-                        let storage_root = self.git_service.get_storage_root()
+                        let storage_root = self
+                            .git_service
+                            .get_storage_root()
                             .expect("SSH serving requires local storage");
                         let full_path = storage_root.join(&repo_path);
 
                         // Per-repo access control (ADR-031)
-                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Push) {
-                            let error_msg = format!("ERROR: Write access denied for repository '{}'\n", repository);
-                            session.data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
+                        if !self.check_repo_access(&full_path, crate::adp::access::Permission::Push)
+                        {
+                            let error_msg = format!(
+                                "ERROR: Write access denied for repository '{}'\n",
+                                repository
+                            );
+                            session
+                                .data(channel, bytes::Bytes::from(error_msg.as_bytes().to_vec()))?;
                             session.exit_status_request(channel, 1)?;
                             session.eof(channel)?;
                             return Ok(());
@@ -774,7 +789,9 @@ impl russh::server::Handler for SshHandler {
                         let repo = parts[1..].join("/");
 
                         let generator =
-                            crate::lfs::LfsTokenGenerator::new(self.lfs_config.jwt_secret.clone());
+                            crate::lfs::LfsTokenGenerator::new(
+                                self.lfs_config.jwt_secret.clone().unwrap_or_default()
+                            );
                         let lfs_op = if operation == "download" {
                             crate::lfs::LfsOperation::Download
                         } else {
@@ -918,23 +935,35 @@ impl SshHandler {
         let username = match &self.authenticated_user {
             Some(u) => u,
             None => {
-                warn!("Access denied: no authenticated user for repo {:?}", repo_path);
+                warn!(
+                    "Access denied: no authenticated user for repo {:?}",
+                    repo_path
+                );
                 return false;
             }
         };
 
-        match crate::adp::storage::AdpStore::check_repo_access(repo_path, username, &permission) {
+        match crate::adp::storage::AdpStore::check_repo_access(repo_path, username, &permission, None) {
             Ok(true) => {
-                debug!("Access granted: user '{}' has {:?} on {:?}", username, permission, repo_path);
+                debug!(
+                    "Access granted: user '{}' has {:?} on {:?}",
+                    username, permission, repo_path
+                );
                 true
             }
             Ok(false) => {
-                warn!("Access denied: user '{}' lacks {:?} on {:?}", username, permission, repo_path);
+                warn!(
+                    "Access denied: user '{}' lacks {:?} on {:?}",
+                    username, permission, repo_path
+                );
                 false
             }
             Err(e) => {
                 // On error, default to deny for write, allow for read (fail-open for reads)
-                error!("Access check error for user '{}' on {:?}: {}", username, repo_path, e);
+                error!(
+                    "Access check error for user '{}' on {:?}: {}",
+                    username, repo_path, e
+                );
                 matches!(permission, crate::adp::access::Permission::Pull)
             }
         }
@@ -1005,11 +1034,13 @@ mod tests {
         let config = GitConfig {
             ssh_port: 0, // Use random port for testing
             host_key_path: temp_dir.path().join("test_host_key"),
-            authorized_keys_path: temp_dir.path().join("authorized_keys"),
+
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
         let server = SshServer::new(git_service, Some(config), None);
@@ -1078,11 +1109,13 @@ mod tests {
         let config = GitConfig {
             ssh_port: 0,
             host_key_path: nested_path.clone(),
-            authorized_keys_path: temp_dir.path().join("authorized_keys"),
+
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: crate::git::rate_limit::RateLimitConfig::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
         let storage = Arc::new(LocalStorage::new(temp_dir.path().to_path_buf()));

@@ -25,8 +25,7 @@ impl SeaweedFs {
     /// Start a new SeaweedFS container with S3 gateway enabled.
     pub async fn start() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let container_name = format!("e2e-swfs-{}", random_suffix());
-        let s3_port = portpicker::pick_unused_port()
-            .ok_or("no unused port for SeaweedFS S3")?;
+        let s3_port = portpicker::pick_unused_port().ok_or("no unused port for SeaweedFS S3")?;
 
         info!(
             "Starting SeaweedFS container {} (S3 :{})",
@@ -35,11 +34,17 @@ impl SeaweedFs {
 
         let output = Command::new("podman")
             .args([
-                "run", "-d",
-                "--name", &container_name,
-                "-p", &format!("127.0.0.1:{}:8333", s3_port),
+                "run",
+                "-d",
+                "--name",
+                &container_name,
+                "-p",
+                &format!("127.0.0.1:{}:8333", s3_port),
                 "docker.io/chrislusf/seaweedfs:latest",
-                "server", "-s3", "-filer", "-dir=/tmp",
+                "server",
+                "-s3",
+                "-filer",
+                "-dir=/tmp",
             ])
             .output()?;
 
@@ -96,7 +101,11 @@ impl SeaweedFs {
             .region(aws_sdk_s3::config::Region::new("us-east-1"))
             .endpoint_url(self.s3_endpoint())
             .credentials_provider(aws_sdk_s3::config::Credentials::new(
-                "anonymous", "anonymous", None, None, "static",
+                "anonymous",
+                "anonymous",
+                None,
+                None,
+                "static",
             ))
             .force_path_style(true)
             .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
@@ -106,13 +115,12 @@ impl SeaweedFs {
     }
 
     /// Create a bucket in SeaweedFS.
-    pub async fn create_bucket(&self, name: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn create_bucket(
+        &self,
+        name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = self.s3_client().await;
-        client
-            .create_bucket()
-            .bucket(name)
-            .send()
-            .await?;
+        client.create_bucket().bucket(name).send().await?;
         info!("Created bucket '{}' in SeaweedFS", name);
         Ok(())
     }

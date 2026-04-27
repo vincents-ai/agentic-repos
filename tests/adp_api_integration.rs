@@ -121,7 +121,8 @@ mod tests {
             },
             name: refname.try_into().unwrap(),
             deref: false,
-        }).unwrap();
+        })
+        .unwrap();
 
         let result = AdpStore::read_schema(&repo_path, "task").unwrap();
         assert!(result.is_none());

@@ -4,37 +4,28 @@ pub mod lfs_locks;
 pub mod models;
 pub mod routes;
 
-use crate::compliance::dora::{DoraService, InMemoryDoraStore};
-use crate::compliance::dora_nis2_handlers::DoraNis2State;
-use crate::compliance::handlers::{ComplianceState, configure_compliance_routes};
-use crate::compliance::nis2::{InMemoryNis2Store, Nis2Service};
-use crate::webhooks::service::WebhookService;
-use crate::webhooks::storage::InMemoryWebhookStorage;
 use crate::features::FeatureFlags;
 use crate::git::GitService;
 use crate::rbac::storage::InMemoryRbacStorage;
 use crate::rbac::RbacService;
-use crate::scaling::{ClusterManager, HealthChecker, ScalingConfig};
-use crate::sdlc::{InMemorySdlcStore, SdlcService};
 use crate::server::AppConfigurator;
-use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
-use routes::cluster::ClusterState;
+use actix_web::{middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
-async fn metrics_endpoint(sdlc: Option<web::Data<Arc<SdlcService>>>) -> HttpResponse {
-    // Export SDLC metrics to prometheus gauges before gathering
-    if let Some(svc) = sdlc {
-        if let Err(e) = crate::sdlc::export_sdlc_metrics(&svc) {
-            tracing::warn!("Failed to export SDLC metrics: {}", e);
-        }
+async fn metrics_endpoint(req: HttpRequest) -> HttpResponse {
+    // Require auth for metrics — prevent information disclosure
+    if crate::auth::middleware::get_current_session(&req).is_none() {
+        return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Authentication required"
+        }));
     }
     match crate::lfs::encode_metrics() {
         Ok(metrics) => HttpResponse::Ok()
             .content_type("text/plain; version=0.0.4")
             .body(metrics),
         Err(e) => {
-            HttpResponse::InternalServerError().body(format!("Failed to encode metrics: {}", e))
+            tracing::error!("Failed to encode metrics: {}", e);
+            HttpResponse::InternalServerError().body("Internal error")
         }
     }
 }
@@ -96,47 +87,34 @@ impl ApiServer {
             None
         };
 
-        let scaling_config = ScalingConfig::from_env();
-        let cluster_manager = Arc::new(RwLock::new(ClusterManager::new(scaling_config.clone())));
-        let health_checker = Arc::new(
-            HealthChecker::new(scaling_config.instance_id.clone())
-                .with_cluster_manager(Arc::clone(&cluster_manager)),
-        );
-
-        let cluster_state = web::Data::new(ClusterState {
-            cluster_manager,
-            health_checker,
-            leader_election: None,
-            config: scaling_config,
-            session_affinity: None,
-            distributed_lock: None,
-        });
-
         let config_clone = config.clone();
-        let sdlc_service = web::Data::new(Arc::new(SdlcService::new(Arc::new(InMemorySdlcStore::new()))));
-        let webhook_service = web::Data::new(Arc::new(WebhookService::new(Arc::new(InMemoryWebhookStorage::new()))));
-        let compliance_state = web::Data::new(ComplianceState::new(crate::compliance::ComplianceConfig::default()));
-        let dora_nis2_state = web::Data::new(Arc::new(DoraNis2State {
-            dora: Arc::new(DoraService::new(Arc::new(InMemoryDoraStore::new()))),
-            nis2: Arc::new(Nis2Service::new(Arc::new(InMemoryNis2Store::new()))),
-        }));
+
         HttpServer::new(move || {
             let mut app = App::new()
+                // Global request body size limit — 10MB max to prevent DoS
+                .app_data(
+                    web::JsonConfig::default().limit(10 * 1024 * 1024)
+                )
                 .app_data(web::Data::new(git_service.clone()))
                 .app_data(web::Data::new(lfs_config.clone()))
-                .app_data(cluster_state.clone())
-                .app_data(sdlc_service.clone())
-                .app_data(webhook_service.clone())
-                .app_data(compliance_state.clone())
-                .app_data(dora_nis2_state.clone())
                 // RBAC service — required by require_permission middleware
-                .app_data(rbac_service_data.clone().unwrap_or_else(|| web::Data::new(Arc::new(RbacService::new(Arc::new(InMemoryRbacStorage::new()))))))
-                .wrap(Logger::default())
-                .route("/metrics", web::get().to(metrics_endpoint))
-                .service(web::scope("/api/v1/compliance").configure(|cfg| {
-                    configure_compliance_routes(cfg, compliance_state.clone());
-                    crate::compliance::dora_nis2_handlers::configure_dora_nis2_routes(cfg, dora_nis2_state.clone());
+                .app_data(rbac_service_data.clone().unwrap_or_else(|| {
+                    web::Data::new(Arc::new(RbacService::new(Arc::new(
+                        InMemoryRbacStorage::new(),
+                    ))))
                 }))
+                .wrap(Logger::default())
+                // Security headers for all responses
+                .wrap(
+                    actix_web::middleware::DefaultHeaders::new()
+                        .add(("X-Content-Type-Options", "nosniff"))
+                        .add(("X-Frame-Options", "DENY"))
+                        .add(("X-XSS-Protection", "1; mode=block"))
+                        .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
+                        .add(("Content-Security-Policy", "default-src 'self'"))
+                        .add(("Permissions-Policy", "camera=(), microphone=(), geolocation=()")),
+                )
+                .route("/metrics", web::get().to(metrics_endpoint))
                 .service(web::scope("/api/v1").configure(routes::configure_routes));
 
             if feature_flags.git_lfs && lfs_config.enabled {
@@ -146,7 +124,6 @@ impl ApiServer {
                     ThrottleConfig,
                 };
                 use crate::storage::local::LocalStorage;
-                use std::sync::Arc;
 
                 // Use the same storage root as GitService (from AGENTIC_REPOS_STORAGE_ROOT)
                 let storage_root = git_service
@@ -198,18 +175,7 @@ impl ApiServer {
                     ));
             }
 
-            // Wire Web UI if feature flag is enabled
-            if feature_flags.web_ui {
-                if let Ok(web_ui) =
-                    crate::web::WebUI::new(git_service.clone(), feature_flags.clone())
-                {
-                    app = app.configure(|cfg| {
-                        crate::web::WebUI::configure(cfg, Arc::new(web_ui));
-                    });
-                }
-            }
-
-            // Apply external app configurator (e.g., adp-web-ui SPA fallback)
+            // Apply external app configurator (e.g., adp SPA fallback + enterprise routes)
             if let Some(ref configurator) = app_configurator {
                 app = app.configure(|cfg| configurator(cfg));
             }

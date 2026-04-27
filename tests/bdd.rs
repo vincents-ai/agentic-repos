@@ -2,10 +2,10 @@
 //!
 //! Run with: cargo test --test bdd
 
-use cucumber::{gherkin::Step, World};
 use agentic_repos::config::AppConfig;
 use agentic_repos::skynet::interface::{GitOperationsPlugin, PluginRequest, PluginResponse};
 use agentic_repos::skynet::metadata::git_operations_metadata;
+use cucumber::{gherkin::Step, World};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -63,7 +63,9 @@ impl PluginWorld {
     }
 
     fn last_response(&self) -> &PluginResponse {
-        self.last_response.as_ref().expect("No response — did you send a request?")
+        self.last_response
+            .as_ref()
+            .expect("No response — did you send a request?")
     }
 }
 
@@ -75,7 +77,8 @@ fn plugin_loaded(world: &mut PluginWorld, _path: String) {
     // The path parameter is ignored; we create the plugin from defaults.
     let config = AppConfig::default();
     let plugin = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(GitOperationsPlugin::new(config))
+        tokio::runtime::Handle::current()
+            .block_on(GitOperationsPlugin::new(config))
             .expect("Failed to create plugin")
     });
     world.plugin = Some(plugin);
@@ -110,9 +113,9 @@ fn execute_action(world: &mut PluginWorld, action: String) {
         id: format!("test-{}", action),
         method: action,
         params: Value::Null,
-        tenant_id: None,
-        user_id: None,
-        token: None,
+        tenant_id: Some("test-tenant".to_string()),
+        user_id: Some("test-user".to_string()),
+        token: Some("test-token".to_string()),
     };
     world.send_request(request);
 }
@@ -130,8 +133,8 @@ fn execute_action_with_args(world: &mut PluginWorld, action: String, #[step] ste
                 method: action.clone(),
                 params: Value::String(docstring.to_string()),
                 tenant_id: Some("test-tenant".to_string()),
-                user_id: None,
-                token: None,
+                user_id: Some("test-user".to_string()),
+                token: Some("test-token".to_string()),
             };
             world.send_request(request);
             return;
@@ -139,23 +142,35 @@ fn execute_action_with_args(world: &mut PluginWorld, action: String, #[step] ste
     };
 
     // The feature file args are full request JSON with id/method/params
-    let tenant_id = params.get("params")
+    let tenant_id = params
+        .get("params")
         .and_then(|p| p.get("tenant_id"))
         .or_else(|| params.get("tenant_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let actual_params = params.get("params").cloned().unwrap_or_else(|| params.clone());
-    let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("test").to_string();
-    let method = params.get("method").and_then(|v| v.as_str()).unwrap_or(&action).to_string();
+    let actual_params = params
+        .get("params")
+        .cloned()
+        .unwrap_or_else(|| params.clone());
+    let id = params
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("test")
+        .to_string();
+    let method = params
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&action)
+        .to_string();
 
     let request = PluginRequest {
         id,
         method,
         params: actual_params,
         tenant_id,
-        user_id: None,
-        token: None,
+        user_id: Some("test-user".to_string()),
+        token: Some("test-token".to_string()),
     };
     world.send_request(request);
 }
@@ -166,7 +181,9 @@ fn execute_action_with_args(world: &mut PluginWorld, action: String, #[step] ste
 fn action_should_succeed(world: &mut PluginWorld) {
     let response = world.last_response();
     // Check for error in the envelope
-    let has_envelope_error = response.result.as_ref()
+    let has_envelope_error = response
+        .result
+        .as_ref()
         .and_then(|v| v.get("error"))
         .is_some();
     assert!(
@@ -180,8 +197,7 @@ fn action_should_succeed(world: &mut PluginWorld) {
 fn action_should_fail(world: &mut PluginWorld) {
     let response = world.last_response();
     // Check for error either in response.error or in the envelope's error field
-    let envelope_error = response.result.as_ref()
-        .and_then(|v| v.get("error"));
+    let envelope_error = response.result.as_ref().and_then(|v| v.get("error"));
     let has_error = response.error.is_some() || envelope_error.is_some();
     assert!(
         has_error,
@@ -189,9 +205,10 @@ fn action_should_fail(world: &mut PluginWorld) {
         response.result
     );
     world.last_error = Some(
-        envelope_error.map(|v| v.to_string())
+        envelope_error
+            .map(|v| v.to_string())
             .or_else(|| response.error.as_ref().map(|v| v.to_string()))
-            .unwrap_or_default()
+            .unwrap_or_default(),
     );
 }
 
@@ -199,24 +216,21 @@ fn action_should_fail(world: &mut PluginWorld) {
 fn response_valid_json(world: &mut PluginWorld) {
     let response = world.last_response();
     // With envelope wrapping, result always has the JSON-RPC envelope
-    assert!(
-        response.result.is_some(),
-        "Response has no result"
-    );
+    assert!(response.result.is_some(), "Response has no result");
 }
 
 #[cucumber::then(expr = "the response should have field {string}")]
 fn response_has_field(world: &mut PluginWorld, field: String) {
     let response = world.last_response();
-    let value = response.result.as_ref()
+    let value = response
+        .result
+        .as_ref()
         .or(response.error.as_ref())
         .expect("Response has no result or error");
 
     // First try direct field, then try unwrapping envelope's "result" field
-    let found = value.get(&field).is_some()
-        || value.get("result")
-            .and_then(|v| v.get(&field))
-            .is_some();
+    let found =
+        value.get(&field).is_some() || value.get("result").and_then(|v| v.get(&field)).is_some();
 
     assert!(
         found,
@@ -229,12 +243,15 @@ fn response_has_field(world: &mut PluginWorld, field: String) {
 #[cucumber::then(expr = "the response field {string} should equal {string}")]
 fn response_field_equals(world: &mut PluginWorld, field: String, expected: String) {
     let response = world.last_response();
-    let value = response.result.as_ref()
+    let value = response
+        .result
+        .as_ref()
         .or(response.error.as_ref())
         .expect("Response has no result or error");
 
     // Try direct field, then unwrapped envelope's "result"
-    let actual = value.get(&field)
+    let actual = value
+        .get(&field)
         .or_else(|| value.get("result").and_then(|v| v.get(&field)))
         .unwrap_or_else(|| panic!("Field '{}' not found in response", field));
 
@@ -249,12 +266,15 @@ fn response_field_equals(world: &mut PluginWorld, field: String, expected: Strin
 #[cucumber::then(expr = "the response field {string} should contain {string}")]
 fn response_field_contains(world: &mut PluginWorld, field: String, expected: String) {
     let response = world.last_response();
-    let value = response.result.as_ref()
+    let value = response
+        .result
+        .as_ref()
         .or(response.error.as_ref())
         .expect("Response has no result or error");
 
     // Try direct field, then unwrapped envelope's "result"
-    let actual = value.get(&field)
+    let actual = value
+        .get(&field)
         .or_else(|| value.get("result").and_then(|v| v.get(&field)))
         .unwrap_or_else(|| panic!("Field '{}' not found", field));
 
@@ -267,36 +287,43 @@ fn response_field_contains(world: &mut PluginWorld, field: String, expected: Str
     assert!(
         actual_str.contains(&expected),
         "Field '{}' value '{}' does not contain '{}'",
-        field, actual_str, expected
+        field,
+        actual_str,
+        expected
     );
 }
 
 #[cucumber::then(expr = "the error should contain {string}")]
 fn error_contains(world: &mut PluginWorld, expected: String) {
     // Check stored error first, then envelope error, then response error
-    let error_str = world.last_error.as_ref().cloned()
+    let error_str = world
+        .last_error
+        .as_ref()
+        .cloned()
         .or_else(|| {
-            world.last_response().result.as_ref()
+            world
+                .last_response()
+                .result
+                .as_ref()
                 .and_then(|v| v.get("error"))
                 .map(|v| v.to_string())
         })
-        .or_else(|| {
-            world.last_response().error.as_ref().map(|v| v.to_string())
-        })
+        .or_else(|| world.last_response().error.as_ref().map(|v| v.to_string()))
         .expect("No error stored");
     assert!(
         error_str.to_lowercase().contains(&expected.to_lowercase()),
         "Error '{}' does not contain '{}'",
-        error_str, expected
+        error_str,
+        expected
     );
 }
 
 #[cucumber::then(expr = "I store the response field {string} as {string}")]
 fn store_response_field(world: &mut PluginWorld, field: String, var_name: String) {
     let response = world.last_response();
-    let value = response.result.as_ref()
-        .expect("Response has no result");
-    let field_val = value.get(&field)
+    let value = response.result.as_ref().expect("Response has no result");
+    let field_val = value
+        .get(&field)
         .or_else(|| value.get("result").and_then(|v| v.get(&field)))
         .cloned()
         .unwrap_or_else(|| panic!("Field '{}' not found", field));
@@ -305,8 +332,7 @@ fn store_response_field(world: &mut PluginWorld, field: String, var_name: String
 
 #[tokio::main]
 async fn main() {
-    let runner = PluginWorld::cucumber()
-        .max_concurrent_scenarios(1);
+    let runner = PluginWorld::cucumber().max_concurrent_scenarios(1);
     runner
         .filter_run_and_exit("features/", |_, _, scenario| {
             !scenario.tags.iter().any(|t| t == "wip")

@@ -66,7 +66,6 @@ pub struct GitService {
 pub struct GitConfig {
     pub ssh_port: u16,
     pub host_key_path: std::path::PathBuf,
-    pub authorized_keys_path: std::path::PathBuf,
     pub max_connections: usize,
     pub connection_timeout_secs: u64,
     #[serde(default)]
@@ -75,6 +74,16 @@ pub struct GitConfig {
     /// When set and the file exists, repos get AGE keypairs on creation.
     #[serde(default)]
     pub secrets_root_key_path: Option<std::path::PathBuf>,
+    /// Public-facing hostname for clone URLs (replaces hardcoded localhost).
+    #[serde(default = "default_hostname")]
+    pub hostname: String,
+    /// Public-facing HTTP base URL (e.g. "https://git.example.com").
+    #[serde(default)]
+    pub http_base_url: Option<String>,
+}
+
+fn default_hostname() -> String {
+    "localhost".to_string()
 }
 
 impl Default for GitConfig {
@@ -82,11 +91,12 @@ impl Default for GitConfig {
         Self {
             ssh_port: 2222,
             host_key_path: std::path::PathBuf::from("host_key"),
-            authorized_keys_path: std::path::PathBuf::from("authorized_keys"),
             max_connections: 100,
             connection_timeout_secs: 30,
             rate_limit: RateLimitConfig::default(),
             secrets_root_key_path: None,
+            hostname: default_hostname(),
+            http_base_url: None,
         }
     }
 }
@@ -107,6 +117,7 @@ impl GitService {
         description: Option<String>,
         is_private: bool,
     ) -> GitServiceResult<RepositoryInfo> {
+        self.validate_owner_name(owner)?;
         self.validate_repository_name(name)?;
 
         let repo_path = self.get_repository_path(owner, name);
@@ -121,18 +132,25 @@ impl GitService {
         self.storage.create_directory(&repo_path).await?;
 
         // Resolve to absolute path before passing to gix (which uses CWD-relative paths)
-        let abs_repo_path = self.storage.root()
+        let abs_repo_path = self
+            .storage
+            .root()
             .expect("local storage required for repo creation")
             .join(&repo_path);
-        let _repo = gix::init_bare(&abs_repo_path).map_err(|e| GitServiceError::Git(e.to_string()))?;
+        let _repo =
+            gix::init_bare(&abs_repo_path).map_err(|e| GitServiceError::Git(e.to_string()))?;
 
         // Provision AGE keypair for secrets (ADR-024)
         if let Some(root_key_path) = self.config.secrets_root_key_path.as_ref() {
             if root_key_path.exists() {
                 let repo_id = format!("{}--{}", owner, name);
                 match provision_repo_keypair(root_key_path, &abs_repo_path, &repo_id) {
-                    Ok(()) => tracing::info!(repo_id = %repo_id, "provisioned AGE keypair for new repo"),
-                    Err(e) => tracing::warn!(repo_id = %repo_id, error = %e, "failed to provision AGE keypair for new repo, will retry on first secret access"),
+                    Ok(()) => {
+                        tracing::info!(repo_id = %repo_id, "provisioned AGE keypair for new repo")
+                    }
+                    Err(e) => {
+                        tracing::warn!(repo_id = %repo_id, error = %e, "failed to provision AGE keypair for new repo, will retry on first secret access")
+                    }
                 }
             }
         }
@@ -150,9 +168,13 @@ impl GitService {
             is_private,
             clone_url_ssh: format!(
                 "ssh://git@{}:{}/{}/{}.git",
-                "localhost", self.config.ssh_port, owner, name
+                self.config.hostname, self.config.ssh_port, owner, name
             ),
-            clone_url_http: Some(format!("http://localhost:8080/{}/{}.git", owner, name)),
+            clone_url_http: Some(format!(
+                "{}/{}/{}.git",
+                self.config.http_base_url.as_deref().unwrap_or("http://localhost:8080"),
+                owner, name
+            )),
         };
 
         Ok(repo_info)
@@ -164,6 +186,7 @@ impl GitService {
         owner: &str,
         name: &str,
     ) -> GitServiceResult<RepositoryInfo> {
+        self.validate_owner_name(owner)?;
         let repo_path = self.get_repository_path(owner, name);
 
         if !self.storage.exists(&repo_path).await? {
@@ -175,7 +198,9 @@ impl GitService {
 
         let size = self.calculate_repository_size(&repo_path).await?;
 
-        let abs_repo_path = self.storage.root()
+        let abs_repo_path = self
+            .storage
+            .root()
             .expect("local storage required")
             .join(&repo_path);
         let repo = gix::open(&abs_repo_path)
@@ -207,9 +232,13 @@ impl GitService {
             is_private: false,
             clone_url_ssh: format!(
                 "ssh://git@{}:{}/{}/{}.git",
-                "localhost", self.config.ssh_port, owner, name
+                self.config.hostname, self.config.ssh_port, owner, name
             ),
-            clone_url_http: Some(format!("http://localhost:8080/{}/{}.git", owner, name)),
+            clone_url_http: Some(format!(
+                "{}/{}/{}.git",
+                self.config.http_base_url.as_deref().unwrap_or("http://localhost:8080"),
+                owner, name
+            )),
         };
 
         Ok(repo_info)
@@ -228,9 +257,13 @@ impl GitService {
             let entries = self.storage.list(&base_path).await?;
             for entry in entries {
                 let path = PathBuf::from(&entry);
-                if !self.storage.exists(&path).await? { continue; }
+                if !self.storage.exists(&path).await? {
+                    continue;
+                }
                 let parts: Vec<&str> = entry.split('/').collect();
-                if parts.len() < 2 { continue; }
+                if parts.len() < 2 {
+                    continue;
+                }
                 let repo_name = parts[1].strip_suffix(".git").unwrap_or(parts[1]);
                 if let Ok(repo_info) = self.get_repository(owner, repo_name).await {
                     repositories.push(repo_info);
@@ -241,17 +274,25 @@ impl GitService {
             let top_entries = self.storage.list(&PathBuf::from("")).await?;
             for top in &top_entries {
                 let parts: Vec<&str> = top.split('/').collect();
-                if parts.len() != 1 { continue; }
+                if parts.len() != 1 {
+                    continue;
+                }
                 let entry_owner = parts[0];
                 // Skip internal namespaces
-                if entry_owner.starts_with('_') || entry_owner.starts_with('.') { continue; }
+                if entry_owner.starts_with('_') || entry_owner.starts_with('.') {
+                    continue;
+                }
                 let base_path = PathBuf::from(entry_owner);
                 let entries = self.storage.list(&base_path).await?;
                 for entry in entries {
                     let path = PathBuf::from(&entry);
-                    if !self.storage.exists(&path).await? { continue; }
+                    if !self.storage.exists(&path).await? {
+                        continue;
+                    }
                     let parts: Vec<&str> = entry.split('/').collect();
-                    if parts.len() < 2 { continue; }
+                    if parts.len() < 2 {
+                        continue;
+                    }
                     let repo_name = parts[1].strip_suffix(".git").unwrap_or(parts[1]);
                     if let Ok(repo_info) = self.get_repository(entry_owner, repo_name).await {
                         repositories.push(repo_info);
@@ -271,6 +312,7 @@ impl GitService {
 
     /// Delete a repository
     pub async fn delete_repository(&self, owner: &str, name: &str) -> GitServiceResult<()> {
+        self.validate_owner_name(owner)?;
         let repo_path = self.get_repository_path(owner, name);
 
         if !self.storage.exists(&repo_path).await? {
@@ -291,6 +333,7 @@ impl GitService {
         owner: &str,
         name: &str,
     ) -> GitServiceResult<Vec<BranchInfo>> {
+        self.validate_owner_name(owner)?;
         let repo_path = self.get_repository_path(owner, name);
 
         if !self.storage.exists(&repo_path).await? {
@@ -300,7 +343,9 @@ impl GitService {
             )));
         }
 
-        let abs_repo_path = self.storage.root()
+        let abs_repo_path = self
+            .storage
+            .root()
             .expect("local storage required")
             .join(&repo_path);
         let repo = gix::open(&abs_repo_path)
@@ -410,6 +455,50 @@ impl GitService {
         Ok(())
     }
 
+    /// Validate the owner/namespace component of a repository path.
+    /// Follows POSIX username conventions: lowercase alphanumeric, hyphens,
+    /// underscores; must start with a letter; max 32 characters.
+    /// Prevents path traversal attacks (../../etc).
+    fn validate_owner_name(&self, owner: &str) -> GitServiceResult<()> {
+        if owner.is_empty() {
+            return Err(GitServiceError::InvalidName(
+                "Owner name cannot be empty".to_string(),
+            ));
+        }
+
+        // Max 256 characters (modern systems allow longer than POSIX 32)
+        if owner.len() > 256 {
+            return Err(GitServiceError::InvalidName(
+                "Owner name too long (max 32 characters)".to_string(),
+            ));
+        }
+
+        // Must start with a lowercase letter
+        if !owner.chars().next().map(|c| c.is_ascii_lowercase()).unwrap_or(false) {
+            return Err(GitServiceError::InvalidName(
+                "Owner name must start with a lowercase letter".to_string(),
+            ));
+        }
+
+        // POSIX: lowercase letters, digits, hyphens, underscores, dollar sign
+        if !owner
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+        {
+            return Err(GitServiceError::InvalidName(
+                "Owner name must contain only lowercase letters, digits, hyphens, and underscores".to_string(),
+            ));
+        }
+
+        if owner.ends_with('-') || owner.ends_with('_') {
+            return Err(GitServiceError::InvalidName(
+                "Owner name cannot end with hyphen or underscore".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     async fn calculate_repository_size(&self, repo_path: &Path) -> GitServiceResult<u64> {
         let entries = self.storage.list(repo_path).await?;
         let mut total_size = 0u64;
@@ -437,7 +526,8 @@ fn provision_repo_keypair(
     let (encrypted_private, public_key) = key_manager.generate_keypair(repo_id)?;
 
     // Find storage root (parent of owner dir → parent of repo dir → parent of owner)
-    let storage_root = repo_path.parent()
+    let storage_root = repo_path
+        .parent()
         .and_then(|p| p.parent())
         .ok_or("cannot determine storage root from repo path")?;
     let system_repo = storage_root.join("_adp/system");

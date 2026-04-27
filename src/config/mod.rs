@@ -25,8 +25,9 @@ pub struct LfsConfig {
     pub max_object_size: u64,
     /// JWT token expiration in seconds (default: 1 hour)
     pub token_expiration_secs: u64,
-    /// JWT secret for token signing and verification (MUST be changed in production)
-    pub jwt_secret: String,
+    /// JWT secret for token signing and verification.
+    /// **Required in production.** LFS endpoints will reject requests if not set.
+    pub jwt_secret: Option<String>,
     /// Base URL for LFS HTTP endpoints (e.g., "https://lfs.example.com")
     pub base_url: String,
     /// Storage path pattern for LFS objects (relative to storage backend root)
@@ -97,7 +98,28 @@ pub struct LfsThrottleConfig {
 }
 
 impl AppConfig {
+    /// Load config for the running server — reads from git refs ONLY.
+    ///
+    /// For compliance, the server never reads YAML at runtime.
+    /// Use `from_env_for_init()` during `agentic-repos init` to seed git refs from YAML.
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Try git-refs config from system repo (canonical config store)
+        if let Some(storage_root) = Self::detect_storage_root() {
+            if let Ok(config) = Self::from_git_refs(&storage_root) {
+                return Ok(config);
+            }
+        }
+
+        // No config found — use defaults (init command writes to git-refs)
+        tracing::warn!("No configuration found in git-refs. Using defaults. Run 'agentic-repos init' to bootstrap.");
+        Ok(Self::default())
+    }
+
+    /// Load config during init — accepts YAML as bootstrap seed.
+    ///
+    /// Priority: YAML file → git refs → defaults.
+    /// The init command writes the result to git refs for audit compliance.
+    pub fn from_env_for_init() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Check for config path from environment variable
         if let Ok(path) = std::env::var("AGENTIC_REPOS_CONFIG") {
             return Self::from_file(&path);
@@ -111,16 +133,8 @@ impl AppConfig {
             }
         }
 
-        // Try git-refs config from system repo (canonical config store)
-        if let Some(storage_root) = Self::detect_storage_root() {
-            if let Ok(config) = Self::from_git_refs(&storage_root) {
-                return Ok(config);
-            }
-        }
-
-        // No config found — use defaults (init command writes to git-refs)
-        tracing::warn!("No configuration found in git-refs or environment. Using defaults. Run 'agentic-repos init' to bootstrap.");
-        Ok(Self::default())
+        // Fall through to git-refs or defaults
+        Self::from_env()
     }
 
     /// Detect the storage root from environment or CLI flags.
@@ -220,7 +234,8 @@ impl AppConfig {
 
         tracing::info!(
             "Loaded config from git refs: host={}, port={}",
-            config.server.host, config.server.port
+            config.server.host,
+            config.server.port
         );
 
         Ok(config)
@@ -233,7 +248,8 @@ impl AppConfig {
                     tracing::info!("Loading config from {}", path);
                     tracing::info!(
                         "Config loaded: host={}, port={}",
-                        app_config.server.host, app_config.server.port
+                        app_config.server.host,
+                        app_config.server.port
                     );
                     Ok(app_config)
                 }
@@ -312,7 +328,7 @@ impl Default for LfsConfig {
             enabled: false,
             max_object_size: 5 * 1024 * 1024 * 1024, // 5GB
             token_expiration_secs: 3600,             // 1 hour
-            jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING".to_string(),
+            jwt_secret: None,
             base_url: "http://localhost:8090".to_string(),
             storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
                 .to_string(),
@@ -449,7 +465,11 @@ mod tests {
     fn from_yaml_with_features() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("features.yaml");
-        std::fs::write(&path, "server:\n  host: 0.0.0.0\n  port: 8080\nfeatures:\n  web_ui: true\n  rbac: true\n").unwrap();
+        std::fs::write(
+            &path,
+            "server:\n  host: 0.0.0.0\n  port: 8080\nfeatures:\n  web_ui: true\n  rbac: true\n",
+        )
+        .unwrap();
         let config = AppConfig::from_file(path.to_str().unwrap()).unwrap();
         let features = config.get_feature_flags();
         assert!(features.web_ui);

@@ -389,7 +389,10 @@ mod tests {
     #[tokio::test]
     async fn create_user_basic() {
         let svc = make_service().await;
-        let user = svc.create_user("alice".into(), Some("alice@test.com".into())).await.unwrap();
+        let user = svc
+            .create_user("alice".into(), Some("alice@test.com".into()))
+            .await
+            .unwrap();
         assert_eq!(user.username, "alice");
         assert!(user.is_active);
     }
@@ -476,7 +479,12 @@ mod tests {
             .await
             .unwrap();
         svc.delete_role("temp").await.unwrap();
-        assert!(svc.get_role("temp").await.unwrap_err().to_string().contains("not found"));
+        assert!(svc
+            .get_role("temp")
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("not found"));
     }
 
     // ── Role assignment ──
@@ -488,22 +496,23 @@ mod tests {
 
         svc.assign_role_to_user("dave", "Developer").await.unwrap();
         let user = svc.get_user("dave").await.unwrap();
-        assert!(user.has_role(
-            &svc.get_role("Developer").await.unwrap().id
-        ));
+        assert!(user.has_role(&svc.get_role("Developer").await.unwrap().id));
 
-        svc.revoke_role_from_user("dave", "Developer").await.unwrap();
+        svc.revoke_role_from_user("dave", "Developer")
+            .await
+            .unwrap();
         let user = svc.get_user("dave").await.unwrap();
-        assert!(!user.has_role(
-            &svc.get_role("Developer").await.unwrap().id
-        ));
+        assert!(!user.has_role(&svc.get_role("Developer").await.unwrap().id));
     }
 
     #[tokio::test]
     async fn assign_nonexistent_role() {
         let svc = make_service().await;
         svc.create_user("eve".into(), None).await.unwrap();
-        let err = svc.assign_role_to_user("eve", "NoSuchRole").await.unwrap_err();
+        let err = svc
+            .assign_role_to_user("eve", "NoSuchRole")
+            .await
+            .unwrap_err();
         assert!(matches!(err, RbacError::RoleNotFound(_)));
     }
 
@@ -513,11 +522,22 @@ mod tests {
     async fn admin_has_all_permissions() {
         let svc = make_service().await;
         svc.create_user("admin".into(), None).await.unwrap();
-        svc.assign_role_to_user("admin", "Administrator").await.unwrap();
+        svc.assign_role_to_user("admin", "Administrator")
+            .await
+            .unwrap();
 
-        assert!(svc.user_has_permission("admin", &Permission::SystemAdmin).await.unwrap());
-        assert!(svc.user_has_permission("admin", &Permission::RepositoryRead).await.unwrap());
-        assert!(svc.user_has_permission("admin", &Permission::LfsLockForce).await.unwrap());
+        assert!(svc
+            .user_has_permission("admin", &Permission::SystemAdmin)
+            .await
+            .unwrap());
+        assert!(svc
+            .user_has_permission("admin", &Permission::RepositoryRead)
+            .await
+            .unwrap());
+        assert!(svc
+            .user_has_permission("admin", &Permission::LfsLockForce)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
@@ -526,10 +546,22 @@ mod tests {
         svc.create_user("dev".into(), None).await.unwrap();
         svc.assign_role_to_user("dev", "Developer").await.unwrap();
 
-        assert!(svc.user_has_permission("dev", &Permission::RepositoryRead).await.unwrap());
-        assert!(svc.user_has_permission("dev", &Permission::RepositoryWrite).await.unwrap());
-        assert!(!svc.user_has_permission("dev", &Permission::SystemAdmin).await.unwrap());
-        assert!(!svc.user_has_permission("dev", &Permission::UserManage).await.unwrap());
+        assert!(svc
+            .user_has_permission("dev", &Permission::RepositoryRead)
+            .await
+            .unwrap());
+        assert!(svc
+            .user_has_permission("dev", &Permission::RepositoryWrite)
+            .await
+            .unwrap());
+        assert!(!svc
+            .user_has_permission("dev", &Permission::SystemAdmin)
+            .await
+            .unwrap());
+        assert!(!svc
+            .user_has_permission("dev", &Permission::UserManage)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
@@ -538,32 +570,52 @@ mod tests {
         svc.create_user("reader".into(), None).await.unwrap();
         svc.assign_role_to_user("reader", "ReadOnly").await.unwrap();
 
-        assert!(svc.user_has_permission("reader", &Permission::RepositoryRead).await.unwrap());
-        assert!(!svc.user_has_permission("reader", &Permission::RepositoryWrite).await.unwrap());
+        assert!(svc
+            .user_has_permission("reader", &Permission::RepositoryRead)
+            .await
+            .unwrap());
+        assert!(!svc
+            .user_has_permission("reader", &Permission::RepositoryWrite)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn inactive_user_has_no_permissions() {
         let svc = make_service().await;
         svc.create_user("suspended".into(), None).await.unwrap();
-        svc.assign_role_to_user("suspended", "Administrator").await.unwrap();
+        svc.assign_role_to_user("suspended", "Administrator")
+            .await
+            .unwrap();
         svc.deactivate_user("suspended").await.unwrap();
 
-        assert!(!svc.user_has_permission("suspended", &Permission::SystemAdmin).await.unwrap());
-        assert!(!svc.user_has_permission("suspended", &Permission::RepositoryRead).await.unwrap());
+        assert!(!svc
+            .user_has_permission("suspended", &Permission::SystemAdmin)
+            .await
+            .unwrap());
+        assert!(!svc
+            .user_has_permission("suspended", &Permission::RepositoryRead)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn user_no_roles_has_no_permissions() {
         let svc = make_service().await;
         svc.create_user("newbie".into(), None).await.unwrap();
-        assert!(!svc.user_has_permission("newbie", &Permission::RepositoryRead).await.unwrap());
+        assert!(!svc
+            .user_has_permission("newbie", &Permission::RepositoryRead)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn permission_check_unknown_user() {
         let svc = make_service().await;
-        let err = svc.user_has_permission("ghost", &Permission::RepositoryRead).await.unwrap_err();
+        let err = svc
+            .user_has_permission("ghost", &Permission::RepositoryRead)
+            .await
+            .unwrap_err();
         assert!(matches!(err, RbacError::UserNotFound(_)));
     }
 
@@ -573,7 +625,9 @@ mod tests {
     async fn repo_permission_grant_and_check() {
         let svc = make_service().await;
         svc.create_user("owner".into(), None).await.unwrap();
-        svc.assign_role_to_user("owner", "Administrator").await.unwrap();
+        svc.assign_role_to_user("owner", "Administrator")
+            .await
+            .unwrap();
         svc.create_user("collab".into(), None).await.unwrap();
 
         // owner grants collab write access to repo
@@ -607,7 +661,13 @@ mod tests {
         svc.create_user("target".into(), None).await.unwrap();
 
         let err = svc
-            .grant_repository_permission("target", "repo1", Permission::RepositoryWrite, "dev", None)
+            .grant_repository_permission(
+                "target",
+                "repo1",
+                Permission::RepositoryWrite,
+                "dev",
+                None,
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, RbacError::PermissionDenied(_)));
@@ -617,7 +677,9 @@ mod tests {
     async fn repo_permission_expired_is_ignored() {
         let svc = make_service().await;
         svc.create_user("owner".into(), None).await.unwrap();
-        svc.assign_role_to_user("owner", "Administrator").await.unwrap();
+        svc.assign_role_to_user("owner", "Administrator")
+            .await
+            .unwrap();
         svc.create_user("temp".into(), None).await.unwrap();
 
         // Grant with past expiry
@@ -641,11 +703,17 @@ mod tests {
     async fn repo_permission_revoke() {
         let svc = make_service().await;
         svc.create_user("owner".into(), None).await.unwrap();
-        svc.assign_role_to_user("owner", "Administrator").await.unwrap();
+        svc.assign_role_to_user("owner", "Administrator")
+            .await
+            .unwrap();
         svc.create_user("collab".into(), None).await.unwrap();
 
         svc.grant_repository_permission(
-            "collab", "repo1", Permission::RepositoryWrite, "owner", None,
+            "collab",
+            "repo1",
+            Permission::RepositoryWrite,
+            "owner",
+            None,
         )
         .await
         .unwrap();
@@ -667,7 +735,9 @@ mod tests {
         let svc = make_service().await;
         svc.create_user("sshuser".into(), None).await.unwrap();
         let key = "ssh-ed25519 AAAA...";
-        svc.add_ssh_key_to_user("sshuser", key.into()).await.unwrap();
+        svc.add_ssh_key_to_user("sshuser", key.into())
+            .await
+            .unwrap();
 
         let found = svc.authenticate_user_by_ssh_key(key).await.unwrap();
         assert!(found.is_some());
@@ -689,7 +759,9 @@ mod tests {
         let svc = make_service().await;
         svc.create_user("disabled".into(), None).await.unwrap();
         let key = "ssh-ed25519 DISABLED";
-        svc.add_ssh_key_to_user("disabled", key.into()).await.unwrap();
+        svc.add_ssh_key_to_user("disabled", key.into())
+            .await
+            .unwrap();
         svc.deactivate_user("disabled").await.unwrap();
 
         let found = svc.authenticate_user_by_ssh_key(key).await.unwrap();

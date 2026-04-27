@@ -44,10 +44,13 @@ pub mod secrets;
 pub mod storage;
 
 pub use access::{AccessConfig, PathRule, Permission, UserEntry};
-pub use bootstrap::{bootstrap_system_repo, bootstrap_root_key, register_admin_key, DEFAULT_ROOT_KEY_PATH, ROOT_PUBLIC_KEY_REF};
+pub use bootstrap::{
+    bootstrap_root_key, bootstrap_system_repo, register_admin_key, DEFAULT_ROOT_KEY_PATH,
+    ROOT_PUBLIC_KEY_REF,
+};
 pub use config::{RepoConfig, ServerConfig};
-pub use lfs_config::LfsConfig;
 pub use identity::CallerIdentity;
+pub use lfs_config::LfsConfig;
 pub use schema::{RefSchema, UiHints};
 pub use secrets::{RepoKeyManager, SecretsManager, SECRETS_KEYS_PREFIX};
 pub use storage::AdpStore;
@@ -78,6 +81,9 @@ pub const KEYS_PREFIX: &str = "refs/adp/keys/";
 
 /// Sub-namespace for per-user identity refs.
 pub const USERS_PREFIX: &str = "refs/adp/users/";
+
+/// The theme ref for per-repo or global color theming.
+pub const THEME_REF: &str = "refs/adp/theme";
 
 /// Returns true if the ref is an ADP private ref (access or config).
 /// These are stripped from the git wire protocol for non-privileged clients.

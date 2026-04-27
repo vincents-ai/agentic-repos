@@ -78,9 +78,37 @@ impl AdpStore {
         Self
     }
 
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Input validation
+    // ---------------------------------------------------------------------
+
+    /// Validate that a refname is safe to use with gix.
+    /// Rejects empty names, path traversal, null bytes, and names that don't
+    /// start with refs/.
+    fn validate_refname(refname: &str) -> Result<()> {
+        if refname.is_empty() {
+            return Err(AdpStoreError::NotFound("refname cannot be empty".to_string()));
+        }
+        if refname.contains('\0') {
+            return Err(AdpStoreError::NotFound("refname contains null byte".to_string()));
+        }
+        if refname.contains("..") {
+            return Err(AdpStoreError::NotFound("refname contains '..'".to_string()));
+        }
+        if !refname.starts_with("refs/") {
+            return Err(AdpStoreError::NotFound(
+                "refname must start with refs/".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Maximum blob size for ADP ref data (1 MB).
+    const MAX_BLOB_SIZE: usize = 1024 * 1024;
+
+    // ---------------------------------------------------------------------
     // Low-level blob helpers
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
 
     /// Read the JSON blob pointed to by `refname` in the repository at
     /// `repo_path`.
@@ -90,6 +118,7 @@ impl AdpStore {
     ///
     /// Returns the parsed `serde_json::Value`.
     pub fn read_ref_blob(repo_path: &Path, refname: &str) -> Result<Value> {
+        Self::validate_refname(refname)?;
         let gix_repo = gix::open(repo_path)?;
 
         let reference = gix_repo
@@ -144,8 +173,18 @@ impl AdpStore {
     /// The primary ref is always force-updated.  An immutable version sidecar
     /// is also created (see module docs).
     pub fn write_ref_blob(repo_path: &Path, refname: &str, value: &Value) -> Result<()> {
+        Self::validate_refname(refname)?;
         let gix_repo = gix::open(repo_path)?;
         let json_bytes = serde_json::to_vec_pretty(value)?;
+
+        // Enforce blob size limit
+        if json_bytes.len() > Self::MAX_BLOB_SIZE {
+            return Err(AdpStoreError::NotFound(format!(
+                "Blob too large: {} bytes (max {})",
+                json_bytes.len(),
+                Self::MAX_BLOB_SIZE
+            )));
+        };
 
         // Create blob
         let blob = gix::objs::Blob { data: json_bytes };
@@ -315,14 +354,16 @@ impl AdpStore {
     ///
     /// Reads `refs/adp/keys/{fingerprint_hex}` from the system repo.
     /// Returns `None` if the key is not registered.
-    pub fn resolve_key_identity(system_repo_path: &Path, fingerprint_hex: &str) -> Result<Option<String>> {
+    pub fn resolve_key_identity(
+        system_repo_path: &Path,
+        fingerprint_hex: &str,
+    ) -> Result<Option<String>> {
         let refname = format!("refs/adp/keys/{}", fingerprint_hex);
         match Self::read_ref_blob(system_repo_path, &refname) {
             Ok(value) => {
-                let username = value["username"].as_str()
-                    .ok_or_else(|| AdpStoreError::NotFound(format!(
-                        "{}: missing 'username' field", refname
-                    )))?;
+                let username = value["username"].as_str().ok_or_else(|| {
+                    AdpStoreError::NotFound(format!("{}: missing 'username' field", refname))
+                })?;
                 Ok(Some(username.to_string()))
             }
             Err(AdpStoreError::NotFound(_)) => Ok(None),
@@ -346,6 +387,20 @@ impl AdpStore {
         fingerprint_hex: &str,
         public_key_openssh: &str,
     ) -> Result<()> {
+        // Validate inputs — POSIX username rules
+        if username.is_empty() || username.len() > 256
+            || !username.chars().next().map(|c| c.is_ascii_lowercase()).unwrap_or(false)
+            || !username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+        {
+            return Err(AdpStoreError::NotFound("Invalid username".to_string()));
+        }
+        if fingerprint_hex.is_empty() || fingerprint_hex.len() != 64 || !fingerprint_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(AdpStoreError::NotFound("Invalid fingerprint".to_string()));
+        }
+        if public_key_openssh.is_empty() || public_key_openssh.len() > 100000 {
+            return Err(AdpStoreError::NotFound("Invalid public key".to_string()));
+        }
+
         let identity_value = serde_json::json!({ "username": username });
 
         // Write key → username mapping
@@ -382,6 +437,7 @@ impl AdpStore {
         repo_path: &Path,
         username: &str,
         operation: &Permission,
+        refname: Option<&str>,
     ) -> Result<bool> {
         let config = match Self::read_access_config(repo_path)? {
             Some(c) => c,
@@ -401,7 +457,15 @@ impl AdpStore {
         // Evaluate rules in order; first match wins
         for rule in &config.rules {
             if rule.user == "*" || rule.user == username {
-                if rule.permissions.contains(operation) {
+                // If a specific refname is given, check path patterns
+                let path_matches = if let Some(refname) = refname {
+                    rule.paths.is_empty()
+                        || rule.paths.iter().any(|p| crate::adp::glob::matches_pattern(p, refname))
+                } else {
+                    // No refname → repo-level check, ignore path filter
+                    true
+                };
+                if path_matches && rule.permissions.contains(operation) {
                     return Ok(true);
                 }
             }
@@ -430,7 +494,7 @@ fn openssh_key_data(openssh_str: &str) -> &str {
     if parts.len() >= 2 {
         // Return first two parts (key_type + base64 data)
         // We actually compare on the base64 data part (index 1)
-        parts.get(1).map(|s| *s).unwrap_or("")
+        parts.get(1).copied().unwrap_or("")
     } else {
         openssh_str.trim()
     }
@@ -447,7 +511,11 @@ fn next_sidecar_ref(gix_repo: &gix::Repository, primary_ref: &str) -> Result<Str
         ""
     };
 
-    let sidecar_pattern = format!("refs/adp/{}/v*/{}", ns, id);
+    let sidecar_pattern = if id.is_empty() {
+        format!("refs/adp/v-{}-*", ns)
+    } else {
+        format!("refs/adp/{}/v*/{}", ns, id)
+    };
     let platform = gix_repo.references()?;
     let iter = platform.all()?;
 
@@ -469,7 +537,13 @@ fn next_sidecar_ref(gix_repo: &gix::Repository, primary_ref: &str) -> Result<Str
     }
 
     let next_n = max_n + 1;
-    Ok(format!("refs/adp/{}/v{}/{}", ns, next_n, id))
+    // Use flat sidecar format: refs/adp/v-{ns}-{n} for refs without sub-paths
+    // to avoid file/directory conflict (refs/adp/theme file blocks refs/adp/theme/ dir)
+    if id.is_empty() {
+        Ok(format!("refs/adp/v-{}-{}", ns, next_n))
+    } else {
+        Ok(format!("refs/adp/{}/v{}/{}", ns, next_n, id))
+    }
 }
 
 fn extract_version_segment(refname: &str, ns: &str, _id: &str) -> Option<u32> {
@@ -643,24 +717,19 @@ mod tests {
         assert_eq!(username, "alice");
 
         // User identity ref
-        let identity = AdpStore::read_ref_blob(
-            dir.path(),
-            "refs/adp/users/alice/identity",
-        )
-        .unwrap();
+        let identity =
+            AdpStore::read_ref_blob(dir.path(), "refs/adp/users/alice/identity").unwrap();
         assert_eq!(identity["username"].as_str().unwrap(), "alice");
 
         // SSH keys array
-        let keys: Vec<String> = AdpStore::read_ref_blob(
-            dir.path(),
-            "refs/adp/users/alice/ssh_keys",
-        )
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap().to_string())
-        .collect();
+        let keys: Vec<String> =
+            AdpStore::read_ref_blob(dir.path(), "refs/adp/users/alice/ssh_keys")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
         assert_eq!(keys.len(), 1);
         assert!(keys[0].starts_with("ssh-ed25519"));
     }
@@ -679,22 +748,24 @@ mod tests {
         let dir = TempDir::new().unwrap();
         init_bare_repo(dir.path());
 
-        let fingerprint_hex = "a1b2c3d4e5f6".repeat(5).chars().take(64).collect::<String>();
+        let fingerprint_hex = "a1b2c3d4e5f67890"
+            .repeat(4)
+            .chars()
+            .take(64)
+            .collect::<String>();
         let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestkey alice@example.com";
 
         AdpStore::register_user_key(dir.path(), "alice", &fingerprint_hex, key).unwrap();
         AdpStore::register_user_key(dir.path(), "alice", &fingerprint_hex, key).unwrap();
 
-        let keys: Vec<String> = AdpStore::read_ref_blob(
-            dir.path(),
-            "refs/adp/users/alice/ssh_keys",
-        )
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap().to_string())
-        .collect();
+        let keys: Vec<String> =
+            AdpStore::read_ref_blob(dir.path(), "refs/adp/users/alice/ssh_keys")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
         assert_eq!(keys.len(), 1, "should not duplicate identical keys");
     }
 
@@ -708,8 +779,8 @@ mod tests {
         init_bare_repo(dir.path());
 
         // No access config written → default behavior
-        assert!(AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Pull).unwrap());
-        assert!(!AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Push).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Pull, None).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "anyone", &Permission::Push, None).unwrap());
     }
 
     #[test]
@@ -725,9 +796,9 @@ mod tests {
         };
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
-        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Pull).unwrap());
-        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Push).unwrap());
-        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Admin).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Pull, None).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Push, None).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "alice", &Permission::Admin, None).unwrap());
     }
 
     #[test]
@@ -743,8 +814,8 @@ mod tests {
         };
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
-        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Pull).unwrap());
-        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Push).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Pull, None).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "bob", &Permission::Push, None).unwrap());
     }
 
     #[test]
@@ -772,13 +843,13 @@ mod tests {
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
         // carol matches her specific rule (Pull) and wildcard (Pull)
-        assert!(AdpStore::check_repo_access(dir.path(), "carol", &Permission::Pull).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "carol", &Permission::Pull, None).unwrap());
         // carol does NOT have Push — neither rule grants it to her
-        assert!(!AdpStore::check_repo_access(dir.path(), "carol", &Permission::Push).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "carol", &Permission::Push, None).unwrap());
 
         // dave matches wildcard rule (Pull only)
-        assert!(AdpStore::check_repo_access(dir.path(), "dave", &Permission::Pull).unwrap());
-        assert!(!AdpStore::check_repo_access(dir.path(), "dave", &Permission::Push).unwrap());
+        assert!(AdpStore::check_repo_access(dir.path(), "dave", &Permission::Pull, None).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "dave", &Permission::Push, None).unwrap());
     }
 
     #[test]
@@ -799,7 +870,7 @@ mod tests {
         AdpStore::write_access_config(dir.path(), &config).unwrap();
 
         // eve is not in any rule
-        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Pull).unwrap());
-        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Push).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Pull, None).unwrap());
+        assert!(!AdpStore::check_repo_access(dir.path(), "eve", &Permission::Push, None).unwrap());
     }
 }

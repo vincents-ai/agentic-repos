@@ -26,6 +26,12 @@ pub enum Permission {
     LfsLockRead,
     LfsLockDelete,
     LfsLockForce,
+
+    /// Manage replication targets, failover, and sync operations.
+    ReplicationManage,
+
+    /// Access compliance reports, retention policies, GDPR data.
+    ComplianceManage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +89,8 @@ impl std::fmt::Display for Permission {
             Permission::LfsLockRead => "LfsLockRead",
             Permission::LfsLockDelete => "LfsLockDelete",
             Permission::LfsLockForce => "LfsLockForce",
+            Permission::ReplicationManage => "ReplicationManage",
+            Permission::ComplianceManage => "ComplianceManage",
         };
         write!(f, "{}", s)
     }
@@ -110,6 +118,8 @@ impl std::str::FromStr for Permission {
             "LfsLockRead" => Ok(Permission::LfsLockRead),
             "LfsLockDelete" => Ok(Permission::LfsLockDelete),
             "LfsLockForce" => Ok(Permission::LfsLockForce),
+            "ReplicationManage" => Ok(Permission::ReplicationManage),
+            "ComplianceManage" => Ok(Permission::ComplianceManage),
             other => Err(format!("Unknown permission: {}", other)),
         }
     }
@@ -239,6 +249,8 @@ pub fn create_default_roles() -> Vec<Role> {
     admin_permissions.insert(Permission::LfsLockRead);
     admin_permissions.insert(Permission::LfsLockDelete);
     admin_permissions.insert(Permission::LfsLockForce);
+    admin_permissions.insert(Permission::ReplicationManage);
+    admin_permissions.insert(Permission::ComplianceManage);
 
     let mut developer_permissions = HashSet::new();
     developer_permissions.insert(Permission::RepositoryRead);

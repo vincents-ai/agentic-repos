@@ -83,11 +83,8 @@ pub fn detect_entity_changes(
     let timestamp = chrono::Utc::now();
 
     // Find all refs that existed in old or new
-    let all_refs: std::collections::HashSet<&str> = old_map
-        .keys()
-        .chain(new_map.keys())
-        .copied()
-        .collect();
+    let all_refs: std::collections::HashSet<&str> =
+        old_map.keys().chain(new_map.keys()).copied().collect();
 
     for refname in all_refs {
         let old_oid = old_map.get(refname);
@@ -144,35 +141,32 @@ pub fn detect_entity_changes(
 ///
 /// Example: refname = "refs/engram/task/abc123", pattern = "refs/engram/task/*"
 /// Returns: "abc123"
-fn extract_entity_id(refname: &str, namespace_pattern: &str) -> String {
+pub fn extract_entity_id(refname: &str, namespace_pattern: &str) -> String {
     // Handle the simple case: pattern ends with /* or /**
-    if namespace_pattern.ends_with("/*") {
-        let prefix = &namespace_pattern[..namespace_pattern.len() - 2];
-        if let Some(rest) = refname.strip_prefix(prefix) {
-            let rest = rest.trim_start_matches('/');
-            return rest.to_string();
-        }
+    if let Some(rest) = namespace_pattern
+        .strip_suffix("/*")
+        .and_then(|prefix| refname.strip_prefix(prefix))
+    {
+        return rest.trim_start_matches('/').to_string();
     }
-    if namespace_pattern.ends_with("/**") {
-        let prefix = &namespace_pattern[..namespace_pattern.len() - 3];
-        if let Some(rest) = refname.strip_prefix(prefix) {
-            let rest = rest.trim_start_matches('/');
-            return rest.to_string();
-        }
+    if let Some(rest) = namespace_pattern
+        .strip_suffix("/**")
+        .and_then(|prefix| refname.strip_prefix(prefix))
+    {
+        return rest.trim_start_matches('/').to_string();
     }
     // Fallback: use the last path component
-    refname.split('/').last().unwrap_or(refname).to_string()
+    refname.split('/').next_back().unwrap_or(refname).to_string()
 }
 
 /// Read a blob and parse it as JSON.
 fn read_blob_json(repo_path: &Path, oid: &str) -> Result<Option<serde_json::Value>, String> {
     use gix::ObjectId;
 
-    let object_id = ObjectId::from_hex(oid.as_bytes())
-        .map_err(|e| format!("invalid OID: {}", e))?;
+    let object_id =
+        ObjectId::from_hex(oid.as_bytes()).map_err(|e| format!("invalid OID: {}", e))?;
 
-    let repo = gix::open(repo_path)
-        .map_err(|e| format!("failed to open repo: {}", e))?;
+    let repo = gix::open(repo_path).map_err(|e| format!("failed to open repo: {}", e))?;
 
     let obj = match repo.find_object(object_id) {
         Ok(o) => o,
@@ -203,10 +197,7 @@ mod tests {
 
     #[test]
     fn test_extract_entity_id_double_wildcard() {
-        let id = extract_entity_id(
-            "refs/engram/task/abc123/sub/xyz",
-            "refs/engram/task/**",
-        );
+        let id = extract_entity_id("refs/engram/task/abc123/sub/xyz", "refs/engram/task/**");
         assert_eq!(id, "abc123/sub/xyz");
     }
 

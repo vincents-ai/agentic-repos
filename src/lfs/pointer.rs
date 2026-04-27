@@ -45,6 +45,18 @@ impl LfsPointer {
                     "version" => version = Some(value.to_string()),
                     "oid" => {
                         if let Some(hash) = value.strip_prefix("sha256:") {
+                            // Validate OID: must be exactly 64 hex characters
+                            if hash.len() != 64 {
+                                return Err(PointerParseError::InvalidFormat(format!(
+                                    "OID must be exactly 64 hex chars (SHA-256), got {} chars",
+                                    hash.len()
+                                )));
+                            }
+                            if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                                return Err(PointerParseError::InvalidFormat(
+                                    "OID must contain only hexadecimal digits".to_string(),
+                                ));
+                            }
                             oid = Some(hash.to_string());
                         } else {
                             return Err(PointerParseError::InvalidFormat(
@@ -100,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_parse_missing_field() {
-        let content = "version https://git-lfs.github.com/spec/v1\noid sha256:abc123\n";
+        let content = "version https://git-lfs.github.com/spec/v1\noid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n";
         let result = LfsPointer::parse(content);
         assert!(matches!(result, Err(PointerParseError::MissingField(_))));
     }
@@ -120,5 +132,19 @@ mod tests {
             size: 12345,
         };
         assert!(!invalid_pointer.is_valid_oid());
+    }
+
+    #[test]
+    fn test_parse_oid_wrong_length() {
+        let content = "version https://git-lfs.github.com/spec/v1\noid sha256:abc123\nsize 100\n";
+        let result = LfsPointer::parse(content);
+        assert!(matches!(result, Err(PointerParseError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn test_parse_oid_non_hex() {
+        let content = "version https://git-lfs.github.com/spec/v1\noid sha256:gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\nsize 100\n";
+        let result = LfsPointer::parse(content);
+        assert!(matches!(result, Err(PointerParseError::InvalidFormat(_))));
     }
 }

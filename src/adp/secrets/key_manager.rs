@@ -67,6 +67,12 @@ impl RepoKeyManager {
         // Encrypt the private key string with the root key
         let encrypted_private_key = self.encrypt_with_root_key(private_key_str.as_bytes())?;
 
+        // Zeroize the plaintext private key material
+        let mut pk_bytes = private_key_str.into_bytes();
+        for byte in pk_bytes.iter_mut() {
+            unsafe { std::ptr::write_volatile(byte, 0) };
+        }
+
         tracing::info!(
             repo_id = repo_id,
             public_key = %public_key_str,

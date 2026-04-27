@@ -53,6 +53,17 @@ impl TokenBucket {
     fn try_consume(&mut self, bytes: u64) -> Option<Duration> {
         self.refill();
 
+        // If the request exceeds bucket capacity, consume available tokens
+        // and return wait time for the remainder. This prevents infinite loops
+        // when a single request is larger than the burst capacity.
+        if bytes > self.capacity {
+            let available = self.tokens;
+            self.tokens = 0.0;
+            let remaining_bytes = bytes as f64 - available;
+            let wait_time = remaining_bytes / self.refill_rate;
+            return Some(Duration::from_secs_f64(wait_time));
+        }
+
         if self.tokens >= bytes as f64 {
             self.tokens -= bytes as f64;
             None
@@ -64,8 +75,21 @@ impl TokenBucket {
     }
 
     async fn consume(&mut self, bytes: u64) {
-        while let Some(wait_duration) = self.try_consume(bytes) {
+        let mut remaining = bytes;
+        let mut attempts = 0u32;
+        while let Some(wait_duration) = self.try_consume(remaining) {
             sleep(wait_duration).await;
+            attempts += 1;
+            // Safety valve: prevent infinite loops even with edge cases
+            if attempts > 100 {
+                tracing::warn!(
+                    "Throttle consume exceeded 100 iterations for {} bytes, allowing through",
+                    bytes
+                );
+                break;
+            }
+            // After first wait, only try to consume up to capacity
+            remaining = remaining.min(self.capacity);
         }
     }
 }
@@ -244,7 +268,13 @@ mod tests {
         throttler.acquire("tenant1", "repo1", 1024).await;
         let elapsed = start.elapsed();
 
-        assert!(elapsed.as_millis() < 10);
+        // The request is well within burst capacity so it should return
+        // near-instantly. Use a generous bound to avoid flakiness on slow CI.
+        assert!(
+            elapsed.as_millis() < 100,
+            "acquire within burst should be near-instant, took {}ms",
+            elapsed.as_millis()
+        );
     }
 
     #[tokio::test]

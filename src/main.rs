@@ -1,4 +1,8 @@
-use agentic_repos::{adp::{bootstrap_system_repo, bootstrap_root_key, register_admin_key, DEFAULT_ROOT_KEY_PATH}, config::AppConfig, server::run_server};
+use agentic_repos::{
+    adp::{bootstrap_root_key, bootstrap_system_repo, register_admin_key, DEFAULT_ROOT_KEY_PATH},
+    config::AppConfig,
+    server::run_server,
+};
 use std::path::PathBuf;
 
 /// Simple subcommand handling without pulling in a CLI framework dependency.
@@ -36,8 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         // Register admin key if provided
         if let Some(admin_key) = parse_flag_value(&args, "--admin-key") {
-            let admin_username = parse_flag_value(&args, "--admin-username")
-                .unwrap_or_else(|| "admin".to_string());
+            let admin_username =
+                parse_flag_value(&args, "--admin-username").unwrap_or_else(|| "admin".to_string());
             register_admin_key(&storage_root, &admin_username, &admin_key)?;
         }
 

@@ -162,17 +162,19 @@ impl GitOperationService {
                 let hex = id.to_hex().to_string();
                 if let Ok(obj) = gix_repo.find_object(id) {
                     if let Ok(commit) = gix::objs::CommitRef::from_bytes(&obj.data) {
-                        let timestamp = commit.committer.time.seconds;
-                        branches.push(BranchInfo {
-                            name: branch_name,
-                            is_head,
-                            commit_sha: hex,
-                            commit_message: commit.message.to_string(),
-                            author: commit.author.name.to_string(),
-                            created_at: chrono::DateTime::from_timestamp(timestamp, 0)
-                                .unwrap_or(chrono::Utc::now())
-                                .to_rfc3339(),
-                        });
+                        if let (Ok(author_sig), Ok(committer_sig)) = (commit.author(), commit.committer()) {
+                            let timestamp = committer_sig.time().map(|t| t.seconds).unwrap_or(0);
+                            branches.push(BranchInfo {
+                                name: branch_name,
+                                is_head,
+                                commit_sha: hex,
+                                commit_message: commit.message.to_string(),
+                                author: author_sig.name.to_string(),
+                                created_at: chrono::DateTime::from_timestamp(timestamp, 0)
+                                    .unwrap_or(chrono::Utc::now())
+                                    .to_rfc3339(),
+                            });
+                        }
                     }
                 }
             }
@@ -249,7 +251,9 @@ impl GitOperationService {
             })
             .map_err(|e| git_err("Failed to create branch", e))?;
 
-        let author_name = commit.author.name.to_string();
+        let author_name = commit.author()
+            .map(|sig| sig.name.to_string())
+            .unwrap_or_default();
         let commit_msg = commit.message.to_string();
 
         Ok(BranchInfo {
@@ -373,12 +377,14 @@ impl GitOperationService {
                 }
             }
 
+            let author_sig = commit.author().ok();
+            let committer_sig = commit.committer().ok();
             commits.push(CommitInfo {
                 sha: current_id.to_hex().to_string(),
-                author: commit.author.name.to_string(),
-                email: commit.author.email.to_string(),
+                author: author_sig.as_ref().map(|s| s.name.to_string()).unwrap_or_default(),
+                email: author_sig.as_ref().map(|s| s.email.to_string()).unwrap_or_default(),
                 message: commit.message.to_string(),
-                timestamp: commit.committer.time.seconds,
+                timestamp: committer_sig.and_then(|s| s.time().ok()).map(|t| t.seconds).unwrap_or(0),
                 parent_shas,
             });
         }
@@ -520,5 +526,92 @@ fn resolve_ref(repo: &gix::Repository, reference: &str) -> Result<gix::ObjectId,
     } else {
         gix::hash::ObjectId::from_hex(reference.as_bytes())
             .map_err(|e| format!("Invalid OID: {}", e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_git_operation_service_creation() {
+        let config = AppConfig::default();
+        let _service = GitOperationService::new(config);
+    }
+
+    #[test]
+    fn test_branch_info_serialization() {
+        let info = BranchInfo {
+            name: "main".to_string(),
+            is_head: true,
+            commit_sha: "abc123".to_string(),
+            commit_message: "test commit".to_string(),
+            author: "Test".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("main"));
+        let parsed: BranchInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "main");
+        assert!(parsed.is_head);
+    }
+
+    #[test]
+    fn test_commit_info_serialization() {
+        let info = CommitInfo {
+            sha: "abc123".to_string(),
+            author: "Test".to_string(),
+            email: "test@test.com".to_string(),
+            message: "test".to_string(),
+            timestamp: 1000,
+            parent_shas: vec![],
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let parsed: CommitInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.sha, "abc123");
+        assert!(parsed.parent_shas.is_empty());
+    }
+
+    #[test]
+    fn test_diff_stats_serialization() {
+        let stats = DiffStats {
+            insertions: 10,
+            deletions: 5,
+            files_changed: 2,
+            patches: vec![FilePatch {
+                path: "test.rs".to_string(),
+                status: "modified".to_string(),
+                additions: 10,
+                deletions: 5,
+            }],
+        };
+        let json = serde_json::to_string(&stats).unwrap();
+        let parsed: DiffStats = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.insertions, 10);
+        assert_eq!(parsed.files_changed, 2);
+        assert_eq!(parsed.patches.len(), 1);
+    }
+
+    #[test]
+    fn test_resolve_ref_nonexistent_ref() {
+        let tmpdir = TempDir::new().unwrap();
+        let dir = tmpdir.path().join("test.git");
+        let _repo = gix::init_bare(&dir).unwrap();
+        let repo = gix::open(&dir).unwrap();
+
+        let resolved = resolve_ref(&repo, "refs/heads/nonexistent");
+        assert!(resolved.is_err());
+    }
+
+    #[test]
+    fn test_resolve_ref_invalid_oid() {
+        let tmpdir = TempDir::new().unwrap();
+        let dir = tmpdir.path().join("test.git");
+        let _repo = gix::init_bare(&dir).unwrap();
+        let repo = gix::open(&dir).unwrap();
+
+        let resolved = resolve_ref(&repo, "not-a-valid-oid");
+        assert!(resolved.is_err());
     }
 }

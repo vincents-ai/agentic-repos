@@ -44,11 +44,14 @@
 
 ## Metrics
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/metrics` | Prometheus metrics (LFS + SDLC gauges) |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/metrics` | Required | Prometheus metrics (LFS + SDLC gauges) |
 
 Response: `text/plain` Prometheus exposition format.
+
+> **Note**: The `/metrics` endpoint requires authentication. Include a valid
+> `Authorization: Bearer <token>` header.
 
 ---
 
@@ -178,7 +181,13 @@ Secrets are AGE-encrypted with SOPS two-layer key wrapping (ADR-024). Per-repo k
 |--------|------|-------------|
 | POST | `/lfs-locks/lock` | Create lock |
 | POST | `/lfs-locks/unlock` | Delete lock |
-| GET | `/lfs-locks/list` | List locks |
+| POST | `/lfs-locks/verify` | Verify locks |
+
+## LFS Audit
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/{tenant}/{repo}/audit/logs` | Query LFS audit logs |
 
 ---
 
@@ -191,6 +200,8 @@ Secrets are AGE-encrypted with SOPS two-layer key wrapping (ADR-024). Per-repo k
 | GET | `/backups/{id}` | Get backup status |
 | POST | `/backups/{id}/restore` | Restore from backup |
 | DELETE | `/backups/{id}` | Delete backup |
+| POST | `/backups/{id}/cancel` | Cancel in-progress backup |
+| POST | `/backups/{id}/verify` | Verify backup integrity |
 | GET | `/backups/schedules` | List schedules |
 | POST | `/backups/schedules` | Create schedule |
 | PUT | `/backups/schedules/{id}` | Update schedule |
@@ -437,6 +448,36 @@ Endpoint availability depends on feature flags in git-refs config (`refs/adp/con
 | `analytics` | Analytics endpoints |
 | `backup_recovery` | Backup/schedule/restore endpoints |
 | `web_ui` | Embedded web UI |
+
+---
+
+## HIPAA
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/compliance/hipaa/baa` | List Business Associate Agreements |
+| POST | `/compliance/hipaa/baa` | Create BAA |
+| GET | `/compliance/hipaa/baa/{id}` | Get BAA detail |
+| POST | `/compliance/hipaa/baa/{id}/execute` | Execute BAA |
+| POST | `/compliance/hipaa/baa/{id}/terminate` | Terminate BAA |
+| GET | `/compliance/hipaa/baa/expiring` | List expiring BAAs |
+| GET | `/compliance/hipaa/baa/valid` | Verify all BAAs valid |
+| GET | `/compliance/hipaa/check` | HIPAA compliance check |
+
+## GDPR
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/compliance/gdpr/activities` | List processing activities |
+| POST | `/compliance/gdpr/activities` | Add processing activity |
+| GET | `/compliance/gdpr/dpia` | List DPIAs |
+| POST | `/compliance/gdpr/dpia` | Create DPIA |
+| POST | `/compliance/gdpr/dpia/{id}/approve` | Approve DPIA |
+| GET | `/compliance/gdpr/dpo` | Get DPO information |
+| POST | `/compliance/gdpr/dpo` | Appoint DPO |
+| GET | `/compliance/gdpr/authorities` | List supervisory authorities |
+| POST | `/compliance/gdpr/authorities` | Add authority |
+| GET | `/compliance/gdpr/readiness` | GDPR readiness assessment |
 
 ---
 

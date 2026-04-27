@@ -32,14 +32,22 @@ mod integration_tests {
         let config = GitConfig {
             ssh_port: 0,
             host_key_path: temp_dir.path().join("host_key"),
-            authorized_keys_path: temp_dir.path().join("authorized_keys"),
+
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: RateLimitConfig::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
-        let auth_manager = AuthorizedKeysManager::new(config.clone());
+        // Initialize system repo for git-refs key storage
+        let storage_root = temp_dir.path().to_path_buf();
+        let system_repo = storage_root.join("_adp/system");
+        std::fs::create_dir_all(&system_repo).unwrap();
+        let _repo = gix::init(&system_repo).unwrap();
+
+        let auth_manager = AuthorizedKeysManager::new(storage_root);
         let server = SshServer::new(git_service, Some(config.clone()), None);
 
         (server, temp_dir, auth_manager)
@@ -58,13 +66,14 @@ mod integration_tests {
             PrivateKey::random(&mut rand_core::OsRng, Algorithm::Ed25519).unwrap();
         let invalid_public_key = invalid_private_key.public_key();
 
-        // Create authorized keys file with valid key
-        let auth_keys_content = format!("testuser:{}", valid_public_key.to_openssh().unwrap());
-        fs::write(&temp_dir.path().join("authorized_keys"), auth_keys_content)
-            .await
-            .unwrap();
+        // Write valid key to git refs
+        use crate::adp::storage::AdpStore;
+        let system_repo = temp_dir.path().join("_adp/system");
+        let key_str = valid_public_key.to_openssh().unwrap();
+        let keys = serde_json::json!([key_str]);
+        AdpStore::write_ref_blob(&system_repo, "refs/adp/users/testuser/ssh_keys", &keys).unwrap();
 
-        // Load authorized keys
+        // Load authorized keys from git refs
         auth_manager.load_authorized_keys().await.unwrap();
 
         // Test 1: Valid key should be authorized

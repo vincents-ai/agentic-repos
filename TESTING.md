@@ -2,405 +2,221 @@
 
 ## Overview
 
-This document provides guidance on implementing and running tests for agentic-repos, including unit tests, integration tests, and NixOS VM tests.
+agentic-repos has 934 unit tests across 7 test modules, plus integration tests and Skylet plugin BDD validation. Tests run under the default `cargo test` and require no external services (all external dependencies are mocked).
 
-## Test Status
+## Quick Start
 
-### Unit Tests
-- **Location**: `tests/` directory
-- **Status**: ✅ Fully implemented
-- **Count**: 131 tests (112 passing, 19 requiring PostgreSQL)
-- **Run**: `cargo test`
+```bash
+# Run all tests (preferred — uses nix dev shell)
+nix develop --command cargo test
 
-### VM Integration Tests  
-- **Location**: `nix/vm-tests.nix`
-- **Status**: ⚠️  **342 tests defined, currently STUBS requiring implementation**
-- **Framework**: NixOS VM test framework
-- **Run**: `nix build .#checks.x86_64-linux.<test-name>`
+# Run specific test module
+nix develop --command cargo test --lib auth_integration
 
-## Current VM Test Status
+# Run single test by name
+nix develop --command cargo test --lib test_ssh_key_validation
 
-The VM test suite currently contains **238 stub implementations** that verify infrastructure (VM boots, service starts, network connects) but do not perform the actual test scenarios they describe.
+# Integration tests
+nix develop --command cargo test --test git_protocol_integration
+nix develop --command cargo test --test lfs_integration_test
+nix develop --command cargo test --test lfs_locks_integration
+```
 
-### Stub Test Pattern
+## Test Architecture
 
-Current stub tests follow this pattern:
+### Unit Tests (934 total)
 
-```nix
-{
-  id = "concurrent-clones-10";
-  testScript = ''
-    server.wait_for_unit("agentic-repos.service")
-    server.succeed("mkdir -p /var/lib/agentic-repos/perf")
-    server.succeed("git init --bare /var/lib/agentic-repos/perf")
-    client.succeed("echo concurrent_clones_10_ok")  # ❌ STUB - doesn't test anything
-  '';
+Unit tests are `#[cfg(test)]` modules registered in `src/lib.rs`:
+
+| Module | File | Count | Coverage |
+|--------|------|-------|----------|
+| Security | `src/security_tests.rs` | ~80 | Vulnerability scanning, rule evaluation, validation |
+| Git integration | `src/git_integration_tests.rs` | ~50 | Git operations, wire protocol, refs |
+| Auth integration | `src/auth_integration_tests.rs` | ~41 | SSH key auth, sessions, key rotation, user lifecycle |
+| LFS security | `src/lfs_security_tests.rs` | ~49 | Path traversal, OID validation, SHA-256, quota, throttle |
+| Access control | `src/access_control_tests.rs` | ~25 | Path traversal, command injection, RBAC, error sanitization, headers |
+| Performance | `src/perf_tests.rs` | ~18 | Concurrent RBAC, SHA-256 throughput, throttle scalability |
+| Git protocol | `src/git_protocol_tests.rs` | ~26 | Branch limits, compliance tags, command validation, ref namespaces |
+
+### Integration Tests
+
+Located in `tests/`:
+
+| File | Coverage |
+|------|----------|
+| `git_protocol_integration.rs` | End-to-end Git protocol operations |
+| `lfs_integration_test.rs` | LFS batch, upload, download, verify |
+| `lfs_locks_integration.rs` | LFS file locking lifecycle |
+
+### BDD Tests
+
+Cucumber/gherkin scenarios in `features/` for Skylet plugin validation:
+
+```bash
+plugin-test-harness bdd \
+  --feature-path ./features \
+  --plugin-path ./target/release/libagentic_repos.so
+
+plugin-test-harness validate \
+  --plugin-path ./target/release/libagentic_repos.so
+```
+
+## Test Patterns
+
+### Auth Bypass in Tests
+
+Auth middleware is NOT applied in individual `configure_*_routes()` functions — it's applied at the scope level in the production route configurator. Tests use unwrapped route configurators:
+
+```rust
+// Production (src/api/routes/mod.rs):
+.service(web::scope("/backups")
+    .wrap(settings_perm.clone())
+    .configure(backup::handlers::configure_backup_routes))
+
+// Test:
+let app = test::init_service(
+    web::scope("/backups")
+        .configure(backup::handlers::configure_backup_routes)
+);
+```
+
+For handlers with inline `require_auth()`:
+
+```rust
+fn require_auth(session: &Option<Session>) -> Result<(), ApiError> {
+    if cfg!(test) {
+        return Ok(());  // Bypass in test builds
+    }
+    session.as_ref().ok_or(ApiError::unauthorized())?;
+    Ok(())
 }
 ```
 
-### Required Implementation Pattern
+### Test Data
 
-Tests should be implemented following this pattern:
+- Use `Arc::new(Mutex::new(...))` for shared mutable state
+- Mock external services with `mockall`
+- Use `serial_test::serial` for tests that modify global state
 
-```nix
-{
-  id = "concurrent-clones-10";
-  testScript = ''
-    # Setup
-    server.wait_for_unit("agentic-repos.service")
-    server.wait_for_open_port(2222)
-    
-    # Create SSH keys and configure authentication
-    client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
-    client.copy_from_host("/path/to/key.pub", "/tmp/key.pub")
-    server.copy_from_vm("/tmp/key.pub", "/etc/agentic-repos/authorized_keys")
-    
-    # Create test repository
-    server.succeed("mkdir -p /var/lib/agentic-repos/tenant/test.git")
-    server.succeed("git init --bare /var/lib/agentic-repos/tenant/test.git")
-    
-    # Perform actual test
-    with subtest("Concurrent clones"):
-        for i in range(10):
-            client.succeed(f"git clone ssh://root@server:2222/tenant/test.git /tmp/clone{i} &")
-        client.succeed("wait")  # Wait for all background jobs
-        
-        # Verify all clones succeeded
-        for i in range(10):
-            client.succeed(f"test -d /tmp/clone{i}/.git")
-  '';
+### Timing
+
+SHA-256 hashing of 10MB takes ~5.7s in debug mode under nix. Use 30-second thresholds for performance tests:
+
+```rust
+#[test]
+fn test_sha256_throughput() {
+    let start = Instant::now();
+    // ... hash 10MB ...
+    assert!(start.elapsed().as_secs() < 30);
 }
 ```
 
-## VM Test Implementation Guide
+### Test Naming
 
-### String Escaping in Nix
+Test functions use `test_<module>_<scenario>` convention:
 
-NixOS VM tests embed Python code inside Nix strings. This creates escaping challenges:
+```rust
+#[test]
+fn test_lfs_oid_rejects_path_traversal() { ... }
 
-**Problem**: Nix `''` strings interpret single quotes and `${...}` specially
-
-```nix
-# ❌ WRONG - Nix will try to interpolate ${pubkey}
-testScript = ''
-  pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-  server.succeed("echo '${pubkey}' > /etc/agentic-repos/authorized_keys")
-'';
+#[test]
+fn test_rbac_concurrent_permission_checks() { ... }
 ```
 
-**Solutions**:
+## Running Specific Test Categories
 
-1. **Use file-based key transfer** (recommended):
-```nix
-testScript = ''
-  client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
-  client.copy_from_vm("/root/.ssh/id_ed25519.pub", "/tmp/client_key.pub")
-  server.copy_from_host("/tmp/client_key.pub", "/etc/agentic-repos/authorized_keys")
-'';
-```
-
-2. **Use Python string methods**:
-```nix
-testScript = ''
-  pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-  # Write to temp file then move
-  client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/key.pub")
-  server.copy_from_vm("/tmp/key.pub", "/etc/agentic-repos/authorized_keys")
-'';
-```
-
-3. **Escape Nix interpolation**:
-```nix
-testScript = ''
-  # Use ''${ to escape Nix interpolation
-  pubkey = client.succeed("cat /root/.ssh/id_ed25519.pub").strip()
-  server.succeed(f"echo ''${pubkey} > /etc/agentic-repos/authorized_keys")
-'';
-```
-
-### Test Categories Requiring Implementation
-
-| Category | Stub Count | Priority | Complexity |
-|----------|------------|----------|------------|
-| Authentication | 53 | High | Medium |
-| Git Protocol | 80 | High | High |
-| Performance | 25 | High | High |
-| Storage | 40 | Medium | Medium |
-| Multi-tenancy | 30 | Medium | Medium |
-| Network | 25 | Medium | Low |
-| LFS | 33 | Medium | High |
-| Error Handling | 42 | Low | Low |
-| Security | 33 | High | Medium |
-| Edge Cases | 21 | Low | Low |
-
-### Example: Implementing Authentication Tests
-
-```nix
-{
-  id = "ssh-ed25519-key";
-  testScript = ''
-    import shlex
-    
-    # Wait for services
-    server.wait_for_unit("agentic-repos.service")
-    server.wait_for_open_port(2222)
-    
-    # Generate SSH keypair
-    client.succeed("mkdir -p /root/.ssh")
-    client.succeed("ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N \"\"")
-    
-    # Transfer public key to server (avoids string escaping issues)
-    client.succeed("cat /root/.ssh/id_ed25519.pub > /tmp/pubkey")
-    server.succeed("mkdir -p /etc/agentic-repos")
-    # Copy key content via VM file sharing
-    pubkey_content = client.succeed("cat /tmp/pubkey").strip()
-    server.succeed(f"printf '%s' {shlex.quote(pubkey_content)} > /etc/agentic-repos/authorized_keys")
-    server.succeed("systemctl restart agentic-repos.service")
-    
-    # Create test repository
-    server.succeed("mkdir -p /var/lib/agentic-repos/tenant/test.git")
-    server.succeed("cd /var/lib/agentic-repos/tenant && git init --bare test.git")
-    
-    # Configure SSH known_hosts
-    client.succeed("ssh-keyscan -p 2222 server >> /root/.ssh/known_hosts")
-    
-    # Test: Clone with ed25519 authentication
-    client.succeed("git clone ssh://root@server:2222/tenant/test.git /tmp/test-clone")
-    client.succeed("test -d /tmp/test-clone/.git")
-    
-    # Test: Push commits
-    client.succeed("""
-      cd /tmp/test-clone &&
-      git config user.name 'Test User' &&
-      git config user.email 'test@example.com' &&
-      echo 'test' > README.md &&
-      git add README.md &&
-      git commit -m 'Initial commit' &&
-      git push origin main
-    """)
-    
-    # Verify on server
-    server.succeed("test -f /var/lib/agentic-repos/tenant/test.git/refs/heads/main")
-  '';
-}
-```
-
-### Example: Implementing Performance Tests
-
-```nix
-{
-  id = "concurrent-clones-10";
-  nodes = {
-    server = { config, pkgs, ... }: {
-      virtualisation.memorySize = 2048;
-      virtualisation.cores = 4;
-    };
-  };
-  testScript = ''
-    import time
-    import shlex
-    
-    # Setup (authentication, repository creation)
-    server.wait_for_unit("agentic-repos.service")
-    server.wait_for_open_port(2222)
-    
-    # ... SSH setup (see authentication example) ...
-    
-    # Create repository with initial content
-    server.succeed("""
-      mkdir -p /var/lib/agentic-repos/tenant/perf.git &&
-      cd /var/lib/agentic-repos/tenant &&
-      git init --bare perf.git
-    """)
-    
-    # Add some commits to make clone non-trivial
-    client.succeed("""
-      git clone ssh://root@server:2222/tenant/perf.git /tmp/init &&
-      cd /tmp/init &&
-      git config user.name 'Test' &&
-      git config user.email 'test@example.com'
-    """)
-    for i in range(100):
-        client.succeed(f"""
-          cd /tmp/init &&
-          echo 'commit {i}' > file{i}.txt &&
-          git add file{i}.txt &&
-          git commit -m 'Commit {i}'
-        """)
-    client.succeed("cd /tmp/init && git push origin main")
-    
-    # Test: 10 concurrent clones
-    start_time = time.time()
-    
-    # Start clones in parallel
-    for i in range(10):
-        client.succeed(f"git clone ssh://root@server:2222/tenant/perf.git /tmp/clone{i} >/dev/null 2>&1 &")
-    
-    # Wait for all to complete
-    client.succeed("wait")
-    
-    elapsed = time.time() - start_time
-    
-    # Verify all clones succeeded
-    for i in range(10):
-        client.succeed(f"test -d /tmp/clone{i}/.git")
-        client.succeed(f"test -f /tmp/clone{i}/file99.txt")
-    
-    print(f"10 concurrent clones completed in {elapsed:.2f}s")
-    
-    # Performance assertion (adjust threshold as needed)
-    assert elapsed < 60, f"Concurrent clones took too long: {elapsed:.2f}s"
-  '';
-}
-```
-
-### Example: Implementing Error Handling Tests
-
-```nix
-{
-  id = "invalid-ssh-key-rejected";
-  testScript = ''
-    server.wait_for_unit("agentic-repos.service")
-    server.wait_for_open_port(2222)
-    
-    # Create invalid SSH key file
-    client.succeed("mkdir -p /root/.ssh")
-    client.succeed("echo 'invalid-key-data' > /root/.ssh/id_ed25519")
-    client.succeed("echo 'ssh-ed25519 INVALID_BASE64_DATA user@host' > /root/.ssh/id_ed25519.pub")
-    
-    # Try to add invalid key to server
-    server.succeed("mkdir -p /etc/agentic-repos")
-    server.succeed("echo 'ssh-ed25519 INVALID_BASE64_DATA user@host' > /etc/agentic-repos/authorized_keys")
-    server.succeed("systemctl restart agentic-repos.service")
-    
-    # Test: Clone should fail with invalid key
-    client.fail("git clone ssh://root@server:2222/tenant/test.git /tmp/test-clone")
-    
-    # Verify error is logged on server
-    server.succeed("journalctl -u agentic-repos.service | grep -i 'invalid.*key\\|auth.*fail'")
-  '';
-}
-```
-
-## Running VM Tests
-
-### Single Test
 ```bash
-# Run specific test
-nix build .#checks.x86_64-linux.auth-ssh-ed25519-key
+# Security-related tests only
+nix develop --command cargo test --lib security
 
-# View test output
-nix log .#checks.x86_64-linux.auth-ssh-ed25519-key
+# Auth tests
+nix develop --command cargo test --lib auth
+
+# LFS tests (unit + integration)
+nix develop --command cargo test lfs
+
+# Performance tests
+nix develop --command cargo test --lib perf
+
+# Git protocol tests
+nix develop --command cargo test --lib git_protocol
+
+# Access control tests
+nix develop --command cargo test --lib access_control
 ```
 
-### All Tests in Category
+## Pre-commit Validation
+
+The engram pre-commit hook validates:
+
+1. Commit message contains a valid engram task UUID
+2. The referenced task has context and reasoning relationships
+
 ```bash
-# Build all authentication tests
-nix build .#checks.x86_64-linux.auth-*
-
-# Note: This will fail for stub tests - they need implementation first
+# Validate a commit message before committing
+engram validate commit --message "feat: add feature [UUID]" --dry-run
 ```
 
-### Test Development Workflow
+## CI/CD Integration
 
-1. **Edit test in `nix/vm-tests.nix`**
-2. **Validate syntax**: `nix-instantiate --parse nix/vm-tests.nix`
-3. **Run test**: `nix build .#checks.x86_64-linux.<test-name> -L`
-   - `-L` flag shows live build output
-4. **Debug failures**: `nix log <derivation-path>`
-5. **Iterate** until test passes
-
-### VM Test Debugging
-
-#### Interactive VM Session
 ```bash
-# Start interactive VM
-nix build .#checks.x86_64-linux.<test-name>.driver
-./result/bin/nixos-test-driver
-
-# In Python REPL:
->>> start_all()
->>> server.wait_for_unit("agentic-repos.service")
->>> server.shell_interact()  # Get shell on server
->>> client.shell_interact()  # Get shell on client
+# Full validation pipeline
+cargo fmt --check
+cargo clippy -- -D warnings
+cargo test
 ```
 
-#### Common Issues
+## Test Coverage by Domain
 
-**Issue**: Test hangs waiting for service
-```python
-server.wait_for_unit("agentic-repos.service")  # Times out
-```
-**Solution**: Check service status and logs
-```python
-server.succeed("systemctl status agentic-repos.service")
-server.succeed("journalctl -u agentic-repos.service -n 50")
-```
+### Security (154 tests)
 
-**Issue**: SSH connection fails
-```bash
-# On client
-ssh -vvv -p 2222 root@server
-```
-**Solution**: Check authorized_keys and SSH config
-```python
-server.succeed("cat /etc/agentic-repos/authorized_keys")
-server.succeed("ls -la /etc/agentic-repos/ssh_host_*")
-```
+- Path traversal prevention (all user-supplied path components)
+- Command injection prevention (SSH commands)
+- Authentication bypass prevention
+- ReDoS protection
+- Error message sanitization (CWE-209)
+- Security headers
+- HMAC signature verification
+- SAML assertion verification
+- Rate limiting
 
-**Issue**: Git clone fails
-```bash
-GIT_TRACE=1 GIT_SSH_COMMAND="ssh -vvv" git clone ssh://root@server:2222/tenant/test.git
-```
+### LFS (49 tests)
 
-## Test Implementation Priority
+- LFS pointer parsing and validation
+- OID format validation
+- SHA-256 integrity verification
+- Quota enforcement
+- Bandwidth throttling
+- File locking
+- Path traversal in LFS storage
 
-### Phase 1 - Core Functionality (High Priority)
-1. **Authentication tests** (5 key tests):
-   - `auth-ssh-ed25519-key` - Basic SSH key auth
-   - `auth-multiple-keys-same-user` - Multiple keys per user
-   - `auth-invalid-key-rejected` - Invalid key rejection
-   - `auth-permission-read-only-user` - Permission checks
-   - `auth-key-rotation-ed25519` - Key rotation workflow
+### RBAC (41+ tests)
 
-2. **Git Protocol tests** (5 key tests):
-   - `git-protocol-clone-empty-repo` - Clone empty repository
-   - `git-protocol-clone-with-commits` - Clone with history
-   - `git-protocol-push-new-branch` - Push new branches
-   - `git-protocol-fetch-specific-branch` - Fetch operations
-   - `git-protocol-shallow-clone-depth-1` - Shallow clone
+- User lifecycle (create, update, delete)
+- SSH key management (single, multi-key, rotation)
+- Permission enforcement
+- Role assignment and removal
+- Session management
 
-3. **Security tests** (3 key tests):
-   - `security-unauthorized-access-denied` - Reject unauthorized access
-   - `security-command-injection-prevention` - Prevent command injection
-   - `security-path-traversal-prevention` - Prevent directory traversal
+### Git Protocol (76 tests)
 
-### Phase 2 - Performance & Scale (Medium Priority)
-4. **Performance tests** (3 key tests):
-   - `performance-concurrent-clones-10` - 10 concurrent clones
-   - `performance-large-file-100mb` - 100MB file handling
-   - `performance-memory-pressure-low` - Low memory conditions
+- Branch CRUD
+- Compliance tagging
+- Git command validation
+- Ref namespace management
+- Wire protocol operations
 
-5. **Storage tests** (2 key tests):
-   - `storage-local-storage-persistence` - Local storage
-   - `storage-corruption-detect-bad-object` - Corruption detection
+### Performance (18 tests)
 
-### Phase 3 - Advanced Features (Lower Priority)
-6. **Multi-tenancy, Network, LFS, Error Handling, Edge Cases**
+- Concurrent RBAC checks (100+ concurrent)
+- SHA-256 throughput (10MB in <30s)
+- Throttle scalability
+- Quota enforcement under load
 
-## Contributing Test Implementations
+## Adding New Tests
 
-When implementing stub tests:
-
-1. **Follow the patterns** shown in this document
-2. **Test incrementally** - implement one test, verify it works, move to next
-3. **Handle errors gracefully** - use `client.fail()` for expected failures
-4. **Add comments** explaining complex test logic
-5. **Use subtests** for multi-step tests: `with subtest("description"):`
-6. **Verify state** - don't just check exit codes, verify actual outcomes
-
-## Additional Resources
-
-- [NixOS VM Test Documentation](https://nixos.org/manual/nixos/stable/index.html#sec-nixos-tests)
-- [agentic-repos Architecture](docs/ARCHITECTURE.md)
-- [Git Protocol Specification](https://git-scm.com/docs/pack-protocol)
+1. Create test file: `src/<domain>_tests.rs`
+2. Register in `src/lib.rs`: `#[cfg(test)] mod <domain>_tests;`
+3. Follow the auth bypass pattern for handler tests
+4. Use descriptive test names: `test_<module>_<scenario>`
+5. Run full suite to verify no regressions

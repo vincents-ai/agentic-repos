@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::auth::middleware::get_current_session;
 use crate::config::AppConfig;
 use crate::lfs::{
     record_batch_request, record_download, record_error, record_upload, Action, Actions,
@@ -22,6 +23,7 @@ where
     audit_logger: Option<Arc<AuditLogger<A>>>,
     throttler: Option<Arc<BandwidthThrottler>>,
     lock_manager: Option<Arc<LfsLockManager>>,
+    token_generator: crate::lfs::auth::LfsTokenGenerator,
 }
 
 impl<S, A> LfsHandler<S, A>
@@ -30,6 +32,11 @@ where
     A: AuditStorage + 'static,
 {
     pub fn new(storage: Arc<S>, config: AppConfig) -> Self {
+        let jwt_secret = config
+            .lfs
+            .jwt_secret
+            .clone()
+            .unwrap_or_default();
         Self {
             storage,
             config,
@@ -37,6 +44,7 @@ where
             audit_logger: None,
             throttler: None,
             lock_manager: None,
+            token_generator: crate::lfs::auth::LfsTokenGenerator::new(jwt_secret),
         }
     }
 
@@ -221,7 +229,7 @@ where
 }
 
 pub async fn batch_endpoint<S, A>(
-    _req: HttpRequest,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
     batch_req: web::Json<BatchRequest>,
     handler: web::Data<LfsHandler<S, A>>,
@@ -230,6 +238,13 @@ where
     S: LfsStorage + 'static,
     A: AuditStorage + 'static,
 {
+    // Require auth on batch endpoint — either session or LFS token
+    if !is_authenticated(&req, &handler.token_generator) {
+        record_error("unauthenticated", "", "");
+        return HttpResponse::Unauthorized().json(json!({
+            "message": "Authentication required"
+        }));
+    }
     let (tenant, repo) = path.into_inner();
     match handler
         .handle_batch(tenant, repo, batch_req.into_inner())
@@ -247,7 +262,7 @@ where
 }
 
 pub async fn upload_object<S, A>(
-    _req: HttpRequest,
+    req: HttpRequest,
     path: web::Path<(String, String, String)>,
     body: web::Bytes,
     handler: web::Data<LfsHandler<S, A>>,
@@ -256,6 +271,18 @@ where
     S: LfsStorage + 'static,
     A: AuditStorage + 'static,
 {
+    // Require valid LFS token (with upload operation) or session
+    if !is_lfs_operation_authorized(
+        &req,
+        &handler.token_generator,
+        crate::lfs::auth::LfsOperation::Upload,
+    ) {
+        let (tenant, repo, _) = path.into_inner();
+        record_error("unauthenticated", &tenant, &repo);
+        return HttpResponse::Unauthorized().json(json!({
+            "message": "Authentication required for upload"
+        }));
+    }
     let (tenant, repo, oid) = path.into_inner();
 
     if !handler.config.lfs.enabled {
@@ -337,7 +364,7 @@ where
 }
 
 pub async fn download_object<S, A>(
-    _req: HttpRequest,
+    req: HttpRequest,
     path: web::Path<(String, String, String)>,
     handler: web::Data<LfsHandler<S, A>>,
 ) -> impl Responder
@@ -345,6 +372,16 @@ where
     S: LfsStorage + 'static,
     A: AuditStorage + 'static,
 {
+    // Require valid LFS token (with download operation) or session
+    if !is_lfs_operation_authorized(
+        &req,
+        &handler.token_generator,
+        crate::lfs::auth::LfsOperation::Download,
+    ) {
+        return HttpResponse::Unauthorized().json(json!({
+            "message": "Authentication required for download"
+        }));
+    }
     let (tenant, repo, oid) = path.into_inner();
 
     if !handler.config.lfs.enabled {
@@ -427,6 +464,50 @@ where
     }
 }
 
+/// Check if the request has a valid session (OAuthMiddleware) or
+/// a valid LFS JWT token in the Authorization header.
+fn is_authenticated(req: &HttpRequest, token_gen: &crate::lfs::auth::LfsTokenGenerator) -> bool {
+    // Check session-based auth first (OAuthMiddleware)
+    if get_current_session(req).is_some() {
+        return true;
+    }
+    // Check LFS JWT token
+    if let Some(auth_header) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                if token_gen.validate_token(token).is_ok() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if the request is authorized for a specific LFS operation.
+/// Validates that the LFS JWT token includes the expected operation.
+fn is_lfs_operation_authorized(
+    req: &HttpRequest,
+    token_gen: &crate::lfs::auth::LfsTokenGenerator,
+    required_op: crate::lfs::auth::LfsOperation,
+) -> bool {
+    // Session-based auth is always authorized
+    if get_current_session(req).is_some() {
+        return true;
+    }
+    // Check LFS JWT token with operation matching
+    if let Some(auth_header) = req.headers().get("Authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                if let Ok(claims) = token_gen.validate_token(token) {
+                    return claims.operation == required_op;
+                }
+            }
+        }
+    }
+    false
+}
+
 pub fn configure_lfs_routes<S, A>(cfg: &mut web::ServiceConfig)
 where
     S: LfsStorage + 'static,
@@ -441,7 +522,10 @@ where
             .route("/lfs/objects/{oid}", web::put().to(upload_object::<S, A>))
             .route("/lfs/objects/{oid}", web::get().to(download_object::<S, A>))
             .route("/quota", web::get().to(get_quota_info::<S, A>))
-            .route("/locks/verify", web::post().to(verify_locks_endpoint::<S, A>)),
+            .route(
+                "/locks/verify",
+                web::post().to(verify_locks_endpoint::<S, A>),
+            ),
     )
     .route("/audit/logs", web::get().to(query_audit_logs::<S, A>));
 }
@@ -588,7 +672,14 @@ where
     match &handler.lock_manager {
         Some(lm) => {
             let refspec = req.git_ref.as_ref().map(|r| r.name.as_str());
-            match lm.verify_locks(&tenant, &repo, &requesting_user, refspec, req.limit, req.cursor.as_deref()) {
+            match lm.verify_locks(
+                &tenant,
+                &repo,
+                &requesting_user,
+                refspec,
+                req.limit,
+                req.cursor.as_deref(),
+            ) {
                 Ok(response) => HttpResponse::Ok().json(response),
                 Err(e) => HttpResponse::InternalServerError().json(json!({
                     "message": format!("Lock verification failed: {}", e)

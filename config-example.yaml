@@ -1,213 +1,128 @@
-# Example configuration for agentic-repos Git Server
-# Copy this file to config.yaml and modify as needed
+# Bootstrap Configuration Seed for agentic-repos
+#
+# This file is a ONE-TIME SEED for `agentic-repos init`.
+# After initialization, all configuration is stored in git refs in the
+# system repository (_adp/system). Runtime reads from git refs exclusively.
+#
+# Usage:
+#   agentic-repos init --config config.yaml
+#   agentic-repos init --config config.yaml --storage /data/git
+#
+# After init, change configuration via:
+#   agentic-repos config set <key> <value>
+# Or by writing directly to refs/adp/config/* in the system repo.
+#
+# THIS FILE IS NOT READ AT RUNTIME.
+# The server reads configuration from git refs only (compliance requirement).
 
-# Server configuration
+# ─── Server ──────────────────────────────────────────────────────────────
+
 server:
   ssh:
-    # SSH server port (default: 2222)
     port: 2222
-    # Path to SSH host key file (will be generated if doesn't exist)
     host_key_path: "./ssh_host_key"
-    # Maximum concurrent SSH connections
     max_connections: 100
-    # Connection timeout in seconds
     connection_timeout_secs: 30
 
-# Authentication configuration
-auth:
-  # Path to authorized_keys file (format: username:ssh-key-type key comment)
-  authorized_keys_path: "./authorized_keys"
+# ─── Storage ─────────────────────────────────────────────────────────────
 
-# RBAC (Role-Based Access Control) configuration
-rbac:
-  # Enable RBAC system (requires rbac feature flag)
-  enabled: false
-  # Storage type for RBAC data: "memory" or "database"
-  storage_type: "memory"
-  # Initial administrator user (created on first startup if rbac enabled)
-  admin_user:
-    username: "admin"
-    email: "admin@localhost"
-    # SSH public key for admin user (optional)
-    ssh_key: ""
-
-# Storage backend configuration
 storage:
-  # Storage backend type: "local" or "s3"
-  type: "local"
-  
-  # Local filesystem storage
+  type: "local"              # "local" or "s3"
   local:
-    # Base path for repository storage
     path: "./repositories"
-  
-  # S3-compatible storage (uncomment to use)
   # s3:
   #   bucket: "my-git-repositories"
   #   region: "us-east-1"
-  #   # Optional: Custom S3-compatible endpoint
   #   endpoint: "https://s3.amazonaws.com"
 
-# Rate limiting configuration
-rate_limit:
-  # Enable rate limiting (true/false)
+# ─── Git LFS ─────────────────────────────────────────────────────────────
+# Required: jwt_secret MUST be set for LFS to function.
+# After init, this is stored at refs/adp/config/lfs in the system repo.
+
+lfs:
   enabled: true
-  
-  # Headers to check for proxy IP information (for rate limiting behind proxies)
+  max_object_size: 5368709120  # 5GB
+  token_expiration_secs: 3600
+  jwt_secret: "CHANGE_THIS_IN_PRODUCTION"
+  base_url: "http://localhost:8090"
+  locking_enabled: false
+  lock_expiration_secs: 86400
+
+# ─── Feature Flags ──────────────────────────────────────────────────────
+# After init, feature flags are stored at refs/adp/config/features.
+# Enable features you need before running init.
+
+features:
+  git_lfs: true
+  lfs_locks: false
+  rbac: true
+  web_ui: false              # Requires adp-web-ui binary
+  redis_cache: false
+  webhooks: true
+  security_scanning: true
+  backup_recovery: true
+  multi_region: false
+  horizontal_scaling: false
+  monitoring: true
+
+  # Authentication
+  ldap_auth: false
+  saml_auth: false
+  oauth_auth: false
+
+  # Compliance
+  gdpr_compliance: false
+  hipaa_compliance: false
+  soc2_compliance: false
+
+  # CI/CD
+  github_actions: false
+  gitlab_ci: false
+  jenkins: false
+
+  # Analytics
+  analytics: false
+
+# ─── Rate Limiting ─────────────────────────────────────────────────────
+
+rate_limit:
+  enabled: true
   proxy_headers:
     - "X-Forwarded-For"
     - "X-Real-IP"
-    - "CF-Connecting-IP"
-  
-  # Global rate limits (applied to all users)
   global_limits:
-    # Maximum requests per second globally
     max_requests_per_second: 100
-    # Maximum connections per IP address
     max_connections_per_ip: 10
-    # Burst size for rate limiting
     burst_size: 20
-  
-  # Tier-based rate limiting
   tiers:
-    # Free tier (default for all users)
     free:
       requests_per_minute: 60
-      requests_per_hour: 1000
       burst_size: 10
-      concurrent_connections: 5
-    
-    # Pro tier (for paid users - configure user mapping separately)
     pro:
       requests_per_minute: 300
-      requests_per_hour: 10000
       burst_size: 50
-      concurrent_connections: 20
-    
-    # Enterprise tier (for enterprise customers)
     enterprise:
       requests_per_minute: 1000
-      requests_per_hour: 100000
       burst_size: 200
-      concurrent_connections: 100
 
-# Logging configuration
+# ─── RBAC ───────────────────────────────────────────────────────────────
+# Initial admin user created during init via --admin-key flag.
+# After init, users are managed via refs/adp/users/* in the system repo.
+
+rbac:
+  enabled: true
+  storage_type: "memory"     # "memory" or "database"
+
+# ─── Logging ────────────────────────────────────────────────────────────
+
 logging:
-  # Log level: trace, debug, info, warn, error
   level: "info"
-  # Enable structured JSON logging
   json: false
-  # Enable timestamps in logs
-  timestamp: true
-  # Enable ANSI colors in terminal output
-  ansi: true
 
-# Commercial features (require separate licensing)
-# Contact shift@someone.section.me for commercial licensing
-features:
-  # Web UI - Repository management web interface
-  web_ui: false
-  
-  # Authentication integrations
-  ldap_auth: false      # LDAP/Active Directory integration
-  saml_auth: false      # SAML SSO provider
-  oauth_auth: false     # OAuth2/OIDC authentication
-  
-  # Audit & Governance
-  audit_logging: false     # Comprehensive audit logging
-  audit_tracking: false   # Tamper-proof access tracking
-  repo_templates: false   # Repository templates with policies
-  webhooks: false         # Custom webhook integrations
-  
-  # Performance & Scale
-  multi_region: false      # Multi-region replication
-  horizontal_scaling: false  # Horizontal scaling support
-  redis_cache: false      # Redis caching layer
-  load_balancing: false   # Intelligent load balancing
-  monitoring: false       # Prometheus/Grafana monitoring
-  
-  # Security & Compliance
-  security_scanning: false  # Repository vulnerability scanning
-  soc2_compliance: false   # SOC2 compliance reports
-  gdpr_compliance: false   # GDPR data protection features
-  hipaa_compliance: false  # HIPAA healthcare compliance
-  rbac: false             # Role-based access control
-  backup_recovery: false  # Automated backup & disaster recovery
-  
-  # CI/CD Integration
-  github_actions: false   # GitHub Actions integration
-  gitlab_ci: false        # GitLab CI integration
-  jenkins: false          # Jenkins pipeline integration
-  
-  # Advanced API & Analytics
-  graphql_api: false      # GraphQL API with advanced querying
-  advanced_webhooks: false  # Advanced webhook filtering
-  analytics: false        # Repository analytics dashboard
-  
-  # Git LFS - Large File Storage
-  git_lfs: false          # Git LFS support (open source feature)
-  lfs_locks: false        # LFS file locking (requires git_lfs)
-
-# Git LFS configuration (requires git_lfs feature flag)
-lfs:
-  # Enable Git LFS support
-  enabled: false
-  # Maximum object size in bytes (default: 5GB)
-  max_object_size: 5368709120
-  # JWT token expiration in seconds (default: 1 hour)
-  token_expiration_secs: 3600
-  # JWT secret for token signing (CHANGE IN PRODUCTION)
-  jwt_secret: "CHANGE_THIS_SECRET_IN_PRODUCTION_USE_STRONG_RANDOM_STRING"
-  # Base URL for LFS HTTP endpoints
-  base_url: "http://localhost:8090"
-  # Storage path pattern for LFS objects
-  storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
-  # Enable LFS file locking (requires lfs_locks feature flag)
-  locking_enabled: false
-  # Lock expiration in seconds (default: 24 hours)
-  lock_expiration_secs: 86400
-
-# Uncomment and configure if you have a commercial license
-
-# compliance:
-#   # Data classification and compliance tags
-#   enabled: false
-#   storage_tiers:
-#     hot:
-#       description: "Frequently accessed repositories"
-#       retention_days: 365
-#     warm:
-#       description: "Occasionally accessed repositories" 
-#       retention_days: 1825  # 5 years
-#     cold:
-#       description: "Archive repositories"
-#       retention_days: 3650  # 10 years
-
-# retention:
-#   # Automatic repository cleanup policies
-#   enabled: false
-#   policies:
-#     - name: "old_branches"
-#       description: "Delete branches older than 90 days"
-#       rules:
-#         - type: "age"
-#           max_age_days: 90
-#           exclude_patterns: ["main", "master", "develop"]
-#     - name: "large_repos"
-#       description: "Archive repositories larger than 1GB"
-#       rules:
-#         - type: "size"
-#           max_size_mb: 1024
-#           action: "archive"
-
-# branch_limits:
-#   # Repository branch and tag limits
-#   enabled: false
-#   default_limits:
-#     max_branches: 100
-#     max_tags: 50
-#   # Per-repository overrides
-#   repository_limits:
-#     "important-org/critical-repo":
-#       max_branches: 500
-#       max_tags: 200
+# ─── Environment Variables ──────────────────────────────────────────────
+# These are NOT in config.yaml. Set them in the server environment:
+#
+# RUST_LOG=info                    Log level (trace/debug/info/warn/error)
+# BACKUP_ENCRYPTION_KEY=<hex>      AES-256 key for encrypted backups
+# SESSION_ENCRYPTION_KEY=<hex>     AES-256 key for session encryption
+# AGENTIC_REPOS_STORAGE_ROOT=<path> Storage root (if not default)

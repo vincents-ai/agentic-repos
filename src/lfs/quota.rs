@@ -145,9 +145,10 @@ impl QuotaManager {
     ) -> Result<(), QuotaError> {
         let lfs_base = PathBuf::from(format!("{}/{}.git/lfs/objects", tenant, repo));
 
-        let total_bytes = 0u64;
-        let object_count = 0u64;
+        let mut object_count = 0u64;
 
+        // Walk the LFS object directory tree to recalculate actual object count.
+        // bytes_used is preserved from incremental tracking via update_usage().
         for prefix1 in 0..256 {
             let prefix1_hex = format!("{:02x}", prefix1);
             let prefix1_path = lfs_base.join(&prefix1_hex);
@@ -156,15 +157,23 @@ impl QuotaManager {
                 continue;
             }
 
-            for prefix2 in 0..256 {
-                let prefix2_hex = format!("{:02x}", prefix2);
-                let prefix2_path = prefix1_path.join(&prefix2_hex);
-
-                if !backend.exists(&prefix2_path).await.unwrap_or(false) {
-                    continue;
+            if let Ok(sub_prefixes) = backend.list(&prefix1_path).await {
+                for sub in &sub_prefixes {
+                    let sub_path = prefix1_path.join(sub);
+                    if let Ok(objects) = backend.list(&sub_path).await {
+                        object_count += objects.len() as u64;
+                    }
                 }
             }
         }
+
+        // Preserve bytes_used from incremental tracking
+        let key_for_cache = Self::quota_key(tenant, repo);
+        let cached_bytes = self.usage_cache.read().await
+            .get(&key_for_cache)
+            .map(|u| u.bytes_used)
+            .unwrap_or(0);
+        let total_bytes = if object_count > 0 { cached_bytes } else { 0 };
 
         let key = Self::quota_key(tenant, repo);
         let mut cache = self.usage_cache.write().await;

@@ -7,6 +7,7 @@ use aws_sdk_s3::{
     primitives::ByteStream,
     Client,
 };
+use std::fmt;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
@@ -14,13 +15,39 @@ use super::StorageBackend;
 use crate::skynet::error::{SkynetPluginError, SkynetPluginResult};
 
 /// S3-compatible storage backend configuration
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct S3StorageConfig {
     pub endpoint: String,
     pub region: String,
     pub access_key_id: String,
+    /// Secret access key — never logged, printed, or serialized.
     pub secret_access_key: String,
     pub bucket: String,
+}
+
+impl fmt::Debug for S3StorageConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("S3StorageConfig")
+            .field("endpoint", &self.endpoint)
+            .field("region", &self.region)
+            .field("access_key_id", &self.access_key_id)
+            .field("secret_access_key", &"[REDACTED]")
+            .field("bucket", &self.bucket)
+            .finish()
+    }
+}
+
+impl Drop for S3StorageConfig {
+    fn drop(&mut self) {
+        // Securely zero the secret access key to minimize window of
+        // exposure in memory.  use `volatile_write` to prevent the
+        // compiler from optimizing this away.
+        unsafe {
+            for byte in self.secret_access_key.as_bytes_mut() {
+                std::ptr::write_volatile(byte, 0);
+            }
+        }
+    }
 }
 
 impl S3StorageConfig {
@@ -341,5 +368,26 @@ mod tests {
         let backend = S3StorageBackend::new(config);
         let key = backend.lfs_key("tenant1", "abc123");
         assert_eq!(key, "tenant1/lfs/objects/abc123");
+    }
+
+    #[test]
+    fn test_debug_redacts_secret_key() {
+        let config = S3StorageConfig {
+            endpoint: "http://localhost:3900".to_string(),
+            region: "garage".to_string(),
+            access_key_id: "key".to_string(),
+            secret_access_key: "super_secret_key_value".to_string(),
+            bucket: "repos".to_string(),
+        };
+
+        let debug_output = format!("{:?}", config);
+        assert!(
+            !debug_output.contains("super_secret_key_value"),
+            "Debug output must NOT contain the actual secret key"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output must contain [REDACTED] for secret"
+        );
     }
 }

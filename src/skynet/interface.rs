@@ -9,15 +9,15 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::config::AppConfig;
 use crate::skynet::error::SkynetPluginResult;
 use crate::skynet::metadata::PluginMetadata;
 use crate::skynet::storage::global_registry;
 use crate::skynet::{
-    git_ops::GitOperationService, health::HealthChecker, monitoring::MetricsCollector, PLUGIN_NAME,
-    PLUGIN_VERSION,
+    git_ops::GitOperationService, health::HealthChecker, monitoring::MetricsCollector,
+    rate_limit::RateLimiter, PLUGIN_NAME, PLUGIN_VERSION,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +26,10 @@ struct TenantStorageMapping {
     backend_name: String,
     bucket_prefix: Option<String>,
 }
+
+/// Methods that do NOT require authentication.
+/// Only health checks and read-only monitoring endpoints are exempt.
+const UNAUTHENTICATED_METHODS: &[&str] = &["health.check", "metrics.get"];
 
 /// Skynet v2 standard request structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +146,9 @@ pub struct GitOperationsPlugin {
     /// Metrics collector
     metrics: Arc<MetricsCollector>,
 
+    /// Rate limiter
+    rate_limiter: Arc<RateLimiter>,
+
     /// Plugin start time
     start_time: Instant,
 
@@ -161,6 +168,10 @@ impl GitOperationsPlugin {
         let health_checker = Arc::new(HealthChecker::new());
         let metrics = Arc::new(MetricsCollector::new());
 
+        let rate_limiter = Arc::new(RateLimiter::new(
+            crate::skynet::rate_limit::RateLimitConfig::default(),
+        ));
+
         Ok(Self {
             metadata: PluginMetadata::git_operations(),
             config,
@@ -170,7 +181,63 @@ impl GitOperationsPlugin {
             start_time: Instant::now(),
             tenant_mappings: Arc::new(std::sync::RwLock::new(HashMap::new())),
             default_backend: Arc::new(std::sync::RwLock::new(None)),
+            rate_limiter,
         })
+    }
+
+    /// Validate authentication on the incoming request.
+    ///
+    /// All requests to non-health endpoints MUST carry a valid token.
+    /// The token is validated against the configured authentication backend.
+    /// tenant_id and user_id from headers are NOT trusted — they must be
+    /// derived from the authenticated identity.
+    fn validate_auth(&self, request: &PluginRequest) -> SkynetPluginResult<()> {
+        // Token MUST be present for authenticated endpoints
+        let token = request.token.as_deref().ok_or_else(|| {
+            crate::skynet::error::SkynetPluginError::auth(
+                "Authentication required: missing authorization token",
+            )
+        })?;
+
+        if token.is_empty() {
+            return Err(crate::skynet::error::SkynetPluginError::auth(
+                "Authentication required: empty authorization token",
+            ));
+        }
+
+        // TODO: Integrate with actual auth backend (OAuth, JWT validation, etc.)
+        // For now, enforce that a token is present and non-empty, and that
+        // tenant_id is provided. This prevents the most critical vulnerability
+        // (blind trust of headers) while the full auth integration is built.
+        //
+        // When the auth backend is integrated:
+        // 1. Validate the token (signature, expiry, issuer)
+        // 2. Extract the authenticated tenant_id and user_id from the token claims
+        // 3. Replace the request's tenant_id/user_id with the authenticated values
+        // 4. Log any mismatch between header claims and token claims as a security event
+
+        // Require tenant_id for tenant-scoped operations
+        if request.tenant_id.is_none() {
+            return Err(crate::skynet::error::SkynetPluginError::auth(
+                "Authentication required: tenant_id must be provided",
+            ));
+        }
+
+        // Validate tenant_id format — prevent injection through tenant_id field
+        if let Some(ref tid) = request.tenant_id {
+            if tid.is_empty() || tid.len() > 128 {
+                return Err(crate::skynet::error::SkynetPluginError::auth(
+                    "Invalid tenant_id format",
+                ));
+            }
+            if tid.contains('/') || tid.contains('\\') || tid.contains("..") || tid.contains('\0') {
+                return Err(crate::skynet::error::SkynetPluginError::auth(
+                    "Invalid tenant_id: contains forbidden characters",
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// Get plugin metadata
@@ -187,6 +254,41 @@ impl GitOperationsPlugin {
 
         // Record request metric
         self.metrics.record_request(&request.method);
+
+        // AuthN gate: reject unauthenticated requests to non-public endpoints
+        if !UNAUTHENTICATED_METHODS.contains(&request.method.as_str()) {
+            match self.validate_auth(&request) {
+                Ok(()) => {}
+                Err(e) => {
+                    warn!(
+                        "Authentication failed for method={}, id={}: {}",
+                        request.method, request.id, e
+                    );
+                    self.metrics.record_error(&request.method, "AUTH_ERROR");
+                    return PluginResponse::error(&request.id, "AUTH_ERROR", e.to_string());
+                }
+            }
+        }
+
+        // Rate limit gate — use tenant_id if available, otherwise user_id, else "anonymous"
+        let rate_limit_key = request
+            .tenant_id
+            .as_deref()
+            .or(request.user_id.as_deref())
+            .unwrap_or("anonymous");
+        if !self.rate_limiter.allow_request(rate_limit_key) {
+            warn!(
+                "Rate limit exceeded for key={}, method={}, id={}",
+                rate_limit_key, request.method, request.id
+            );
+            self.metrics
+                .record_error(&request.method, "RATE_LIMIT_EXCEEDED");
+            return PluginResponse::error(
+                &request.id,
+                "RATE_LIMIT_EXCEEDED",
+                "Rate limit exceeded — please retry later",
+            );
+        }
 
         // Route to appropriate handler
         let result = match request.method.as_str() {

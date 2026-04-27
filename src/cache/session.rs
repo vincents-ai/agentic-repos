@@ -1,4 +1,5 @@
 use crate::auth::session::{Session, SessionStore};
+use crate::cache::crypto::{decrypt_session, encrypt_session};
 use crate::cache::{CacheKey, CachePool, CacheResult};
 use async_trait::async_trait;
 use chrono::Duration;
@@ -72,22 +73,32 @@ impl SessionStore for RedisSessionStore {
             }
         };
 
-        match conn.get(&key).await {
-            Ok(Some(json)) => match serde_json::from_str::<Session>(&json) {
-                Ok(session) => {
-                    if session.is_expired() {
-                        let _ = conn.delete(&key).await;
+        match conn.get_bytes(&key).await {
+            Ok(Some(data)) => {
+                // Decrypt session data
+                let json = match decrypt_session(&data) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        debug!("Failed to decrypt session: {}", e);
+                        return None;
+                    }
+                };
+                match serde_json::from_slice::<Session>(&json) {
+                    Ok(session) => {
+                        if session.is_expired() {
+                            let _ = conn.delete(&key).await;
+                            None
+                        } else {
+                            debug!("Session cache hit");
+                            Some(session)
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Failed to deserialize session: {}", e);
                         None
-                    } else {
-                        debug!("Session cache hit");
-                        Some(session)
                     }
                 }
-                Err(e) => {
-                    debug!("Failed to deserialize session: {}", e);
-                    None
-                }
-            },
+            }
             Ok(None) => {
                 debug!("Session cache miss");
                 None
@@ -110,6 +121,15 @@ impl SessionStore for RedisSessionStore {
             }
         };
 
+        // Encrypt PII before storing in Redis
+        let stored_data = match encrypt_session(json.as_bytes()) {
+            Ok(data) => data,
+            Err(e) => {
+                debug!("Failed to encrypt session: {}", e);
+                return;
+            }
+        };
+
         let mut conn = match self.pool.get_connection().await {
             Ok(c) => c,
             Err(e) => {
@@ -126,23 +146,23 @@ impl SessionStore for RedisSessionStore {
         let ttl_secs = ttl.as_secs();
 
         if let Err(e) = conn
-            .set(&key, &json, StdDuration::from_secs(ttl_secs))
+            .set_bytes(&key, &stored_data, StdDuration::from_secs(ttl_secs))
             .await
         {
             debug!("Failed to set session in cache: {}", e);
             return;
         }
 
-        if let Some(tenant_id) = &session.tenant_id {
+        if let Some(tenant_id) = &session.user.tenant_id {
             let _ = self
-                .add_to_user_sessions(&session.user.provider_user_id, &session.id)
+                .add_to_user_sessions(&session.user.user_id, &session.id)
                 .await;
             let _ = self
                 .add_to_user_sessions(&format!("tenant:{}", tenant_id), &session.id)
                 .await;
         } else {
             let _ = self
-                .add_to_user_sessions(&session.user.provider_user_id, &session.id)
+                .add_to_user_sessions(&session.user.user_id, &session.id)
                 .await;
         }
 
@@ -168,9 +188,9 @@ impl SessionStore for RedisSessionStore {
 
         if let Some(session) = session {
             let _ = self
-                .remove_from_user_sessions(&session.user.provider_user_id, session_id)
+                .remove_from_user_sessions(&session.user.user_id, session_id)
                 .await;
-            if let Some(tenant_id) = &session.tenant_id {
+            if let Some(tenant_id) = &session.user.tenant_id {
                 let _ = self
                     .remove_from_user_sessions(&format!("tenant:{}", tenant_id), session_id)
                     .await;
@@ -189,7 +209,9 @@ impl SessionStore for RedisSessionStore {
         };
 
         let ttl = self.pool.config().session_ttl();
-        let _ = conn.expire(&key, ttl).await;
+        if let Err(e) = conn.expire(&key, ttl).await {
+            tracing::warn!("Failed to refresh session TTL: {}", e);
+        }
     }
 
     async fn cleanup_expired(&self) {
@@ -273,17 +295,13 @@ impl RedisSessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::oauth::{OAuthProvider, OAuthUser};
+    use crate::auth::session::SessionUser;
 
-    fn _test_user() -> OAuthUser {
-        OAuthUser {
-            provider: OAuthProvider::GitHub,
-            provider_user_id: "user-123".to_string(),
-            email: Some("test@example.com".to_string()),
-            name: Some("Test User".to_string()),
-            username: Some("testuser".to_string()),
-            avatar_url: None,
-        }
+    fn _test_user() -> SessionUser {
+        SessionUser::new("github:user-123")
+            .with_username("testuser")
+            .with_email("test@example.com")
+            .with_display_name("Test User")
     }
 
     #[tokio::test]

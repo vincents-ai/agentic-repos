@@ -62,13 +62,41 @@ pub struct UpdateSshKeyRequest {
     pub expires_at: Option<String>,
 }
 
+/// Maximum allowed size for an SSH public key (8 KiB — generous for any key type)
+const MAX_PUBLIC_KEY_SIZE: usize = 8192;
+
+/// Minimum RSA key size in bits (2048 is the absolute minimum for modern security)
+const MIN_RSA_KEY_BITS: usize = 2048;
+
 /// SSH key manager
 pub struct SshKeyManager;
 
 impl SshKeyManager {
     /// Validate SSH public key format
+    ///
+    /// Validates:
+    /// - Total key size is within limits (MAX_PUBLIC_KEY_SIZE)
+    /// - Key type is supported
+    /// - Base64 key data is valid
+    /// - RSA keys meet minimum key size requirement
     pub fn validate_public_key(key_str: &str) -> SkynetPluginResult<SshKeyType> {
         debug!("Validating SSH public key");
+
+        // Enforce size limit
+        if key_str.len() > MAX_PUBLIC_KEY_SIZE {
+            error!(
+                "SSH public key too large: {} bytes (max {})",
+                key_str.len(),
+                MAX_PUBLIC_KEY_SIZE
+            );
+            return Err(crate::skynet::error::SkynetPluginError::InvalidSshKey(
+                format!(
+                    "Public key too large: {} bytes (max {})",
+                    key_str.len(),
+                    MAX_PUBLIC_KEY_SIZE
+                ),
+            ));
+        }
 
         let parts: Vec<&str> = key_str.split_whitespace().collect();
         if parts.is_empty() {
@@ -100,11 +128,34 @@ impl SshKeyManager {
         }
 
         // Validate base64 encoding of key data
-        if base64_decode(parts[1]).is_err() {
+        let key_data = base64_decode(parts[1]).map_err(|_| {
             error!("Invalid SSH public key format: invalid base64");
-            return Err(crate::skynet::error::SkynetPluginError::InvalidSshKey(
+            crate::skynet::error::SkynetPluginError::InvalidSshKey(
                 "Invalid base64 encoding".to_string(),
-            ));
+            )
+        })?;
+
+        // Validate RSA key size
+        if key_type == SshKeyType::Rsa {
+            // RSA public key in SSH format: 4 bytes length prefix + exponent + 4 bytes length prefix + modulus
+            // The modulus size determines the key size
+            let min_modulus_bytes = MIN_RSA_KEY_BITS / 8;
+            // SSH wire format: string (4-byte len + data) for exponent + string for modulus
+            // Minimum: 4 + 3 (exponent e=65537) + 4 + modulus_bytes
+            let min_expected = 4 + 3 + 4 + min_modulus_bytes;
+            if key_data.len() < min_expected {
+                error!(
+                    "RSA key too small: {} bytes decoded (minimum {} bits)",
+                    key_data.len() * 8,
+                    MIN_RSA_KEY_BITS
+                );
+                return Err(crate::skynet::error::SkynetPluginError::InvalidSshKey(
+                    format!(
+                        "RSA key size below minimum: requires at least {} bits",
+                        MIN_RSA_KEY_BITS
+                    ),
+                ));
+            }
         }
 
         Ok(key_type)

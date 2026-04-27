@@ -42,10 +42,9 @@ impl E2eHarness {
             )
             .try_init();
 
-        let http_port = portpicker::pick_unused_port()
-            .ok_or("no unused port available for HTTP")?;
-        let ssh_port = portpicker::pick_unused_port()
-            .ok_or("no unused port available for SSH")?;
+        let http_port =
+            portpicker::pick_unused_port().ok_or("no unused port available for HTTP")?;
+        let ssh_port = portpicker::pick_unused_port().ok_or("no unused port available for SSH")?;
 
         let config_dir = TempDir::new()?;
         let storage_root = config_dir.path().join("repositories");
@@ -75,14 +74,22 @@ impl E2eHarness {
         // Generate keypair via ssh-keygen
         let keygen_output = Command::new("ssh-keygen")
             .args([
-                "-t", "ed25519",
-                "-N", "",
-                "-f", ssh_private_key.to_str().unwrap(),
-                "-C", "git@e2e-test",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-f",
+                ssh_private_key.to_str().unwrap(),
+                "-C",
+                "git@e2e-test",
             ])
             .output()?;
         if !keygen_output.status.success() {
-            return Err(format!("ssh-keygen failed: {}", String::from_utf8_lossy(&keygen_output.stderr)).into());
+            return Err(format!(
+                "ssh-keygen failed: {}",
+                String::from_utf8_lossy(&keygen_output.stderr)
+            )
+            .into());
         }
 
         // Write authorized_keys in ADP format: "username:ssh-type base64 comment"
@@ -94,12 +101,22 @@ impl E2eHarness {
 
         // Update refs/adp/config/server in the system repo with our ports and paths
         crate::ssh_keys::configure_ssh_in_system_repo(
-            &storage_root, http_port, ssh_port, &ak_path, &host_key_path,
+            &storage_root,
+            http_port,
+            ssh_port,
+            &ak_path,
+            &host_key_path,
         )?;
-        info!("Configured git-refs: HTTP={}, SSH={}, ak={:?}, host_key={:?}", http_port, ssh_port, ak_path, host_key_path);
+        info!(
+            "Configured git-refs: HTTP={}, SSH={}, ak={:?}, host_key={:?}",
+            http_port, ssh_port, ak_path, host_key_path
+        );
 
         // Start the server subprocess — config comes from git-refs in the system repo
-        info!("Starting agentic-repos server on HTTP :{}, SSH :{}", http_port, ssh_port);
+        info!(
+            "Starting agentic-repos server on HTTP :{}, SSH :{}",
+            http_port, ssh_port
+        );
         let child = Command::new(&binary_path)
             .env("AGENTIC_REPOS_STORAGE_ROOT", &storage_root)
             .env("RUST_LOG", "info,agentic_repos=debug")
@@ -153,7 +170,11 @@ impl E2eHarness {
         loop {
             match client.get(&url).send().await {
                 Ok(resp) if resp.status() == StatusCode::OK => {
-                    info!("Server healthy on port {} after {:?}", self.http_port, start.elapsed());
+                    info!(
+                        "Server healthy on port {} after {:?}",
+                        self.http_port,
+                        start.elapsed()
+                    );
                     return Ok(());
                 }
                 Ok(resp) => {
@@ -168,7 +189,9 @@ impl E2eHarness {
             if let Some(ref mut child) = self.child.get_mut().unwrap() {
                 match child.try_wait() {
                     Ok(Some(status)) => {
-                        return Err(format!("Server exited prematurely with status: {}", status).into());
+                        return Err(
+                            format!("Server exited prematurely with status: {}", status).into()
+                        );
                     }
                     Ok(None) => {}
                     Err(e) => {
@@ -178,7 +201,11 @@ impl E2eHarness {
             }
 
             if start.elapsed() > timeout {
-                return Err(format!("Server not healthy after {:?} on port {}", timeout, self.http_port).into());
+                return Err(format!(
+                    "Server not healthy after {:?} on port {}",
+                    timeout, self.http_port
+                )
+                .into());
             }
 
             tokio::time::sleep(Duration::from_millis(500)).await;

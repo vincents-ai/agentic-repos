@@ -1,5 +1,31 @@
 use std::fmt;
 
+/// Characters that are dangerous in Redis key parts.
+/// - `:` is the namespace separator
+/// - `\n`/`\r` enable RESP injection
+/// - `\0` is null byte
+/// - ` ` and `*` enable pattern injection in SCAN
+const DANGEROUS_CHARS: &[char] = &[':', '\n', '\r', '\0', ' ', '*'];
+
+/// Sanitize a key part by replacing dangerous characters with underscores.
+fn sanitize_key_part(part: &str) -> String {
+    let sanitized: String = part
+        .chars()
+        .map(|c| {
+            if DANGEROUS_CHARS.contains(&c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    if sanitized.is_empty() {
+        "_empty_".to_string()
+    } else {
+        sanitized
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CacheKey {
     parts: Vec<String>,
@@ -8,16 +34,16 @@ pub struct CacheKey {
 impl CacheKey {
     pub fn new(prefix: &str) -> Self {
         Self {
-            parts: vec![prefix.to_string()],
+            parts: vec![sanitize_key_part(prefix)],
         }
     }
 
     pub fn tenant(prefix: &str, tenant_id: &str) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "tenant".to_string(),
-                tenant_id.to_string(),
+                sanitize_key_part(tenant_id),
             ],
         }
     }
@@ -25,10 +51,10 @@ impl CacheKey {
     pub fn repository(prefix: &str, tenant_id: &str, repo_name: &str) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "repo".to_string(),
-                tenant_id.to_string(),
-                repo_name.to_string(),
+                sanitize_key_part(tenant_id),
+                sanitize_key_part(repo_name),
             ],
         }
     }
@@ -36,26 +62,26 @@ impl CacheKey {
     pub fn session(prefix: &str, session_id: &str) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "session".to_string(),
-                session_id.to_string(),
+                sanitize_key_part(session_id),
             ],
         }
     }
 
     pub fn user(prefix: &str, user_id: &str) -> Self {
         Self {
-            parts: vec![prefix.to_string(), "user".to_string(), user_id.to_string()],
+            parts: vec![sanitize_key_part(prefix), "user".to_string(), sanitize_key_part(user_id)],
         }
     }
 
     pub fn lfs_object(prefix: &str, tenant_id: &str, oid: &str) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "lfs".to_string(),
-                tenant_id.to_string(),
-                oid.to_string(),
+                sanitize_key_part(tenant_id),
+                sanitize_key_part(oid),
             ],
         }
     }
@@ -63,10 +89,10 @@ impl CacheKey {
     pub fn permission(prefix: &str, user_id: &str, resource: &str) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "perm".to_string(),
-                user_id.to_string(),
-                resource.to_string(),
+                sanitize_key_part(user_id),
+                sanitize_key_part(resource),
             ],
         }
     }
@@ -74,10 +100,10 @@ impl CacheKey {
     pub fn api_response(prefix: &str, endpoint: &str, params_hash: &str) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "api".to_string(),
-                endpoint.to_string(),
-                params_hash.to_string(),
+                sanitize_key_part(endpoint),
+                sanitize_key_part(params_hash),
             ],
         }
     }
@@ -85,9 +111,9 @@ impl CacheKey {
     pub fn repo_list(prefix: &str, tenant_id: &str, page: u32) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "repos".to_string(),
-                tenant_id.to_string(),
+                sanitize_key_part(tenant_id),
                 format!("page:{}", page),
             ],
         }
@@ -96,21 +122,21 @@ impl CacheKey {
     pub fn branch_list(prefix: &str, tenant_id: &str, repo_name: &str) -> Self {
         Self {
             parts: vec![
-                prefix.to_string(),
+                sanitize_key_part(prefix),
                 "branches".to_string(),
-                tenant_id.to_string(),
-                repo_name.to_string(),
+                sanitize_key_part(tenant_id),
+                sanitize_key_part(repo_name),
             ],
         }
     }
 
     pub fn push(&mut self, part: &str) -> &mut Self {
-        self.parts.push(part.to_string());
+        self.parts.push(sanitize_key_part(part));
         self
     }
 
     pub fn with(mut self, part: &str) -> Self {
-        self.parts.push(part.to_string());
+        self.parts.push(sanitize_key_part(part));
         self
     }
 
@@ -186,9 +212,10 @@ mod tests {
     #[test]
     fn test_permission_key() {
         let key = CacheKey::permission("agentic-repos", "user-1", "repo:tenant:repo1");
+        // Colons in resource are sanitized to underscores
         assert_eq!(
             key.to_redis_key(),
-            "agentic-repos:perm:user-1:repo:tenant:repo1"
+            "agentic-repos:perm:user-1:repo_tenant_repo1"
         );
     }
 
@@ -213,5 +240,17 @@ mod tests {
     fn test_tenant_pattern() {
         let pattern = CacheKey::tenant_pattern("agentic-repos", "tenant-123");
         assert_eq!(pattern, "agentic-repos:tenant:tenant-123:*");
+    }
+
+    #[test]
+    fn test_sanitize_replaces_dangerous_chars() {
+        let key = CacheKey::tenant("prefix", "evil:tenant\n*\0");
+        assert_eq!(key.to_redis_key(), "prefix:tenant:evil_tenant___");
+    }
+
+    #[test]
+    fn test_sanitize_empty_string() {
+        let key = CacheKey::user("prefix", "");
+        assert_eq!(key.to_redis_key(), "prefix:user:_empty_");
     }
 }

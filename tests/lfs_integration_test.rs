@@ -10,7 +10,7 @@ fn test_lfs_jwt_authentication_flow() {
         enabled: true,
         max_object_size: 5 * 1024 * 1024 * 1024,
         token_expiration_secs: 3600,
-        jwt_secret: "test-secret-key-for-integration-test".to_string(),
+        jwt_secret: Some("test-secret-key-for-integration-test".to_string()),
         base_url: "http://localhost:8090".to_string(),
         storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
             .to_string(),
@@ -26,7 +26,7 @@ fn test_lfs_jwt_authentication_flow() {
     let repo = "test-repo.git";
     let operation = LfsOperation::Download;
 
-    let generator = LfsTokenGenerator::new(lfs_config.jwt_secret.clone());
+    let generator = LfsTokenGenerator::new(lfs_config.jwt_secret.clone().unwrap());
 
     let token = generator
         .generate_token(tenant, repo, operation, lfs_config.token_expiration_secs)
@@ -50,7 +50,7 @@ fn test_lfs_jwt_with_batch_request_structure() {
         enabled: true,
         max_object_size: 5 * 1024 * 1024 * 1024,
         token_expiration_secs: 3600,
-        jwt_secret: "test-secret-key-batch".to_string(),
+        jwt_secret: Some("test-secret-key-batch".to_string()),
         base_url: "http://localhost:8090".to_string(),
         storage_path_pattern: "{tenant}/{repo}.git/lfs/objects/{oid[0:2]}/{oid[2:4]}/{oid}"
             .to_string(),
@@ -62,7 +62,7 @@ fn test_lfs_jwt_with_batch_request_structure() {
         throttle: Default::default(),
     };
 
-    let generator = LfsTokenGenerator::new(lfs_config.jwt_secret.clone());
+    let generator = LfsTokenGenerator::new(lfs_config.jwt_secret.clone().unwrap());
     let token = generator
         .generate_token("tenant1", "repo1.git", LfsOperation::Upload, 3600)
         .expect("Token generation failed");
@@ -179,7 +179,7 @@ fn test_lfs_config_validation() {
     assert!(!config.enabled);
     assert_eq!(config.max_object_size, 5 * 1024 * 1024 * 1024);
     assert_eq!(config.token_expiration_secs, 3600);
-    assert!(!config.jwt_secret.is_empty());
+    assert!(config.jwt_secret.as_ref().is_some_and(|s| !s.is_empty()));
     assert!(!config.base_url.is_empty());
     assert!(!config.locking_enabled);
 }

@@ -1,11 +1,14 @@
-pub mod ldap;
+//! Authentication — open-core SSH key auth and session management.
+//!
+//! Enterprise auth providers (LDAP, SAML, OAuth2) have moved to adp.
+//! This module keeps only:
+//! - `session` — provider-agnostic `SessionUser`, `Session`, `SessionManager`
+//! - `middleware` — `OAuthMiddleware`, `get_current_session`, `get_current_user`
+
 pub mod middleware;
-pub mod oauth;
-pub mod saml;
 pub mod session;
 
-pub use ldap::{LdapConfig, LdapService, LdapUser};
 pub use middleware::OAuthMiddleware;
-pub use oauth::{OAuthConfig, OAuthProvider, OAuthService, OAuthToken, OAuthUser};
-pub use saml::{IdpConfig, SamlConfig, SamlSp, SamlUser};
-pub use session::{Session, SessionManager, SessionStore};
+pub use session::{
+    InMemorySessionStore, Session, SessionManager, SessionStore, SessionUser,
+};

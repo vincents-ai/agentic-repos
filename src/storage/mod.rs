@@ -60,7 +60,6 @@ pub trait StorageBackend: Send + Sync {
     fn root(&self) -> Option<&Path>;
 }
 
-
 pub mod local {
     use super::{StorageBackend, StorageError};
     use async_trait::async_trait;
@@ -474,5 +473,138 @@ pub mod s3 {
             let large_file = 150 * 1024 * 1024;
             assert!(large_file >= DEFAULT_MULTIPART_THRESHOLD);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local::LocalStorage;
+    use super::StorageBackend;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_local_storage_create_dir() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        storage.create_directory("subdir".as_ref()).await.unwrap();
+        assert!(tmpdir.path().join("subdir").is_dir());
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_write_read() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        let data = b"hello world";
+        storage.write("test.txt".as_ref(), data).await.unwrap();
+
+        let read = storage.read("test.txt".as_ref()).await.unwrap();
+        assert_eq!(read, data);
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_exists() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        assert!(!storage.exists("test.txt".as_ref()).await.unwrap());
+        storage.write("test.txt".as_ref(), b"data").await.unwrap();
+        assert!(storage.exists("test.txt".as_ref()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_delete_file() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        storage.write("test.txt".as_ref(), b"data").await.unwrap();
+        assert!(storage.exists("test.txt".as_ref()).await.unwrap());
+        storage.delete("test.txt".as_ref()).await.unwrap();
+        assert!(!storage.exists("test.txt".as_ref()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_delete_directory() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        storage.create_directory("mydir".as_ref()).await.unwrap();
+        storage
+            .write("mydir/file.txt".as_ref(), b"data")
+            .await
+            .unwrap();
+        storage.delete("mydir".as_ref()).await.unwrap();
+        assert!(!storage.exists("mydir".as_ref()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_list() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        storage.write("a.txt".as_ref(), b"a").await.unwrap();
+        storage.write("b.txt".as_ref(), b"b").await.unwrap();
+        storage.create_directory("c".as_ref()).await.unwrap();
+
+        let entries = storage.list(".".as_ref()).await.unwrap();
+        assert!(entries.contains(&"a.txt".to_string()));
+        assert!(entries.contains(&"b.txt".to_string()));
+        assert!(entries.contains(&"c".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_root() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+        assert_eq!(storage.root(), Some(tmpdir.path().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_nested_write() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        // Write to nested path — should auto-create parent dirs
+        storage
+            .write("a/b/c/file.txt".as_ref(), b"nested")
+            .await
+            .unwrap();
+        let read = storage.read("a/b/c/file.txt".as_ref()).await.unwrap();
+        assert_eq!(read, b"nested");
+    }
+
+    #[tokio::test]
+    async fn test_local_storage_read_nonexistent() {
+        let tmpdir = TempDir::new().unwrap();
+        let storage = LocalStorage::new(tmpdir.path().to_path_buf());
+
+        let result = storage.read("nonexistent.txt".as_ref()).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_storage_config_default() {
+        use super::StorageConfig;
+        let config = StorageConfig::default();
+        assert_eq!(config.backend_type, "local");
+        assert!(config.local.is_some());
+        assert!(config.s3.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_storage_error_display() {
+        use super::StorageError;
+        let err = StorageError::NotFound("test".to_string());
+        assert!(err.to_string().contains("test"));
+
+        let err = StorageError::Io("io error".to_string());
+        assert!(err.to_string().contains("io error"));
+
+        let err = StorageError::PermissionDenied("denied".to_string());
+        assert!(err.to_string().contains("denied"));
+
+        let err = StorageError::AlreadyExists("exists".to_string());
+        assert!(err.to_string().contains("exists"));
     }
 }

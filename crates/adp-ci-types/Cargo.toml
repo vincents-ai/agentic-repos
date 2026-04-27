@@ -1,0 +1,20 @@
+[package]
+name = "adp-ci-types"
+version = "0.1.0"
+edition = "2021"
+description = "Shared types for the ADP CI runner system"
+license = "AGPL-3.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+[dev-dependencies]
+adp-ci-runner = { path = "../adp-ci-runner" }
+adp-ci-router = { path = "../adp-ci-router" }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread"] }
+tempfile = "3.10"
+base64 = { version = "0.22", features = ["std"] }
+rusqlite = { version = "0.32", features = ["bundled"] }

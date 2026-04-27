@@ -3,7 +3,10 @@
 //! Implements the server-side of git-receive-pack for push operations.
 
 use super::packetline::{read_packet, write_data_packet, write_flush_packet, write_text_packet};
-use crate::adp::{CallerIdentity, ACCESS_PREFIX, CONFIG_PREFIX, SECRETS_PREFIX};
+use crate::adp::{
+    is_private, CallerIdentity, ACCESS_PREFIX, CONFIG_PREFIX, KEYS_PREFIX, SECRETS_PREFIX,
+    USERS_PREFIX,
+};
 use crate::git::error::{GitError, Result};
 use gix::features::progress;
 use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit};
@@ -70,9 +73,10 @@ impl ReceivePackHandler {
 
         Self::receive_packfile_impl(&repo_path, &mut reader).await?;
 
-        Self::apply_updates_impl(&repo_path, &updates).await?;
+        let results =
+            Self::apply_updates_impl(&repo_path, &updates, caller_identity.as_ref()).await?;
 
-        Self::send_status_impl(&mut writer, &updates).await?;
+        Self::send_status_impl(&mut writer, &results).await?;
 
         info!("Receive-pack completed successfully");
         Ok(())
@@ -150,12 +154,12 @@ impl ReceivePackHandler {
 
         if let Some(oid) = head_target {
             let caps = if first {
-                format!(" {}", capabilities.join(" "))
+                capabilities.join("\0")
             } else {
                 String::new()
             };
 
-            let line = format!("{} HEAD{}\n", oid.to_hex(), caps);
+            let line = format!("{} HEAD\0{}\n", oid.to_hex(), caps);
             write_data_packet(writer, line.as_bytes()).await?;
             first = false;
             count += 1;
@@ -190,6 +194,7 @@ impl ReceivePackHandler {
     }
 
     async fn read_updates_impl<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<RefUpdate>> {
+        const MAX_REF_UPDATES: usize = 10000;
         let mut updates = Vec::new();
 
         loop {
@@ -226,6 +231,13 @@ impl ReceivePackHandler {
                         })?,
                     )
                 };
+
+                if updates.len() >= MAX_REF_UPDATES {
+                    return Err(GitError::ProtocolError(format!(
+                        "Too many ref updates (max {})",
+                        MAX_REF_UPDATES
+                    )));
+                }
 
                 updates.push(RefUpdate {
                     refname: refname.to_string(),
@@ -315,7 +327,11 @@ impl ReceivePackHandler {
         Ok(())
     }
 
-    async fn apply_updates_impl(repo_path: &Path, updates: &[RefUpdate]) -> Result<()> {
+    async fn apply_updates_impl(
+        repo_path: &Path,
+        updates: &[RefUpdate],
+        caller_identity: Option<&CallerIdentity>,
+    ) -> Result<Vec<RefUpdateResult>> {
         let repo_path_clone = repo_path.to_path_buf();
         let updates_owned: Vec<RefUpdate> = updates
             .iter()
@@ -326,9 +342,75 @@ impl ReceivePackHandler {
             })
             .collect();
 
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        // Pre-authorize: check namespace permissions for each update.
+        // Fail-closed: if caller_identity is None, block all private/ADP writes.
+        let can_write_private = caller_identity
+            .map(|id| id.can_see_private_refs())
+            .unwrap_or(false);
+
+        // Validate all updates against namespace authorization before applying any.
+        // If ANY update targets a protected namespace without authorization,
+        // the entire batch is rejected — prevents atomic partial writes.
+        let protected_violation = updates_owned
+            .iter()
+            .find(|u| Self::is_protected_ref(&u.refname));
+
+        if let Some(violation) = protected_violation {
+            if !can_write_private {
+                tracing::warn!(
+                    "Rejecting push to protected ref '{}' — caller lacks owner/admin privileges",
+                    violation.refname
+                );
+                return Ok(updates_owned
+                    .iter()
+                    .map(|u| RefUpdateResult::Rejected {
+                        refname: u.refname.clone(),
+                        reason: if Self::is_protected_ref(&u.refname) {
+                            "Push to protected ADP namespace is not authorized".to_string()
+                        } else {
+                            "Batch rejected: sibling update targets protected namespace".to_string()
+                        },
+                    })
+                    .collect());
+            }
+        }
+
+        // ── Service key namespace check ────────────────────────────────
+        // Service keys are restricted to their designated namespace.
+        // User keys have no namespace restriction (handled by access rules above).
+        if let Some(identity) = caller_identity {
+            if identity.is_service() {
+                if let Some(service_ns) = &identity.service_type {
+                    let allowed_prefix = format!("refs/secrets/{}/", service_ns);
+                    let denied = updates_owned
+                        .iter()
+                        .find(|u| !u.refname.starts_with(&allowed_prefix));
+
+                    if let Some(violation) = denied {
+                        tracing::warn!(
+                            "Rejecting push by service key '{}' — ref '{}' outside namespace '{}'",
+                            identity.username, violation.refname, allowed_prefix
+                        );
+                        return Ok(updates_owned
+                            .iter()
+                            .map(|u| RefUpdateResult::Rejected {
+                                refname: u.refname.clone(),
+                                reason: format!(
+                                    "Service key '{}' can only push to {}",
+                                    identity.username, allowed_prefix
+                                ),
+                            })
+                            .collect());
+                    }
+                }
+            }
+        }
+
+        let results = tokio::task::spawn_blocking(move || -> Result<Vec<RefUpdateResult>> {
             let repo = gix::open(&repo_path_clone)
                 .map_err(|e| GitError::RepoNotFound(format!("Failed to open repository: {}", e)))?;
+
+            let mut results = Vec::with_capacity(updates_owned.len());
 
             for update in &updates_owned {
                 let ref_name = FullName::try_from(update.refname.as_str()).map_err(|e| {
@@ -337,6 +419,48 @@ impl ReceivePackHandler {
 
                 match (&update.old_oid, &update.new_oid) {
                     (_, Some(new_oid)) => {
+                        // Validate theme refs before writing
+                        if update.refname == crate::adp::THEME_REF {
+                            if let Ok(obj) = repo.find_object(*new_oid) {
+                                let content = match &obj.kind {
+                                    gix::objs::Kind::Blob => obj.data.clone(),
+                                    gix::objs::Kind::Commit => {
+                                        let commit = gix::objs::CommitRef::from_bytes(&obj.data);
+                                        match commit {
+                                            Ok(c) => {
+                                                let tree_obj = repo.find_object(c.tree());
+                                                match tree_obj {
+                                                    Ok(t) => {
+                                                        let tree = gix::objs::TreeRef::from_bytes(&t.data);
+                                                        match tree {
+                                                            Ok(tr) => tr.entries.iter()
+                                                                .find(|e| e.filename == "data")
+                                                                .and_then(|e| repo.find_object(e.oid).ok())
+                                                                .map(|b| b.data.to_vec())
+                                                                .unwrap_or_default(),
+                                                            Err(_) => Vec::new(),
+                                                        }
+                                                    }
+                                                    Err(_) => Vec::new(),
+                                                }
+                                            }
+                                            Err(_) => Vec::new(),
+                                        }
+                                    }
+                                    _ => Vec::new(),
+                                };
+                                if !content.is_empty() {
+                                    if let Err(e) = crate::api::routes::theme_service::ThemeValidator::validate_push_blob(&content) {
+                                        results.push(RefUpdateResult::Rejected {
+                                            refname: update.refname.clone(),
+                                            reason: format!("Theme validation failed: {}", e),
+                                        });
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
                         repo.edit_reference(RefEdit {
                             change: Change::Update {
                                 log: LogChange::default(),
@@ -354,6 +478,23 @@ impl ReceivePackHandler {
                         })?;
 
                         info!("Updated {} to {}", update.refname, new_oid.to_hex());
+
+                        // Detect entity lifecycle changes on refs/engram/* namespaces
+                        if update.refname.starts_with("refs/engram/") {
+                            let entity_id = crate::adp::entity_lifecycle::extract_entity_id(
+                                &update.refname,
+                                "refs/engram/",
+                            );
+                            tracing::info!(
+                                refname = %update.refname,
+                                entity_id = %entity_id,
+                                "Entity ref updated via push"
+                            );
+                        }
+
+                        results.push(RefUpdateResult::Ok {
+                            refname: update.refname.clone(),
+                        });
                     }
                     (Some(_), None) => {
                         repo.edit_reference(RefEdit {
@@ -372,6 +513,9 @@ impl ReceivePackHandler {
                         })?;
 
                         info!("Deleted {}", update.refname);
+                        results.push(RefUpdateResult::Ok {
+                            refname: update.refname.clone(),
+                        });
                     }
                     (None, None) => {
                         return Err(GitError::ProtocolError(
@@ -380,23 +524,45 @@ impl ReceivePackHandler {
                     }
                 }
             }
-            Ok(())
+            Ok(results)
         })
         .await
         .map_err(|e| GitError::ProtocolError(format!("Failed to spawn blocking task: {}", e)))??;
 
-        Ok(())
+        Ok(results)
+    }
+
+    /// Returns true if the ref is in a protected ADP namespace that requires
+    /// owner/admin privileges to push to.
+    fn is_protected_ref(refname: &str) -> bool {
+        // Primary private namespaces (access control, config, secrets)
+        if is_private(refname) {
+            return true;
+        }
+        // SSH key and user identity mappings — also internal ADP infrastructure
+        if refname.starts_with(KEYS_PREFIX) || refname.starts_with(USERS_PREFIX) {
+            return true;
+        }
+        false
     }
 
     async fn send_status_impl<W: AsyncWrite + Unpin>(
         writer: &mut W,
-        updates: &[RefUpdate],
+        results: &[RefUpdateResult],
     ) -> Result<()> {
         write_text_packet(writer, "unpack ok").await?;
 
-        for update in updates {
-            let status = format!("ok {}", update.refname);
-            write_text_packet(writer, &status).await?;
+        for result in results {
+            match result {
+                RefUpdateResult::Ok { refname } => {
+                    let status = format!("ok {}", refname);
+                    write_text_packet(writer, &status).await?;
+                }
+                RefUpdateResult::Rejected { refname, reason } => {
+                    let status = format!("ng {} {}", refname, reason);
+                    write_text_packet(writer, &status).await?;
+                }
+            }
         }
 
         write_flush_packet(writer).await?;
@@ -411,6 +577,13 @@ struct RefUpdate {
     refname: String,
     old_oid: Option<gix::ObjectId>,
     new_oid: Option<gix::ObjectId>,
+}
+
+/// Result of applying a single ref update.
+#[derive(Debug, Clone)]
+enum RefUpdateResult {
+    Ok { refname: String },
+    Rejected { refname: String, reason: String },
 }
 
 #[cfg(test)]
@@ -445,5 +618,215 @@ mod tests {
         let (dir, _repo) = create_test_repo();
         let result = ReceivePackHandler::new(dir.path());
         assert!(result.is_ok());
+    }
+
+    // --- Per-ref authorization tests ---
+
+    #[test]
+    fn test_is_protected_ref() {
+        // Private ADP namespaces are protected
+        assert!(ReceivePackHandler::is_protected_ref(
+            "refs/adp/access/config"
+        ));
+        assert!(ReceivePackHandler::is_protected_ref(
+            "refs/adp/access/v1/config"
+        ));
+        assert!(ReceivePackHandler::is_protected_ref("refs/adp/config/repo"));
+        assert!(ReceivePackHandler::is_protected_ref(
+            "refs/adp/config/server"
+        ));
+        assert!(ReceivePackHandler::is_protected_ref(
+            "refs/secrets/my-secret"
+        ));
+        assert!(ReceivePackHandler::is_protected_ref("refs/secrets/sub/key"));
+        // Keys and users namespaces are protected
+        assert!(ReceivePackHandler::is_protected_ref(
+            "refs/adp/keys/some-key"
+        ));
+        assert!(ReceivePackHandler::is_protected_ref(
+            "refs/adp/users/alice/ssh_keys"
+        ));
+
+        // Public ADP refs and regular refs are NOT protected
+        assert!(!ReceivePackHandler::is_protected_ref(
+            "refs/adp/schema/engram-task"
+        ));
+        assert!(!ReceivePackHandler::is_protected_ref("refs/heads/main"));
+        assert!(!ReceivePackHandler::is_protected_ref("refs/tags/v1.0"));
+    }
+
+    #[tokio::test]
+    async fn test_apply_updates_blocks_private_ref_without_identity() {
+        let (dir, _repo) = create_test_repo();
+
+        let updates = vec![RefUpdate {
+            refname: "refs/adp/access/config".to_string(),
+            old_oid: None,
+            new_oid: Some(
+                gix::ObjectId::from_hex(b"0000000000000000000000000000000000000001").unwrap(),
+            ),
+        }];
+
+        let results = ReceivePackHandler::apply_updates_impl(dir.path(), &updates, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            RefUpdateResult::Rejected { refname, reason } => {
+                assert_eq!(refname, "refs/adp/access/config");
+                assert!(reason.contains("protected"));
+            }
+            RefUpdateResult::Ok { .. } => panic!("Expected rejection, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_apply_updates_allows_private_ref_for_admin() {
+        let (dir, _repo) = create_test_repo();
+
+        let identity = CallerIdentity {
+            username: "admin".to_string(),
+            is_owner: false,
+            is_admin: true,
+            key_type: crate::adp::identity::KeyType::User,
+            key_fingerprint: None,
+            service_type: None,
+        };
+
+        // Push a commit to the repo so we have a valid object
+        let repo = gix::open(dir.path()).unwrap();
+        let empty_tree_id = {
+            let tree = gix::objs::Tree::empty();
+            repo.write_object(&tree).unwrap().detach()
+        };
+        let author = gix::actor::Signature {
+            name: "Test".into(),
+            email: "test@example.com".into(),
+            time: gix::date::Time::new(1700000000, 0),
+        };
+        let commit = gix::objs::Commit {
+            tree: empty_tree_id,
+            parents: Default::default(),
+            author: author.clone(),
+            committer: author,
+            message: "test\n".into(),
+            encoding: None,
+            extra_headers: Default::default(),
+        };
+        let commit_id = repo.write_object(&commit).unwrap().detach();
+        drop(repo);
+
+        let updates = vec![RefUpdate {
+            refname: "refs/adp/config/repo".to_string(),
+            old_oid: None,
+            new_oid: Some(commit_id),
+        }];
+
+        let results = ReceivePackHandler::apply_updates_impl(dir.path(), &updates, Some(&identity))
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            RefUpdateResult::Ok { refname } => {
+                assert_eq!(refname, "refs/adp/config/repo");
+            }
+            RefUpdateResult::Rejected { reason, .. } => {
+                panic!("Expected Ok, got rejection: {}", reason)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_apply_updates_rejects_batch_with_protected_ref() {
+        let (dir, _repo) = create_test_repo();
+
+        // A batch with one protected ref and one regular ref — entire batch rejected
+        let updates = vec![
+            RefUpdate {
+                refname: "refs/heads/main".to_string(),
+                old_oid: None,
+                new_oid: Some(
+                    gix::ObjectId::from_hex(b"0000000000000000000000000000000000000001").unwrap(),
+                ),
+            },
+            RefUpdate {
+                refname: "refs/secrets/my-secret".to_string(),
+                old_oid: None,
+                new_oid: Some(
+                    gix::ObjectId::from_hex(b"0000000000000000000000000000000000000002").unwrap(),
+                ),
+            },
+        ];
+
+        let results = ReceivePackHandler::apply_updates_impl(dir.path(), &updates, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        // Both should be rejected since the batch contained a protected ref
+        for result in &results {
+            match result {
+                RefUpdateResult::Rejected { .. } => {}
+                RefUpdateResult::Ok { refname } => {
+                    panic!("Expected rejection for {}", refname)
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_apply_updates_allows_regular_refs_without_identity() {
+        let (dir, _repo) = create_test_repo();
+
+        // Regular refs should be allowed even without caller identity
+        let updates = vec![RefUpdate {
+            refname: "refs/heads/main".to_string(),
+            old_oid: None,
+            new_oid: Some(
+                gix::ObjectId::from_hex(b"0000000000000000000000000000000000000001").unwrap(),
+            ),
+        }];
+
+        let results = ReceivePackHandler::apply_updates_impl(dir.path(), &updates, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            RefUpdateResult::Ok { refname } => {
+                assert_eq!(refname, "refs/heads/main");
+            }
+            RefUpdateResult::Rejected { reason, .. } => {
+                panic!("Expected Ok, got rejection: {}", reason)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_apply_updates_blocks_secrets_ref_without_identity() {
+        let (dir, _repo) = create_test_repo();
+
+        let updates = vec![RefUpdate {
+            refname: "refs/secrets/api-key".to_string(),
+            old_oid: None,
+            new_oid: Some(
+                gix::ObjectId::from_hex(b"0000000000000000000000000000000000000001").unwrap(),
+            ),
+        }];
+
+        let results = ReceivePackHandler::apply_updates_impl(dir.path(), &updates, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            RefUpdateResult::Rejected { refname, reason } => {
+                assert_eq!(refname, "refs/secrets/api-key");
+                assert!(reason.contains("protected"));
+            }
+            RefUpdateResult::Ok { .. } => panic!("Expected rejection, got Ok"),
+        }
     }
 }

@@ -216,3 +216,63 @@ impl LockError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_object_error_not_found() {
+        let err = ObjectError::not_found("abc123");
+        assert_eq!(err.code, 404);
+        assert!(err.message.contains("abc123"));
+    }
+
+    #[test]
+    fn test_object_error_too_large() {
+        let err = ObjectError::too_large("abc123", 5_000_000_000);
+        assert_eq!(err.code, 413);
+        assert!(err.message.contains("5"));
+    }
+
+    #[test]
+    fn test_object_error_invalid_size() {
+        let err = ObjectError::invalid_size("abc123", 100, 200);
+        assert_eq!(err.code, 422);
+        assert!(err.message.contains("100"));
+        assert!(err.message.contains("200"));
+    }
+
+    #[test]
+    fn test_object_error_storage_error() {
+        let err = ObjectError::storage_error("abc123", "disk full");
+        assert_eq!(err.code, 500);
+        assert!(err.message.contains("disk full"));
+    }
+
+    #[test]
+    fn test_lock_error_already_locked() {
+        let err = LockError::already_locked("/path/to/file");
+        assert!(err.message.contains("already locked"));
+    }
+
+    #[test]
+    fn test_lock_error_not_found() {
+        let id = uuid::Uuid::new_v4();
+        let err = LockError::not_found(&id);
+        assert!(err.message.contains(&id.to_string()));
+    }
+
+    #[test]
+    fn test_lock_error_forbidden() {
+        let err = LockError::forbidden("not owner");
+        assert!(err.message.contains("not owner"));
+    }
+
+    #[test]
+    fn test_batch_response_new() {
+        let resp = BatchResponse::new(vec![]);
+        assert!(resp.objects.is_empty());
+        assert_eq!(resp.hash_algo, "sha256");
+    }
+}

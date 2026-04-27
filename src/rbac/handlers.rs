@@ -401,3 +401,119 @@ pub fn configure_rbac_routes(cfg: &mut web::ServiceConfig) {
             ),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rbac::models::{Permission, Role};
+    use std::collections::HashSet;
+
+    fn make_test_user() -> User {
+        User {
+            id: uuid::Uuid::new_v4(),
+            username: "testuser".to_string(),
+            email: Some("test@example.com".to_string()),
+            display_name: Some("Test User".to_string()),
+            ssh_keys: vec![],
+            roles: HashSet::new(),
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            last_login: None,
+        }
+    }
+
+    fn make_test_role(name: &str, perms: Vec<Permission>) -> Role {
+        Role {
+            id: uuid::Uuid::new_v4(),
+            name: name.to_string(),
+            description: format!("{} role", name),
+            permissions: perms.into_iter().collect(),
+            is_system_role: false,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_user_response_from_user() {
+        let user = make_test_user();
+        let resp = UserResponse::from(user);
+        assert_eq!(resp.username, "testuser");
+        assert_eq!(resp.email, Some("test@example.com".to_string()));
+        assert!(resp.is_active);
+    }
+
+    #[test]
+    fn test_role_response_from_role() {
+        let role = make_test_role("viewer", vec![Permission::RepositoryRead]);
+        let resp = RoleResponse::from(role);
+        assert_eq!(resp.name, "viewer");
+        assert!(!resp.is_system_role);
+        assert!(resp
+            .permissions
+            .iter()
+            .any(|p| *p == Permission::RepositoryRead));
+    }
+
+    #[test]
+    fn test_create_user_request_deserialize() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "email": "alice@test.com",
+            "roles": ["admin"],
+            "ssh_keys": ["ssh-ed25519 AAAA"]
+        });
+        let req: CreateUserRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.username, "alice");
+        assert_eq!(req.email, Some("alice@test.com".to_string()));
+        assert_eq!(req.roles, Some(vec!["admin".to_string()]));
+        assert_eq!(req.ssh_keys, Some(vec!["ssh-ed25519 AAAA".to_string()]));
+    }
+
+    #[test]
+    fn test_create_user_request_minimal() {
+        let json = serde_json::json!({"username": "bob"});
+        let req: CreateUserRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.username, "bob");
+        assert!(req.email.is_none());
+        assert!(req.roles.is_none());
+    }
+
+    #[test]
+    fn test_create_role_request_deserialize() {
+        let json = serde_json::json!({
+            "name": "custom-role",
+            "description": "A custom role",
+            "permissions": ["RepositoryRead", "RepositoryWrite"]
+        });
+        let req: CreateRoleRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.name, "custom-role");
+        assert_eq!(req.permissions.len(), 2);
+    }
+
+    #[test]
+    fn test_assign_role_request_deserialize() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "role_name": "admin"
+        });
+        let req: AssignRoleRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.username, "alice");
+        assert_eq!(req.role_name, "admin");
+    }
+
+    #[test]
+    fn test_grant_repository_permission_request_deserialize() {
+        let json = serde_json::json!({
+            "username": "alice",
+            "repository_id": "org/repo",
+            "permission": "RepositoryRead"
+        });
+        let req: GrantRepositoryPermissionRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.username, "alice");
+        assert_eq!(req.repository_id, "org/repo");
+        assert_eq!(req.permission, Permission::RepositoryRead);
+        assert!(req.expires_at.is_none());
+    }
+}

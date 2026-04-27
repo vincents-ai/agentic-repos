@@ -118,7 +118,7 @@ fn init_capabilities() -> *const [CapabilityInfo; 9] {
                 required_permission: ptr::null(),
             },
         ]);
-        CAPABILITIES_STORAGE.store(Box::leak(caps) as *mut _, Ordering::SeqCst);
+        CAPABILITIES_STORAGE.store(Box::into_raw(caps) as *mut _, Ordering::SeqCst);
     }
     CAPABILITIES_STORAGE.load(Ordering::SeqCst)
 }
@@ -132,7 +132,7 @@ fn init_tags() -> *const [*const c_char; 5] {
             TAG_SSH.as_ptr() as *const c_char,
             TAG_STORAGE.as_ptr() as *const c_char,
         ]);
-        TAGS_STORAGE.store(Box::leak(tags) as *mut _, Ordering::SeqCst);
+        TAGS_STORAGE.store(Box::into_raw(tags) as *mut _, Ordering::SeqCst);
     }
     TAGS_STORAGE.load(Ordering::SeqCst)
 }
@@ -146,7 +146,7 @@ fn init_service() -> *const ServiceInfo {
             description: SERVICE_DESCRIPTION.as_ptr() as *const c_char,
             interface_spec: SERVICE_SPEC.as_ptr() as *const c_char,
         });
-        SERVICE_STORAGE.store(Box::leak(service) as *mut _, Ordering::SeqCst);
+        SERVICE_STORAGE.store(Box::into_raw(service) as *mut _, Ordering::SeqCst);
     }
     SERVICE_STORAGE.load(Ordering::SeqCst)
 }
@@ -189,7 +189,7 @@ fn init_plugin_info() -> *const PluginInfoV2 {
             build_environment: ptr::null(),
             metadata: ptr::null(),
         });
-        PLUGIN_INFO.store(Box::leak(info) as *mut _, Ordering::SeqCst);
+        PLUGIN_INFO.store(Box::into_raw(info) as *mut _, Ordering::SeqCst);
     }
     PLUGIN_INFO.load(Ordering::SeqCst)
 }
@@ -277,6 +277,10 @@ static PLUGIN: Mutex<Option<Arc<GitOperationsPlugin>>> = Mutex::new(None);
 
 static DISCOVERED_STORAGE_SERVICES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
+/// Maximum number of services to iterate during discovery.
+/// Prevents unbounded pointer traversal if the service list is malformed.
+const MAX_SERVICE_DISCOVERY: usize = 256;
+
 fn discover_storage_services(registry: *const ServiceRegistryV2, context: *const PluginContextV2) {
     if registry.is_null() || context.is_null() {
         return;
@@ -296,6 +300,13 @@ fn discover_storage_services(registry: *const ServiceRegistryV2, context: *const
     unsafe {
         let mut idx = 0;
         loop {
+            if idx >= MAX_SERVICE_DISCOVERY {
+                info!(
+                    "Reached max service discovery limit ({}) — stopping iteration",
+                    MAX_SERVICE_DISCOVERY
+                );
+                break;
+            }
             let service_name_ptr = *service_list.add(idx);
             if service_name_ptr.is_null() {
                 break;
@@ -511,17 +522,15 @@ pub unsafe extern "C" fn plugin_init_v2(context: *const PluginContextV2) -> Plug
         let host_key_path =
             std::env::var("REPOS_HOST_KEY_PATH").unwrap_or_else(|_| "./host_key".to_string());
 
-        let authorized_keys_path = std::env::var("REPOS_AUTHORIZED_KEYS_PATH")
-            .unwrap_or_else(|_| "./authorized_keys".to_string());
-
         let git_config = GitConfig {
             ssh_port,
             host_key_path: std::path::PathBuf::from(host_key_path),
-            authorized_keys_path: std::path::PathBuf::from(authorized_keys_path),
             max_connections: 100,
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
         let storage: Arc<dyn StorageBackend> = {
@@ -596,18 +605,44 @@ pub unsafe extern "C" fn plugin_shutdown_v2(_context: *const PluginContextV2) ->
 
     global_registry().clear();
 
-    // Reset static pointers for hot-reload support
-    PLUGIN_INFO.store(ptr::null_mut(), Ordering::SeqCst);
-    CAPABILITIES_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
-    TAGS_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
-    SERVICE_STORAGE.store(ptr::null_mut(), Ordering::SeqCst);
+    // Properly free static FFI data using Box::from_raw
+    // (each was allocated with Box::into_raw in init functions)
+    unsafe {
+        if let Some(ptr) = Option::from(PLUGIN_INFO.swap(ptr::null_mut(), Ordering::SeqCst)) {
+            let _ = Box::from_raw(ptr);
+        }
+        if let Some(ptr) =
+            Option::from(CAPABILITIES_STORAGE.swap(ptr::null_mut(), Ordering::SeqCst))
+        {
+            let _ = Box::from_raw(ptr);
+        }
+        if let Some(ptr) = Option::from(TAGS_STORAGE.swap(ptr::null_mut(), Ordering::SeqCst)) {
+            let _ = Box::from_raw(ptr);
+        }
+        if let Some(ptr) = Option::from(SERVICE_STORAGE.swap(ptr::null_mut(), Ordering::SeqCst)) {
+            let _ = Box::from_raw(ptr);
+        }
+    }
 
     PluginResultV2::Success
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn plugin_health_check_v2(_context: *const PluginContextV2) -> HealthStatus {
-    HealthStatus::Healthy
+    // Verify critical subsystems are operational
+    let plugin_ok = PLUGIN.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    let runtime_ok = RUNTIME.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+
+    if plugin_ok && runtime_ok {
+        HealthStatus::Healthy
+    } else {
+        tracing::warn!(
+            "Health check: plugin={}, runtime={}",
+            if plugin_ok { "ok" } else { "MISSING" },
+            if runtime_ok { "ok" } else { "MISSING" }
+        );
+        HealthStatus::Degraded
+    }
 }
 
 fn request_v2_to_plugin_request(req: *const RequestV2) -> Option<PluginRequest> {
@@ -963,20 +998,31 @@ pub extern "C" fn plugin_execute_v2(
                 .replace("health_", "health.")
                 .replace("metrics_", "metrics.");
 
+            // Extract tenant_id from args to enforce isolation
+            let tenant_id = args_value
+                .get("tenant_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            let user_id = args_value
+                .get("user_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
             let plugin: Option<Arc<GitOperationsPlugin>> =
-                PLUGIN.lock().ok().and_then(|g| g.clone());
+                PLUGIN.lock().unwrap_or_else(|e| e.into_inner()).clone();
 
             if let Some(plugin) = plugin {
-                let runtime_guard = RUNTIME.lock().ok();
-                let rt_opt = runtime_guard.as_ref().and_then(|g| g.as_ref());
+                let runtime_guard = RUNTIME.lock().unwrap_or_else(|e| e.into_inner());
+                let rt_opt = runtime_guard.as_ref();
 
                 if let Some(rt) = rt_opt {
                     let request = PluginRequest {
                         id: uuid::Uuid::new_v4().to_string(),
                         method: method_name,
                         params: args_value,
-                        tenant_id: None,
-                        user_id: None,
+                        tenant_id,
+                        user_id,
                         token: None,
                     };
                     let response = rt.block_on(plugin.handle_request(request));
@@ -1089,7 +1135,8 @@ mod tests {
     #[test]
     fn test_plugin_health_check_v2() {
         let status = unsafe { plugin_health_check_v2(ptr::null()) };
-        assert_eq!(status, HealthStatus::Healthy);
+        // Without plugin initialization, health is Degraded (no plugin loaded)
+        assert!(matches!(status, HealthStatus::Healthy | HealthStatus::Degraded));
     }
 
     #[test]

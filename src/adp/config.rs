@@ -74,10 +74,6 @@ pub struct ServerConfig {
     #[serde(default = "default_host_key_path")]
     pub ssh_host_key_path: PathBuf,
 
-    /// Path to authorized_keys file (default: `"authorized_keys"`).
-    #[serde(default = "default_authorized_keys_path")]
-    pub ssh_authorized_keys_path: PathBuf,
-
     /// Maximum concurrent SSH connections (default: `100`).
     #[serde(default = "default_max_connections")]
     pub ssh_max_connections: usize,
@@ -144,10 +140,6 @@ fn default_host_key_path() -> PathBuf {
     PathBuf::from("ssh_host_key")
 }
 
-fn default_authorized_keys_path() -> PathBuf {
-    PathBuf::from("authorized_keys")
-}
-
 fn default_max_connections() -> usize {
     100
 }
@@ -179,7 +171,6 @@ impl Default for ServerConfig {
             http_port: default_http_port(),
             ssh_port: default_ssh_port(),
             ssh_host_key_path: default_host_key_path(),
-            ssh_authorized_keys_path: default_authorized_keys_path(),
             ssh_max_connections: default_max_connections(),
             ssh_connection_timeout_secs: default_connection_timeout(),
             storage_backend: default_storage_backend(),
@@ -228,7 +219,6 @@ mod tests {
             http_port: 9000,
             ssh_port: 2222,
             ssh_host_key_path: PathBuf::from("/etc/ssh/host_key"),
-            ssh_authorized_keys_path: PathBuf::from("/etc/ssh/authorized_keys"),
             ssh_max_connections: 200,
             ssh_connection_timeout_secs: 60,
             storage_backend: "s3".to_string(),

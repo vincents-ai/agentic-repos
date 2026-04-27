@@ -11,11 +11,32 @@ pub struct StorageKey {
 
 impl StorageKey {
     pub fn new(tenant: impl Into<String>, repo: impl Into<String>, oid: impl Into<String>) -> Self {
-        Self {
+        let key = Self {
             tenant: tenant.into(),
             repo: repo.into(),
             oid: oid.into(),
+        };
+        key.validate().expect("StorageKey contains invalid characters");
+        key
+    }
+
+    /// Validate that all components are free of path traversal characters.
+    fn validate(&self) -> Result<(), String> {
+        for (name, value) in &[(&"tenant", &self.tenant), (&"repo", &self.repo), (&"oid", &self.oid)] {
+            if value.is_empty() {
+                return Err(format!("{} must not be empty", name));
+            }
+            if value.contains("/") || value.contains("\\") {
+                return Err(format!("{} must not contain path separators", name));
+            }
+            if value.contains("..") {
+                return Err(format!("{} must not contain '..'", name));
+            }
+            if value.contains('\0') {
+                return Err(format!("{} must not contain null bytes", name));
+            }
         }
+        Ok(())
     }
 
     pub fn to_path(&self, pattern: &str) -> String {

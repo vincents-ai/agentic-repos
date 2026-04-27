@@ -62,24 +62,34 @@ mod integration_tests {
         let config = GitConfig {
             ssh_port: 0, // Use 0 to avoid port conflicts
             host_key_path: temp_dir.path().join("host_key"),
-            authorized_keys_path: temp_dir.path().join("authorized_keys"),
+
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
-        create_test_authorized_keys(&config.authorized_keys_path, &public_key_path);
+        let storage_root = temp_dir.path().to_path_buf();
+        create_test_user_in_refs(&storage_root, &public_key_path);
 
         (temp_dir, config, private_key_path, public_key_path)
     }
 
-    /// Create test authorized keys file
-    fn create_test_authorized_keys(path: &PathBuf, public_key_path: &PathBuf) {
+    /// Create test user in git refs (refs/adp/users/testuser/ssh_keys)
+    fn create_test_user_in_refs(storage_root: &PathBuf, public_key_path: &PathBuf) {
+        use crate::adp::bootstrap::SYSTEM_REPO_PATH;
+        use crate::adp::storage::AdpStore;
+
+        let system_repo = storage_root.join(SYSTEM_REPO_PATH);
+        std::fs::create_dir_all(&system_repo).unwrap();
+        let _repo = gix::init(&system_repo).unwrap();
+
         let public_key_content =
             std::fs::read_to_string(public_key_path).expect("Failed to read public key file");
-        let content = format!("testuser:{}", public_key_content.trim());
-        std::fs::write(path, content).unwrap();
+        let keys = serde_json::json!([public_key_content.trim()]);
+        AdpStore::write_ref_blob(&system_repo, "refs/adp/users/testuser/ssh_keys", &keys).unwrap();
     }
 
     /// Create a test Git repository with content
@@ -236,21 +246,19 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_server_configuration_setup() {
-        let (_temp_dir, config, private_key_path, public_key_path) =
+        let (temp_dir, _config, private_key_path, public_key_path) =
             create_test_server_config().await;
 
-        assert!(
-            config.authorized_keys_path.exists(),
-            "Authorized keys file should exist"
-        );
         assert!(private_key_path.exists(), "Private key should exist");
         assert!(public_key_path.exists(), "Public key should exist");
 
-        let auth_keys_content = std::fs::read_to_string(&config.authorized_keys_path).unwrap();
-        assert!(
-            auth_keys_content.starts_with("testuser:ssh-ed25519"),
-            "Authorized keys should have correct format"
-        );
+        // Verify user key is in git refs
+        use crate::adp::bootstrap::SYSTEM_REPO_PATH;
+        use crate::adp::storage::AdpStore;
+        let system_repo = temp_dir.path().join(SYSTEM_REPO_PATH);
+        let keys_ref = AdpStore::read_ref_blob(&system_repo, "refs/adp/users/testuser/ssh_keys").unwrap();
+        let keys: Vec<String> = serde_json::from_value(keys_ref).unwrap();
+        assert!(!keys.is_empty(), "User SSH keys should be stored in git refs");
     }
 
     #[tokio::test]
@@ -311,18 +319,25 @@ mod integration_tests {
         let config = GitConfig {
             ssh_port: 0,
             host_key_path: temp_dir.path().join("host_key"),
-            authorized_keys_path: temp_dir.path().join("authorized_keys"),
+
             max_connections: 10,
             connection_timeout_secs: 30,
             rate_limit: Default::default(),
             secrets_root_key_path: None,
+            hostname: "localhost".to_string(),
+            http_base_url: None,
         };
 
-        std::fs::write(
-            &config.authorized_keys_path,
-            "testuser:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGQ test@test.com",
-        )
-        .unwrap();
+        let storage_root = temp_dir.path().to_path_buf();
+        {
+            use crate::adp::bootstrap::SYSTEM_REPO_PATH;
+            use crate::adp::storage::AdpStore;
+            let system_repo = storage_root.join(SYSTEM_REPO_PATH);
+            std::fs::create_dir_all(&system_repo).unwrap();
+            let _repo = gix::init(&system_repo).unwrap();
+            let keys = serde_json::json!(["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGQ test@test.com"]);
+            AdpStore::write_ref_blob(&system_repo, "refs/adp/users/testuser/ssh_keys", &keys).unwrap();
+        }
 
         let _server = SshServer::new(git_service, Some(config), None);
 

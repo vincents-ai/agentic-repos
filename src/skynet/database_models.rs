@@ -72,6 +72,9 @@ pub struct UserModel {
     pub tenant_id: String,
     pub username: String,
     pub email: String,
+    /// Password hash is NEVER included in serialized output.
+    /// Use `verify_password()` for authentication checks.
+    #[serde(skip_serializing)]
     pub password_hash: Option<String>,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
@@ -261,5 +264,45 @@ mod tests {
         let json = serde_json::to_string(&key).unwrap();
         let deserialized: SshKeyModel = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.key_type, key.key_type);
+    }
+
+    #[test]
+    fn test_user_model_password_hash_not_serialized() {
+        let user = UserModel {
+            id: Uuid::new_v4(),
+            tenant_id: "tenant-1".to_string(),
+            username: "testuser".to_string(),
+            email: "test@example.com".to_string(),
+            password_hash: Some("$argon2id$v=19$m=...".to_string()),
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            deleted_at: None,
+        };
+
+        let json = serde_json::to_string(&user).unwrap();
+        assert!(
+            !json.contains("password_hash"),
+            "password_hash must NEVER appear in serialized JSON output"
+        );
+        assert!(
+            !json.contains("argon2"),
+            "password hash value must NEVER appear in serialized JSON output"
+        );
+    }
+
+    #[test]
+    fn test_create_user_request_model_serialization() {
+        let req = CreateUserRequest {
+            tenant_id: "tenant-1".to_string(),
+            username: "newuser".to_string(),
+            email: "new@example.com".to_string(),
+            password_hash: Some("hashed".to_string()),
+        };
+
+        // CreateUserRequest is input-only, but verify it round-trips
+        let json = serde_json::to_string(&req).unwrap();
+        let deserialized: CreateUserRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.username, req.username);
     }
 }

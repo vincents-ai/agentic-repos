@@ -1,0 +1,128 @@
+# Bootstrap Configuration Seed for agentic-repos
+#
+# This file is a ONE-TIME SEED for `agentic-repos init`.
+# After initialization, all configuration is stored in git refs in the
+# system repository (_adp/system). Runtime reads from git refs exclusively.
+#
+# Usage:
+#   agentic-repos init --config config.yaml
+#   agentic-repos init --config config.yaml --storage /data/git
+#
+# After init, change configuration via:
+#   agentic-repos config set <key> <value>
+# Or by writing directly to refs/adp/config/* in the system repo.
+#
+# THIS FILE IS NOT READ AT RUNTIME.
+# The server reads configuration from git refs only (compliance requirement).
+
+# ─── Server ──────────────────────────────────────────────────────────────
+
+server:
+  ssh:
+    port: 2222
+    host_key_path: "./ssh_host_key"
+    max_connections: 100
+    connection_timeout_secs: 30
+
+# ─── Storage ─────────────────────────────────────────────────────────────
+
+storage:
+  type: "local"              # "local" or "s3"
+  local:
+    path: "./repositories"
+  # s3:
+  #   bucket: "my-git-repositories"
+  #   region: "us-east-1"
+  #   endpoint: "https://s3.amazonaws.com"
+
+# ─── Git LFS ─────────────────────────────────────────────────────────────
+# Required: jwt_secret MUST be set for LFS to function.
+# After init, this is stored at refs/adp/config/lfs in the system repo.
+
+lfs:
+  enabled: true
+  max_object_size: 5368709120  # 5GB
+  token_expiration_secs: 3600
+  jwt_secret: "CHANGE_THIS_IN_PRODUCTION"
+  base_url: "http://localhost:8090"
+  locking_enabled: false
+  lock_expiration_secs: 86400
+
+# ─── Feature Flags ──────────────────────────────────────────────────────
+# After init, feature flags are stored at refs/adp/config/features.
+# Enable features you need before running init.
+
+features:
+  git_lfs: true
+  lfs_locks: false
+  rbac: true
+  web_ui: false              # Requires adp-web-ui binary
+  redis_cache: false
+  webhooks: true
+  security_scanning: true
+  backup_recovery: true
+  multi_region: false
+  horizontal_scaling: false
+  monitoring: true
+
+  # Authentication
+  ldap_auth: false
+  saml_auth: false
+  oauth_auth: false
+
+  # Compliance
+  gdpr_compliance: false
+  hipaa_compliance: false
+  soc2_compliance: false
+
+  # CI/CD
+  github_actions: false
+  gitlab_ci: false
+  jenkins: false
+
+  # Analytics
+  analytics: false
+
+# ─── Rate Limiting ─────────────────────────────────────────────────────
+
+rate_limit:
+  enabled: true
+  proxy_headers:
+    - "X-Forwarded-For"
+    - "X-Real-IP"
+  global_limits:
+    max_requests_per_second: 100
+    max_connections_per_ip: 10
+    burst_size: 20
+  tiers:
+    free:
+      requests_per_minute: 60
+      burst_size: 10
+    pro:
+      requests_per_minute: 300
+      burst_size: 50
+    enterprise:
+      requests_per_minute: 1000
+      burst_size: 200
+
+# ─── RBAC ───────────────────────────────────────────────────────────────
+# Initial admin user created during init via --admin-key flag.
+# After init, users are managed via refs/adp/users/* in the system repo.
+
+rbac:
+  enabled: true
+  storage_type: "memory"     # "memory" or "database"
+
+# ─── Logging ────────────────────────────────────────────────────────────
+
+logging:
+  level: "info"
+  json: false
+
+# ─── Environment Variables ──────────────────────────────────────────────
+# These are NOT in config.yaml. Set them in the server environment:
+#
+# RUST_LOG=info                    Log level (trace/debug/info/warn/error)
+# BACKUP_ENCRYPTION_KEY=<hex>      AES-256 key for encrypted backups
+# SESSION_ENCRYPTION_KEY=<hex>     AES-256 key for session encryption
+# AGENTIC_REPOS_STORAGE_ROOT=<path> Storage root (if not default)

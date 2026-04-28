@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="repository-page">
+    <div class="repo-header">
+        <div class="repo-title">
+            <h1>{{ owner }}/{{ repo }}</h1>
+            {% if repository %}
+            {% if repository.is_private %}
+            <span class="private-badge">Private</span>
+            {% else %}
+            <span class="public-badge">Public</span>
+            {% endif %}
+            {% endif %}
+        </div>
+        
+        {% if repository %}
+        <div class="repo-description">
+            <p>{{ repository.description | default(value="No description provided") }}</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if repository %}
+    <div class="repo-info-grid">
+        <div class="info-card">
+            <h3>Repository Information</h3>
+            <div class="info-list">
+                <div class="info-item">
+                    <span class="label">Owner:</span>
+                    <span class="value">{{ repository.owner }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Name:</span>
+                    <span class="value">{{ repository.name }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Default Branch:</span>
+                    <span class="value">{{ repository.default_branch }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Size:</span>
+                    <span class="value">{{ repository.size }} bytes</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Created:</span>
+                    <span class="value">{{ repository.created_at }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Last Updated:</span>
+                    <span class="value">{{ repository.updated_at }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="clone-card">
+            <h3>Clone URLs</h3>
+            <div class="clone-options">
+                <div class="clone-option">
+                    <label>SSH Clone:</label>
+                    <div class="clone-input-group">
+                        <code class="clone-url">{{ repository.clone_url_ssh }}</code>
+                        <button class="btn btn-sm" onclick="copyToClipboard('{{ repository.clone_url_ssh }}')">Copy</button>
+                    </div>
+                </div>
+                {% if repository.clone_url_http %}
+                <div class="clone-option">
+                    <label>HTTP Clone:</label>
+                    <div class="clone-input-group">
+                        <code class="clone-url">{{ repository.clone_url_http }}</code>
+                        <button class="btn btn-sm" onclick="copyToClipboard('{{ repository.clone_url_http }}')">Copy</button>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if branches %}
+    <div class="branches-section">
+        <h2>Branches</h2>
+        <div class="branch-list">
+            {% for branch in branches %}
+            <div class="branch-card">
+                <div class="branch-info">
+                    <h4 class="branch-name">{{ branch.name }}</h4>
+                    {% if branch.name == repository.default_branch %}
+                    <span class="default-badge">Default</span>
+                    {% endif %}
+                </div>
+                <div class="commit-info">
+                    <p class="commit-message">{{ branch.commit_message | default(value="No commit message") }}</p>
+                    <div class="commit-meta">
+                        <span class="commit-author">{{ branch.author }}</span>
+                        <span class="commit-sha">{{ branch.commit_sha | truncate(length=8) }}</span>
+                        <span class="commit-date">{{ branch.created_at }}</span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-branches">
+        <h2>No Branches</h2>
+        <p>This repository doesn't have any branches yet. Push some code to get started!</p>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="error-state">
+        <h2>Repository Not Found</h2>
+        <p>The repository {{ owner }}/{{ repo }} could not be found.</p>
+        <a href="/ui/repositories" class="btn btn-primary">Browse All Repositories</a>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        // You could show a toast notification here
+        console.log('Copied to clipboard: ' + text);
+    });
+}
+</script>
+{% endblock %}

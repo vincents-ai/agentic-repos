@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ title }} - agentic-repos{% endblock %}</title>
+    <link href="/ui/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <a href="/ui/">agentic-repos</a>
+            </div>
+            <div class="nav-links">
+                <a href="/ui/">Dashboard</a>
+                <a href="/ui/repositories">Repositories</a>
+                <a href="/api/v1/health" target="_blank">API</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2025 agentic-repos - Enterprise Git Management Platform</p>
+            <p>Commercial licensing available at <a href="mailto:shift@someone.section.me">shift@someone.section.me</a></p>
+        </div>
+    </footer>
+
+    <script src="/ui/static/js/app.js"></script>
+</body>
+</html>

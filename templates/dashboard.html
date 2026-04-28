@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="welcome-banner">
+        <h1>Repository Dashboard</h1>
+        <p>Manage your Git repositories with enterprise-grade security and performance</p>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Repositories</h3>
+            <div class="stat-number">{{ repositories | length }}</div>
+            <p>Total managed repositories</p>
+        </div>
+        
+        {% if features.analytics %}
+        <div class="stat-card">
+            <h3>Activity</h3>
+            <div class="stat-number">127</div>
+            <p>Commits this week</p>
+        </div>
+        <div class="stat-card">
+            <h3>Users</h3>
+            <div class="stat-number">12</div>
+            <p>Active contributors</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="recent-repositories">
+        <div class="section-header">
+            <h2>Recent Repositories</h2>
+            <a href="/ui/repositories" class="btn btn-secondary">View All</a>
+        </div>
+        
+        {% if repositories %}
+        <div class="repository-list">
+            {% for repo in repositories %}
+            <div class="repository-card">
+                <div class="repo-info">
+                    <h3><a href="/ui/repository/{{ repo.owner }}/{{ repo.name }}">{{ repo.owner }}/{{ repo.name }}</a></h3>
+                    <p class="repo-description">{{ repo.description | default(value="No description") }}</p>
+                </div>
+                <div class="repo-meta">
+                    <span class="repo-size">{{ repo.size | default(value="Unknown") }}</span>
+                    <span class="repo-updated">Updated {{ repo.updated_at | default(value="recently") }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <h3>No repositories found</h3>
+            <p>Create your first repository to get started</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if features.monitoring %}
+    <div class="monitoring-section">
+        <h2>System Health</h2>
+        <div class="health-indicators">
+            <div class="health-item">
+                <span class="status-ok">SSH Server</span>
+            </div>
+            <div class="health-item">
+                <span class="status-ok">API Server</span>
+            </div>
+            <div class="health-item">
+                <span class="status-ok">Storage</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if features.web_ui %}
+    <div class="feature-showcase">
+        <div class="feature-banner">
+            <h2>Enterprise Features Available</h2>
+            <p>Upgrade to unlock advanced Git management capabilities</p>
+            <a href="mailto:shift@someone.section.me" class="btn btn-primary">Contact Sales</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

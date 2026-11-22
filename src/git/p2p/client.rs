@@ -155,8 +155,12 @@ async fn open_upload_pack(
         .map_err(|e| P2pError::Endpoint(format!("open stream: {e}")))?;
     // The command line is a plain line, not a pkt-line: the server reads it
     // byte-by-byte up to '\n' before the smart protocol starts.
-    send.write_all(format!("git-upload-pack '{repo}'\n").as_bytes())
-        .await?;
+    tokio::io::AsyncWriteExt::write_all(
+        &mut send,
+        format!("git-upload-pack '{repo}'\n").as_bytes(),
+    )
+    .await
+    .map_err(|e| P2pError::Endpoint(format!("write command: {e}")))?;
     send.flush().await?;
     Ok((connection, send, recv))
 }

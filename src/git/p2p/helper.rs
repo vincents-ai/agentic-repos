@@ -76,7 +76,13 @@ pub fn render_ref_list(refs: &[AdvertisedRef]) -> String {
         .map(|r| r.name.clone());
 
     let mut out = String::new();
+    let mut seen = std::collections::HashSet::new();
     for reference in refs {
+        // gix can list HEAD both from `head_id()` and from `references().all()`;
+        // the helper protocol expects each name once.
+        if !seen.insert(reference.name.as_str()) {
+            continue;
+        }
         if reference.name == "HEAD" {
             match &default_branch {
                 Some(branch) => {
@@ -248,5 +254,20 @@ mod tests {
             name: "HEAD".to_string(),
         }];
         assert_eq!(render_ref_list(&refs), format!("{} HEAD\n", "bb".repeat(20)));
+    }
+
+    #[test]
+    fn deduplicates_a_repeated_ref() {
+        let refs = vec![
+            AdvertisedRef {
+                sha: "cc".repeat(20),
+                name: "HEAD".to_string(),
+            },
+            AdvertisedRef {
+                sha: "cc".repeat(20),
+                name: "HEAD".to_string(),
+            },
+        ];
+        assert_eq!(render_ref_list(&refs), format!("{} HEAD\n", "cc".repeat(20)));
     }
 }

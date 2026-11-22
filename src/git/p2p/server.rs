@@ -104,7 +104,7 @@ impl P2pGitServer {
             .await
             .map_err(|e| P2pError::Endpoint(format!("failed to bind Iroh endpoint: {e}")))?;
 
-        let id = endpoint.id();
+        let id = endpoint.node_id();
         let repos_root = config.repos_root.clone();
         let handler = GitAlpnHandler {
             repos_root: repos_root.clone(),
@@ -206,9 +206,7 @@ impl std::fmt::Debug for GitAlpnHandler {
 
 impl ProtocolHandler for GitAlpnHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
-        let peer = connection
-            .remote_node_id()
-            .map_err(|e| P2pError::Endpoint(format!("remote_node_id: {e}")))?;
+        let peer = connection.remote_node_id()?;
         match self.serve(connection, peer).await {
             Ok(()) => Ok(()),
             Err(e) => {

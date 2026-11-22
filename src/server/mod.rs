@@ -4,12 +4,17 @@ use crate::api::ApiServer;
 use crate::config::AppConfig;
 use crate::features::FeatureFlags;
 use crate::git::{ssh::SshServer, GitConfig, GitService};
-use crate::storage::local::LocalStorage;
 use actix_web::web::ServiceConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::spawn;
 use tracing::{error, info, warn};
+
+pub mod storage_selection;
+
+pub use storage_selection::{
+    build_storage, select_storage_backend, StorageInitError, StorageSelection,
+};
 
 /// Callback type for extending the actix App with additional routes/services.
 pub type AppConfigurator = Box<dyn Fn(&mut ServiceConfig) + Send + Sync>;
@@ -24,12 +29,17 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(config: AppConfig) -> Self {
+    /// Build the server.
+    ///
+    /// Returns [`StorageInitError`] when `refs/adp/config/server` selects an
+    /// unusable backend, for example `s3` without a bucket or credentials.
+    /// There is no fallback to local storage: a fallback would write
+    /// repository data somewhere the operator did not configure.
+    pub fn new(config: AppConfig) -> Result<Self, StorageInitError> {
         // Use AGENTIC_REPOS_STORAGE_ROOT env var, or fall back to ./repositories
         let storage_root = std::env::var("AGENTIC_REPOS_STORAGE_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("./repositories"));
-        let storage = Arc::new(LocalStorage::new(storage_root.clone()));
 
         // Read SSH config from the ADP git-refs (the real config store).
         // Fall back to defaults if the system repo isn't bootstrapped yet.
@@ -43,6 +53,11 @@ impl Server {
                 .and_then(|v| serde_json::from_value::<crate::adp::config::ServerConfig>(v).ok())
                 .unwrap_or_default()
         };
+
+        // The one place a backend is chosen. `local` keeps the historical
+        // root; `s3` builds a path-style client and refuses if anything is
+        // missing.
+        let storage = build_storage(&adp_cfg, storage_root.clone())?;
 
         let git_config = GitConfig {
             ssh_port: adp_cfg.ssh_port,
@@ -58,13 +73,13 @@ impl Server {
             None => FeatureFlags::load_from_env(),
         };
 
-        Self {
+        Ok(Self {
             config: Arc::new(config),
             git_service,
             feature_flags,
             git_config,
             app_configurator: None,
-        }
+        })
     }
 
     /// Set a callback to extend the actix App with additional routes/services.
@@ -82,8 +97,15 @@ impl Server {
         let storage_root = match self.git_service.get_storage_root() {
             Some(p) => p,
             None => {
-                error!("Cannot bootstrap system repo: no local storage root (S3 storage?)");
-                return Ok(());
+                // S3Storage is a valid object store but has no local root, and
+                // this tree's GitService still calls gix on local paths. Fail
+                // loudly instead of logging an error and returning success.
+                let message = "storage backend \"s3\" is configured, but this tree has no \
+                     S3-backed git repository store: GitService still opens a local gix \
+                     repository. Use the ADP vendor tree, which has S3RepoStore, or keep \
+                     storage_backend = \"local\".";
+                error!("{}", message);
+                return Err(message.into());
             }
         };
         match bootstrap_system_repo(&storage_root) {
@@ -132,6 +154,6 @@ impl Server {
 }
 
 pub async fn run_server(config: AppConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let server = Server::new(config);
+    let server = Server::new(config)?;
     server.run().await
 }

@@ -63,7 +63,6 @@ pub struct P2pGitServer {
     endpoint: Endpoint,
     router: Option<Router>,
     node_id: NodeId,
-    repos_root: PathBuf,
 }
 
 impl P2pGitServer {
@@ -126,7 +125,6 @@ impl P2pGitServer {
             endpoint,
             router: Some(router),
             node_id: id,
-            repos_root,
         })
     }
 

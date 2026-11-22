@@ -153,7 +153,10 @@ async fn open_upload_pack(
         .open_bi()
         .await
         .map_err(|e| P2pError::Endpoint(format!("open stream: {e}")))?;
-    write_text_packet(&mut send, &format!("git-upload-pack '{repo}'")).await?;
+    // The command line is a plain line, not a pkt-line: the server reads it
+    // byte-by-byte up to '\n' before the smart protocol starts.
+    send.write_all(format!("git-upload-pack '{repo}'\n").as_bytes())
+        .await?;
     send.flush().await?;
     Ok((connection, send, recv))
 }

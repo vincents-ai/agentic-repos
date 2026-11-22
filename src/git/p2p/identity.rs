@@ -134,7 +134,13 @@ mod tests {
         use base64::Engine as _;
         let text = base64::engine::general_purpose::STANDARD.encode(seed);
         let key = secret_key_from_ssh_text(&text).unwrap();
-        assert_eq!(node_id_hex(&node_id(&key)), hex::encode(seed));
+        let expected = SecretKey::from_bytes(&seed);
+        // The Node ID is the derived public key, not the seed itself.
+        assert_eq!(
+            node_id(&key).as_bytes(),
+            node_id(&expected).as_bytes()
+        );
+        assert_ne!(node_id_hex(&node_id(&key)), hex::encode(seed));
     }
 
     #[test]

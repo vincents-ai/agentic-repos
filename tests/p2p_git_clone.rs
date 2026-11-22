@@ -16,7 +16,7 @@ use agentic_git_protocol::packetline::read_packet;
 use agentic_repos::git::p2p::client::{bind_client, fetch_pack, list_refs};
 use agentic_repos::git::p2p::identity::{node_id, secret_key_from_ssh_text};
 use agentic_repos::git::p2p::{P2pGitConfig, P2pGitServer};
-use iroh_base::{SecretKey, TransportAddr};
+use iroh_base::SecretKey;
 use tokio::io::AsyncWriteExt;
 
 fn run_git(dir: &Path, args: &[&str]) -> std::process::Output {
@@ -94,11 +94,11 @@ async fn two_endpoints_list_and_fetch_pack() {
     let addr = server
         .ipv4_addr(Ipv4Addr::LOCALHOST)
         .expect("IPv4 address");
-    assert_eq!(addr.addrs.len(), 1);
-    assert!(matches!(
-        addr.addrs.iter().next(),
-        Some(TransportAddr::Ip(_))
-    ));
+    assert_eq!(addr.direct_addresses.len(), 1);
+    assert_eq!(
+        addr.direct_addresses.iter().next().unwrap().ip(),
+        std::net::IpAddr::V4(Ipv4Addr::LOCALHOST)
+    );
 
     // Client endpoint in the same process.
     let client = bind_client(SecretKey::from_bytes(&[0x42; 32]), false)

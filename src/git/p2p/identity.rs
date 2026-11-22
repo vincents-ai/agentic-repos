@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use iroh_base::{EndpointId, SecretKey};
+use iroh_base::{NodeId, SecretKey};
 use tracing::warn;
 
 use super::P2pError;
@@ -76,16 +76,16 @@ fn secret_key_from_seed(seed: [u8; 32]) -> SecretKey {
 }
 
 /// The Node ID (public half) for a secret key.
-pub fn node_id(secret: &SecretKey) -> EndpointId {
+pub fn node_id(secret: &SecretKey) -> NodeId {
     secret.public()
 }
 
 /// Lower-case hex of the Node ID's 32 public-key bytes.
 ///
-/// The URL form uses Iroh's base32 `EndpointId` display; this hex form is used
+/// The URL form uses Iroh's base32 `NodeId` display; this hex form is used
 /// in logs and audit lines because it matches the fingerprint style used by the
 /// existing SSH path.
-pub fn node_id_hex(id: &EndpointId) -> String {
+pub fn node_id_hex(id: &NodeId) -> String {
     hex::encode(id.as_bytes())
 }
 

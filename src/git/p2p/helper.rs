@@ -169,7 +169,7 @@ pub async fn run(url: &str) -> Result<()> {
 /// Fetch a pack from the peer and store its objects in the local repository.
 async fn store_pack(
     endpoint: &iroh::Endpoint,
-    addr: iroh_base::EndpointAddr,
+    addr: iroh_base::NodeAddr,
     repo: &str,
     wants: &[String],
 ) -> Result<()> {

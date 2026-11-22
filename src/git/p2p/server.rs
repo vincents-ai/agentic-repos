@@ -6,7 +6,6 @@
 //! Both handlers come from `agentic-git-protocol`; this module only adapts a
 //! QUIC stream to `AsyncRead + AsyncWrite` and routes by command.
 
-use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +16,7 @@ use agentic_git_protocol::protocol::{ReceivePackHandler, UploadPackHandler};
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, RelayMode};
-use iroh_base::{EndpointAddr, EndpointId, SecretKey, TransportAddr};
+use iroh_base::{NodeAddr, NodeId, SecretKey};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -63,7 +62,7 @@ impl P2pGitConfig {
 pub struct P2pGitServer {
     endpoint: Endpoint,
     router: Option<Router>,
-    node_id: EndpointId,
+    node_id: NodeId,
     repos_root: PathBuf,
 }
 
@@ -88,13 +87,19 @@ impl P2pGitServer {
         config: P2pGitConfig,
         auth: Option<Arc<RwLock<AuthorizedKeysManager>>>,
     ) -> Result<Self> {
-        let endpoint = Endpoint::builder()
+        let mut builder = Endpoint::builder()
             .secret_key(secret)
             .relay_mode(if config.relay_enabled {
                 RelayMode::Default
             } else {
                 RelayMode::Disabled
-            })
+            });
+        if config.relay_enabled {
+            // A URL carries only a Node ID; discovery is what turns it into a
+            // dialable address in production.
+            builder = builder.discovery_n0();
+        }
+        let endpoint = builder
             .bind()
             .await
             .map_err(|e| P2pError::Endpoint(format!("failed to bind Iroh endpoint: {e}")))?;
@@ -126,11 +131,11 @@ impl P2pGitServer {
     }
 
     /// The endpoint's Node ID — the address part of `iroh://<node-id>/<repo>`.
-    pub fn node_id(&self) -> EndpointId {
+    pub fn node_id(&self) -> NodeId {
         self.node_id
     }
 
-    /// The Node ID as the base32 string used in URLs (`EndpointId` display).
+    /// The Node ID as the base32 string used in URLs (`NodeId` display).
     pub fn node_id_string(&self) -> String {
         self.node_id.to_string()
     }
@@ -156,7 +161,7 @@ impl P2pGitServer {
     /// socket's port onto an IPv4 address produces an address that never
     /// answers, so only the IPv4 socket is used (the same fix as
     /// `agentic-loop-mesh/tests/two_node_validation.rs`).
-    pub fn ipv4_addr(&self, host: Ipv4Addr) -> Option<EndpointAddr> {
+    pub fn ipv4_addr(&self, host: Ipv4Addr) -> Option<NodeAddr> {
         let port = self
             .endpoint
             .bound_sockets()
@@ -167,13 +172,8 @@ impl P2pGitServer {
     }
 
     /// Build a dialable address for this endpoint at an explicit socket.
-    pub fn addr_for(&self, socket: SocketAddr) -> EndpointAddr {
-        let mut addrs = BTreeSet::new();
-        addrs.insert(TransportAddr::Ip(socket));
-        EndpointAddr {
-            id: self.node_id,
-            addrs,
-        }
+    pub fn addr_for(&self, socket: SocketAddr) -> NodeAddr {
+        NodeAddr::new(self.node_id).with_direct_addresses([socket])
     }
 
     /// The underlying Iroh endpoint (tests dial it directly).
@@ -207,8 +207,8 @@ impl std::fmt::Debug for GitAlpnHandler {
 impl ProtocolHandler for GitAlpnHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
         let peer = connection
-            .remote_id()
-            .map_err(|e| P2pError::Endpoint(format!("remote_id: {e}")))?;
+            .remote_node_id()
+            .map_err(|e| P2pError::Endpoint(format!("remote_node_id: {e}")))?;
         match self.serve(connection, peer).await {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -220,7 +220,7 @@ impl ProtocolHandler for GitAlpnHandler {
 }
 
 impl GitAlpnHandler {
-    async fn serve(&self, connection: Connection, peer: EndpointId) -> Result<()> {
+    async fn serve(&self, connection: Connection, peer: NodeId) -> Result<()> {
         let (mut send, mut recv) = connection
             .accept_bi()
             .await
@@ -310,7 +310,7 @@ impl GitAlpnHandler {
     }
 
     /// Map the peer Node ID to the SSH public key it *is*, then to a user.
-    async fn authorize(&self, peer: EndpointId) -> std::result::Result<String, String> {
+    async fn authorize(&self, peer: NodeId) -> std::result::Result<String, String> {
         let Some(auth) = &self.auth else {
             return Ok("anonymous-p2p".to_string());
         };
@@ -345,7 +345,7 @@ async fn read_command_line<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Strin
 }
 
 /// The Node ID displayed for a secret key without binding an endpoint.
-pub fn node_id_for_secret(secret: &SecretKey) -> EndpointId {
+pub fn node_id_for_secret(secret: &SecretKey) -> NodeId {
     node_id(secret)
 }
 

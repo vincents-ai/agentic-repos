@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use agentic_git_protocol::packetline::{read_packet, write_flush_packet, write_text_packet};
 use iroh::{Endpoint, RelayMode};
-use iroh_base::{EndpointAddr, EndpointId, SecretKey, TransportAddr};
+use iroh_base::{NodeAddr, NodeId, SecretKey};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::debug;
 
@@ -36,7 +36,7 @@ pub struct AdvertisedRef {
 /// A parsed `iroh://<node-id>/<repo>` URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteUrl {
-    pub node_id: EndpointId,
+    pub node_id: NodeId,
     pub repo: String,
     pub addrs: Vec<SocketAddr>,
 }
@@ -51,15 +51,8 @@ impl RemoteUrl {
     ///
     /// Explicit addresses (URL query or environment) win. Otherwise this is a
     /// Node ID with no sockets, which asks Iroh's discovery to resolve it.
-    pub fn endpoint_addr(&self) -> EndpointAddr {
-        if self.addrs.is_empty() {
-            return EndpointAddr::from(self.node_id);
-        }
-        let mut addr = EndpointAddr::from(self.node_id);
-        for socket in &self.addrs {
-            addr.addrs.insert(TransportAddr::Ip(*socket));
-        }
-        addr
+    pub fn endpoint_addr(&self) -> NodeAddr {
+        NodeAddr::new(self.node_id).with_direct_addresses(self.addrs.iter().copied())
     }
 }
 
@@ -76,7 +69,7 @@ pub fn parse_iroh_url(url: &str) -> Result<RemoteUrl> {
     let (node, repo) = path
         .split_once('/')
         .ok_or_else(|| P2pError::InvalidUrl(format!("missing repository in {url}")))?;
-    let node_id = EndpointId::from_str(node)
+    let node_id = NodeId::from_str(node)
         .map_err(|e| P2pError::InvalidUrl(format!("bad node id {node:?}: {e}")))?;
     let repo = repo.trim_matches('/').to_string();
     if repo.is_empty() {
@@ -129,13 +122,17 @@ pub fn relay_enabled() -> bool {
 
 /// Bind a client endpoint from the user's existing SSH Ed25519 identity.
 pub async fn bind_client(secret: SecretKey, relay: bool) -> Result<Endpoint> {
-    Endpoint::builder()
+    let mut builder = Endpoint::builder()
         .secret_key(secret)
         .relay_mode(if relay {
             RelayMode::Default
         } else {
             RelayMode::Disabled
-        })
+        });
+    if relay {
+        builder = builder.discovery_n0();
+    }
+    builder
         .bind()
         .await
         .map_err(|e| P2pError::Endpoint(format!("failed to bind client endpoint: {e}")))
@@ -144,7 +141,7 @@ pub async fn bind_client(secret: SecretKey, relay: bool) -> Result<Endpoint> {
 /// Open an upload-pack stream and send the command line.
 async fn open_upload_pack(
     endpoint: &Endpoint,
-    addr: EndpointAddr,
+    addr: NodeAddr,
     repo: &str,
 ) -> Result<(iroh::endpoint::Connection, iroh::endpoint::SendStream, iroh::endpoint::RecvStream)>
 {
@@ -200,7 +197,7 @@ async fn read_advertisement(
 /// List the refs of a repository over P2P.
 pub async fn list_refs(
     endpoint: &Endpoint,
-    addr: EndpointAddr,
+    addr: NodeAddr,
     repo: &str,
 ) -> Result<Vec<AdvertisedRef>> {
     let (_connection, _send, mut recv) = open_upload_pack(endpoint, addr, repo).await?;
@@ -214,7 +211,7 @@ pub async fn list_refs(
 /// side-band was requested), which is what the two-phase read below expects.
 pub async fn fetch_pack<W: AsyncWrite + Unpin>(
     endpoint: &Endpoint,
-    addr: EndpointAddr,
+    addr: NodeAddr,
     repo: &str,
     wants: &[String],
     out: &mut W,
@@ -288,8 +285,8 @@ mod tests {
         let parsed = parse_iroh_url(&url).unwrap();
         assert_eq!(parsed.addrs, vec!["127.0.0.1:49152".parse().unwrap()]);
         let addr = parsed.endpoint_addr();
-        assert_eq!(addr.id, parsed.node_id);
-        assert_eq!(addr.addrs.len(), 1);
+        assert_eq!(addr.node_id, parsed.node_id);
+        assert_eq!(addr.direct_addresses.len(), 1);
     }
 
     #[test]

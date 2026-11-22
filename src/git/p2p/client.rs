@@ -129,7 +129,7 @@ pub fn relay_enabled() -> bool {
 
 /// Bind a client endpoint from the user's existing SSH Ed25519 identity.
 pub async fn bind_client(secret: SecretKey, relay: bool) -> Result<Endpoint> {
-    Endpoint::builder(iroh::endpoint::presets::N0)
+    Endpoint::builder()
         .secret_key(secret)
         .relay_mode(if relay {
             RelayMode::Default

@@ -88,7 +88,7 @@ impl P2pGitServer {
         config: P2pGitConfig,
         auth: Option<Arc<RwLock<AuthorizedKeysManager>>>,
     ) -> Result<Self> {
-        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
+        let endpoint = Endpoint::builder()
             .secret_key(secret)
             .relay_mode(if config.relay_enabled {
                 RelayMode::Default
@@ -206,7 +206,9 @@ impl std::fmt::Debug for GitAlpnHandler {
 
 impl ProtocolHandler for GitAlpnHandler {
     async fn accept(&self, connection: Connection) -> std::result::Result<(), AcceptError> {
-        let peer = connection.remote_id();
+        let peer = connection
+            .remote_id()
+            .map_err(|e| P2pError::Endpoint(format!("remote_id: {e}")))?;
         match self.serve(connection, peer).await {
             Ok(()) => Ok(()),
             Err(e) => {

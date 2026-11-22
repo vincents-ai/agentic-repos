@@ -40,8 +40,8 @@ gix-transport = "0.55"
 agentic-git-protocol = { path = "crates/agentic-git-protocol" }
 
 # P2P Git over Iroh (QUIC). The endpoint identity is the existing SSH Ed25519 key.
-iroh = "1.4.1"
-iroh-base = "1.4.1"
+iroh = "0.94.0"
+iroh-base = "0.94.0"
 ssh-key = { version = "0.6", features = ["ed25519", "std"] }
 
 # S3 Storage

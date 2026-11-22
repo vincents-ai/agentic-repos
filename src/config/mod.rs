@@ -9,6 +9,31 @@ pub struct AppConfig {
     pub features: Option<HashMap<String, bool>>,
     #[serde(default)]
     pub lfs: LfsConfig,
+    /// P2P Git over Iroh. Off by default; SSH and HTTP are unaffected.
+    #[serde(default)]
+    pub p2p: P2pConfig,
+}
+
+/// Configuration for the optional P2P Git listener.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct P2pConfig {
+    /// Start an Iroh endpoint that serves the git smart protocol.
+    pub enabled: bool,
+    /// Use Iroh relays and discovery (default). Disable for LAN-only setups.
+    pub relay_enabled: bool,
+    /// Bare-repository root. Defaults to the storage root when unset.
+    #[serde(default)]
+    pub repos_root: Option<std::path::PathBuf>,
+}
+
+impl Default for P2pConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            relay_enabled: true,
+            repos_root: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -201,6 +226,7 @@ impl AppConfig {
             } else {
                 LfsConfig::default()
             },
+            p2p: P2pConfig::default(),
         };
 
         tracing::info!(

@@ -4,6 +4,7 @@ pub mod command;
 pub mod compliance;
 pub mod error;
 pub mod protocol;
+pub mod p2p;
 pub mod rate_limit;
 pub mod retention;
 pub mod ssh;

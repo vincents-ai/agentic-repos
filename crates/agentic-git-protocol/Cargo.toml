@@ -1,0 +1,18 @@
+[package]
+name = "agentic-git-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Git smart-protocol handlers (upload-pack, receive-pack) extracted for reuse across agentic-repos and agentic-loop"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+gix = { version = "0.90", default-features = false, features = ["max-performance", "sha1"] }
+gix-pack = { version = "0.77", default-features = false, features = ["generate", "streaming-input"] }
+tokio = { version = "1", features = ["io-util", "macros", "time", "rt-multi-thread"] }
+tracing = "0.1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tempfile = "3"

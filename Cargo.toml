@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/*"]
+resolver = "2"
+
 [package]
 name = "agentic-repos"
 version = "0.1.0"
@@ -31,6 +35,14 @@ gix = { version = "0.81", default-features = false, features = ["max-performance
 gix-pack = { version = "0.68", default-features = false, features = ["generate", "streaming-input"] }
 gix-protocol = "0.59"
 gix-transport = "0.55"
+
+# Shared git smart-protocol handlers (crates/agentic-git-protocol)
+agentic-git-protocol = { path = "crates/agentic-git-protocol" }
+
+# P2P Git over Iroh (QUIC). The endpoint identity is the existing SSH Ed25519 key.
+iroh = "0.92.0"
+iroh-base = "0.92.0"
+ssh-key = { version = "0.6", features = ["ed25519", "std"] }
 
 # S3 Storage
 aws-config = { version = "1.1", features = ["behavior-version-latest"] }
@@ -79,6 +91,7 @@ thiserror = "2.0"
 regex = "1.10"
 http = "1.0"
 rand_core = "0.6"
+getrandom = "0.2"
 
 # Metrics
 prometheus = "0.13"

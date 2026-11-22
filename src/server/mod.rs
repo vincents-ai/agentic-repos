@@ -138,6 +138,42 @@ impl Server {
             }
         });
 
+        // Start the optional P2P Git listener. Its identity is the same SSH
+        // host key the SSH transport uses: no new secret file.
+        if config.p2p.enabled {
+            let host_key_path = self.git_config.host_key_path.clone();
+            let repos_root = config
+                .p2p
+                .repos_root
+                .clone()
+                .or_else(|| self.git_service.get_storage_root())
+                .unwrap_or_else(|| PathBuf::from("./repositories"));
+            let p2p_config = crate::git::p2p::P2pGitConfig {
+                repos_root,
+                relay_enabled: config.p2p.relay_enabled,
+            };
+            spawn(async move {
+                match crate::git::p2p::P2pGitServer::from_host_key(&host_key_path, p2p_config).await
+                {
+                    Ok(server) => {
+                        info!(
+                            node_id = %server.node_id_string(),
+                            url = %server.url("{owner}/{repo}.git"),
+                            "P2P Git listener ready"
+                        );
+                        // Keep the endpoint (and its router) alive for the
+                        // lifetime of the process.
+                        let _ = tokio::signal::ctrl_c().await;
+                        server.shutdown().await;
+                    }
+                    Err(e) => error!(
+                        "P2P Git listener disabled: cannot derive identity from SSH host key {}: {e}",
+                        host_key_path.display()
+                    ),
+                }
+            });
+        }
+
         // Start HTTP API server (blocks until server stops)
         info!("Starting API server on port {}...", config.server.port);
         let lfs_config = config.lfs.clone();

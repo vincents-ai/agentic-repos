@@ -193,6 +193,63 @@ impl AuthorizedKeysManager {
         !self.authorized_keys.is_empty()
     }
 
+    /// Build a manager from an explicit user → OpenSSH public key map.
+    ///
+    /// Used where keys are provisioned out of band (tests, tooling); the git-ref
+    /// loader above stays the production path.
+    pub fn from_authorized_keys(
+        authorized_keys: HashMap<String, Vec<String>>,
+        storage_root: PathBuf,
+    ) -> Self {
+        Self {
+            authorized_keys,
+            storage_root,
+        }
+    }
+
+    /// Add one OpenSSH public key for a user.
+    pub fn insert_authorized_key(&mut self, user: &str, public_key: &str) {
+        self.authorized_keys
+            .entry(user.to_string())
+            .or_default()
+            .push(public_key.to_string());
+    }
+
+    /// Resolve the user whose authorised SSH keys contain this Ed25519 key.
+    ///
+    /// A P2P peer's Node ID *is* its Ed25519 public key, so this maps a Node ID
+    /// to the same RBAC user the SSH transport would authenticate.
+    pub fn user_for_ed25519_public_key(&self, public_key: &[u8]) -> Option<String> {
+        if public_key.len() != 32 {
+            return None;
+        }
+        // The SSH wire encoding of an Ed25519 public key: length-prefixed
+        // "ssh-ed25519" followed by the length-prefixed 32 key bytes, base64ed.
+        // `is_key_authorized` compares exactly this pair of fields.
+        const KIND: &[u8] = b"ssh-ed25519";
+        let mut blob = Vec::with_capacity(4 + KIND.len() + 4 + public_key.len());
+        blob.extend_from_slice(&(KIND.len() as u32).to_be_bytes());
+        blob.extend_from_slice(KIND);
+        blob.extend_from_slice(&(public_key.len() as u32).to_be_bytes());
+        blob.extend_from_slice(public_key);
+        use base64::Engine as _;
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(&blob);
+        let provided = format!("ssh-ed25519 {encoded}");
+
+        let mut matches: Vec<&String> = Vec::new();
+        for (user, keys) in &self.authorized_keys {
+            if keys
+                .iter()
+                .any(|authorized| self.keys_match(&provided, authorized))
+            {
+                matches.push(user);
+            }
+        }
+        matches.sort();
+        matches.first().map(|user| (*user).clone())
+    }
+
     /// Read a JSON blob from a git ref using gix directly.
     /// Expects the AdpStore format: ref → commit → tree → "data" → blob.
     fn read_ref_blob(repo_path: &Path, refname: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
